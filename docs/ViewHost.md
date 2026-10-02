@@ -6,6 +6,8 @@ ViewHost 回答的问题是：**给定一个 ViewModel，现在应该在这个�
 
 它可以服务于根活动页面，也可以服务于页面内部的子 VM。与它配合的 [ActionBinding](ActionBinding.md) 负责从用户操作调用 VM；整体原则见 [README](../README.md)。
 
+ViewHost、ViewRegistry 和 ViewModelBase 统一属于计划中的 `Caliburn.Micro.Qt 1.0` 框架模块。业务 VM/View 属于用户模块，例如示例的 `CaliburnExample 1.0` 或游戏的 `QtSnakeLab 1.0`；用户 QML 显式导入框架，框架不导入用户模块。目录、模块依赖及静态插件/资源说明见 [模块与项目结构](模块与项目结构.md)。
+
 ## 1. 与 WPF ContentControl、Caliburn.Micro 的对应关系
 
 WPF 的 ContentControl 可以承载动态内容，并借助 DataTemplate 选择展示方式；Caliburn.Micro 则提供根据 ViewModel 定位、绑定 View 的能力。
@@ -44,9 +46,9 @@ flowchart TD
 | ViewRegistry.resolve(ViewModelBase*)：QUrl | 向 QML 提供类型映射查询，不创建 VM。 |
 | ViewRegistry.viewUrl(const ViewModelBase*)：静态 QUrl | 供 C++ 根装配入口使用同一映射表。 |
 
-首版业务 View 的根对象要求为 Item 或其子类。Loader 自身还能加载非视觉 QObject，但不属于这里的视觉宿主契约。
+首版由 ViewHost 承载的业务 View 根对象要求为 Item 或其子类。应用根窗口可以是 ApplicationWindow，由 QML 引擎直接创建，使用同一注册表定位，不装进 ViewHost。Loader 自身还能加载非视觉 QObject，但不属于这里的视觉宿主契约。
 
-ViewRegistry 的映射由使用应用在装配阶段提供，运行展示阶段查询稳定的映射。本文不规定尚未实现的注册函数签名。贪吃蛇示例有九对类型；框架不限定九对，也不内置这些业务类型。
+ViewRegistry 的通用登记入口由框架提供，映射由使用应用在加载 QML 前的装配阶段提供，运行展示阶段查询稳定的映射。QML 查询单例与 C++ 静态查询必须使用同一份配置；本文不规定尚未实现的注册函数签名。贪吃蛇接入概要为八对游戏业务映射，加一对框架确认映射；框架不限定映射数量，也不内置这些业务类型。
 
 映射的概念示例：
 
@@ -58,13 +60,17 @@ ViewRegistry 的映射由使用应用在装配阶段提供，运行展示阶段�
 
 VM 不保存这些资源地址；路径与映射属于应用的视图装配配置。
 
+框架确认 View 的目标资源地址为 `qrc:/qt/qml/Caliburn/Micro/Qt/ConfirmActionView.qml`，由应用在同一初始化流程登记；用户页面使用自身模块的资源地址。这些地址均为待实现设计，必须在后续构建中验证静态插件与实际资源别名。
+
 ## 3. View 如何接收 VM
 
 以 HomeView 为例，根对象声明明确类型的属性：
 
 ```qml
-// 设计示例：HomeView.qml，省略应用模块导入。
+// 设计示例：最小示例模块中的 HomeView.qml，类型均待实现。
 import QtQuick
+import Caliburn.Micro.Qt 1.0
+import CaliburnExample 1.0
 
 Item {
     required property HomeViewModel viewModel
@@ -233,6 +239,7 @@ Loader 本身是焦点作用域，嵌套页面需要相应的 focus 配置。覆
 
 ## 9. 待实现验收场景
 
+- 用户模块 VM 继承框架基类，ViewHost 接收跨模块对象；业务 View 的 typed 属性正确识别其类型。
 - 应用登记映射，根与子页面使用同一查询入口；未知类型明确诊断。
 - required viewModel 在创建前满足，实际收到的 VM 身份与传入对象一致。
 - 同类型不同 VM 也重装配；同一 VM 的属性变化不重建。

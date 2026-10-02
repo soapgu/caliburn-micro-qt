@@ -6,6 +6,8 @@ ActionBinding 把两个问题连接起来：**这个操作现在能不能执行�
 
 它是计划中的自定义 C++ QObject 类型，可以由 QML 创建，没有视觉内容。它与负责展示的 [ViewHost](ViewHost.md) 分工配合；完整类型清单见 [README](../README.md)。
 
+ActionBinding、ActionButton、KeyActionBinding 和 VM 基类统一属于计划中的 `Caliburn.Micro.Qt 1.0` 框架模块。用户模块定义具体操作、守卫和业务枚举，通过公开 C++ 头文件与 CMake 目标依赖框架，QML 显式导入框架模块。框架不依赖游戏类型或 DI 库；完整边界见 [模块与项目结构](模块与项目结构.md)。
+
 ## 1. 从普通按钮写法开始
 
 不使用 ActionBinding，QML 可以直接连接方法和条件：
@@ -230,6 +232,11 @@ signals:
 
 ```qml
 // 设计示例：GameEnums 是应用提供的枚举类型，不属于框架。
+// 此片段位于 QtSnakeLab 用户模块的页面中，类型均待实现。
+import QtQuick
+import Caliburn.Micro.Qt 1.0
+import QtSnakeLab 1.0
+
 ActionButton {
     text: "简单"
     target: viewModel
@@ -322,6 +329,7 @@ QPointer 不延长目标寿命，也不自动取消应用的异步确认回调�
 
 ## 12. 待实现验收场景
 
+- 用户模块 VM 继承框架基类，ActionBinding 接收跨模块目标并识别其操作与守卫；静态插件和类型注册正确保留。
 - 方法、返回类型、参数数量/类型、重载以及 bool 守卫/NOTIFY 验证。
 - 守卫变化自动刷新 enabled；直接 execute() 仍重新读取守卫。
 - null 或销毁目标禁用，不延长 VM 生命周期。
