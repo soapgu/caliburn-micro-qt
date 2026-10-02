@@ -1,12 +1,14 @@
 # ActionBinding：操作、守卫与输入适配
 
-> 状态：设计说明，尚未实现。本文所有代码均为设计示例，省略框架和应用模块导入、完整类型注册及工程配置，不能直接作为可运行工程。
+> 状态：目标完整契约，尚未实现。本文所有代码均为设计示例，部分片段省略模块导入、完整类型注册及工程配置，不能直接作为可运行工程。当前没有任何批次已支持的能力。
 
 ActionBinding 把两个问题连接起来：**这个操作现在能不能执行？触发后调用 VM 的哪个方法？**
 
 它是计划中的自定义 C++ QObject 类型，可以由 QML 创建，没有视觉内容。它与负责展示的 [ViewHost](ViewHost.md) 分工配合；完整类型清单见 [README](../README.md)。
 
 ActionBinding、ActionButton、KeyActionBinding 和 VM 基类统一属于计划中的 `Caliburn.Micro.Qt 1.0` 框架模块。用户模块定义具体操作、守卫和业务枚举，通过公开 C++ 头文件与 CMake 目标依赖框架，QML 显式导入框架模块。框架不依赖游戏类型或 DI 库；完整边界见 [模块与项目结构](模块与项目结构.md)。
+
+按 [迭代实现计划](迭代实现计划.md)，第一批实现无参数 ActionBinding 与 ActionButton，用单页面按钮和文字绑定验证；第二批加入单个 int 参数及 KeyActionBinding。本文的参数、键盘和游戏示例属于完整目标，不是第一版已经支持的能力。
 
 ## 1. 从普通按钮写法开始
 
@@ -46,7 +48,7 @@ ActionButton {
 | 条件变化通知 | CanExecuteChanged / PropertyChanged | Qt NOTIFY 信号。 |
 | 参数 | CommandParameter / Action 参数 | arguments 参数列表。 |
 
-这更接近 CM 的“方法 + CanXxx”约定，不是把 ICommand 接口直接移植到 Qt。CM 还支持寻找动作目标、守卫方法、复杂参数等能力；首版采用显式 target 和有限参数契约，不沿视觉树冒泡寻找 VM。
+这更接近 CM 的“方法 + CanXxx”约定，不是把 ICommand 接口直接移植到 Qt。CM 还支持寻找动作目标、守卫方法、复杂参数等能力；本轮目标采用显式 target 和有限参数契约，不沿视觉树冒泡寻找 VM。
 
 ## 3. 接口与操作契约
 
@@ -54,19 +56,21 @@ ActionButton {
 | --- | --- | --- |
 | target | ViewModelBase*，可写，带 NOTIFY | 借用接收操作的 VM。 |
 | action | QString，可写，带 NOTIFY | 方法名，如 pauseGame。 |
-| arguments | QVariantList，可写，带 NOTIFY | 空列表或单个 int 参数列表。 |
+| arguments | QVariantList，可写，带 NOTIFY | 第一批只接受空列表；第二批加入单个 int 参数列表。 |
 | enabled | bool，只读，带 NOTIFY | 目标、配置有效且当前守卫允许执行。 |
 | execute() | Q_INVOKABLE void | 重新检查后请求执行操作。 |
 
-首版支持的方法形式：
+目标支持的方法形式（分批实现）：
 
 ```cpp
 // 设计示例：合法的目标方法形态。
-Q_INVOKABLE void pauseGame();
-Q_INVOKABLE void selectDifficulty(int difficulty);
+Q_INVOKABLE void pauseGame();                      // 第一批实现此形态。
+Q_INVOKABLE void selectDifficulty(int difficulty); // 第二批加入此形态。
 ```
 
 必须是公开 Q_INVOKABLE void 方法；无参数或单个 int，不支持重载、返回值、多参数或传控件。参数数量和类型必须匹配，不能把任意字符串或任意对象当成可执行参数。
+
+第一批非空 arguments 或带参数方法应诊断并禁用，不临时忽略参数，也不以占位实现声称支持单个 int。第一批 HomeViewModel 直接继承 ViewModelBase；下文 GameViewModel 继承 ScreenViewModel 的片段属于后续完整目标，第一批不依赖 Screen。
 
 守卫名为 `can` 加动作名首字母大写：
 
@@ -247,7 +251,7 @@ ActionButton {
 
 调用相当于向 selectDifficulty(int) 传入对应枚举值。操作绑定检查参数形态，VM 检查是否为合法领域枚举，用例复核当前是否允许变更。
 
-当前 canSelectDifficulty 不接收参数，回答的是“现在是否允许修改难度”。它不会根据每个按钮的难度值分别计算。如果未来需要某一档单独禁用，需要扩展契约或增加专门展示属性，首版不声称支持参数化守卫。
+目标 canSelectDifficulty 不接收参数，回答的是“现在是否允许修改难度”。它不会根据每个按钮的难度值分别计算。如果未来需要某一档单独禁用，需要扩展契约或增加专门展示属性，本轮目标不包含参数化守卫。
 
 ## 9. KeyActionBinding 如何复用操作
 
@@ -302,7 +306,7 @@ ActionBinding 使用 Qt 元对象系统找到方法、属性与通知信号，�
 
 缺少方法、缺少守卫、参数不符或方法形态不支持时，输出开发诊断并禁用；null 目标作为未装配状态禁用。字符串拼错属于绑定时才能发现的配置错误，未来测试需要覆盖这些情况。
 
-同线程是展示绑定的前提。首版不提供跨线程调用或排队执行语义，避免检查完守卫后再跨线程排队造成额外时序差异。元方法调用失败也应明确诊断。
+同线程是展示绑定的前提。本轮目标不提供跨线程调用或排队执行语义，避免检查完守卫后再跨线程排队造成额外时序差异。元方法调用失败也应明确诊断。
 
 ## 11. 目标销毁、替换与动态页面
 
@@ -328,6 +332,8 @@ QPointer 不延长目标寿命，也不自动取消应用的异步确认回调�
 延迟删除之前靠停用与守卫阻止操作，实际删除之后靠弱引用阻止调用。重新进入创建的新 VM 必须建立新绑定，旧对象的通知不能更新它的按钮。
 
 ## 12. 待实现验收场景
+
+以下为目标完整验收清单；第一批验证无参数绑定与通知、守卫及目标寿命，第二批增加参数/键盘检查，导航与确认场景随第四、五批加入。目前全部未验证。
 
 - 用户模块 VM 继承框架基类，ActionBinding 接收跨模块目标并识别其操作与守卫；静态插件和类型注册正确保留。
 - 方法、返回类型、参数数量/类型、重载以及 bool 守卫/NOTIFY 验证。
