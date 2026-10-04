@@ -44,7 +44,7 @@ flowchart LR
 
 | Caliburn.Micro 概念 | Qt 目标类型或方案 | 初始约定 |
 | --- | --- | --- |
-| PropertyChangedBase | ViewModelBase + QObject 属性系统 | 使用 Q_PROPERTY / NOTIFY 表达展示属性，恒定子对象入口可用 CONSTANT。 |
+| PropertyChangedBase | ViewModelBase + QObject 属性系统 | 派生 VM 声明 Q_PROPERTY / NOTIFY，基类提供类型化 setAndNotify；不提供字符串通知入口。 |
 | Screen | ScreenViewModel | 初始化一次，激活与停用幂等，生命周期接口由 C++ 管理。 |
 | Conductor | ConductorViewModel | 组合子 Screen，维护唯一 activeItem，显式管理移除与释放。 |
 | ViewLocator / ViewModelBinder | ViewRegistry、ViewHost | 按应用提供的 VM 类型映射定位 View，创建前注入 viewModel。 |
@@ -58,7 +58,7 @@ flowchart LR
 
 | 类型 | 形态 | 职责 |
 | --- | --- | --- |
-| ViewModelBase | C++ QObject 基类 | 提供展示层的共同类型基础，不持有 View 或服务定位器。 |
+| ViewModelBase | C++ QObject 基类 | 提供共同类型及 protected setAndNotify，不新增业务属性、状态或信号；完整成员见专题。 |
 | ScreenViewModel | C++ VM 基类 | 管理初始化、激活、停用及 isInitialized / isActive 通知。 |
 | ConductorViewModel | C++ Screen 子类 | 接管并登记子 Screen，选择唯一活动项，允许显式移除非活动项。 |
 | ViewRegistry | C++，向 QML 提供单例入口 | 按应用登记的 VM 类型查询 QML View 地址，不拥有 VM。 |
@@ -74,6 +74,8 @@ flowchart LR
 
 配套值类型 **ConfirmationRequest** 保存 `title`、`message`、`confirmText`、`cancelText`，不保存业务操作枚举、控件或 VM 引用。
 
+ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected 模板辅助 `setAndNotify(field, value, &Owner::notifySignal)`。同值不通知，更新先赋值再同步通知；空信号或对象类型不兼容时诊断并拒绝修改。它没有 displayName、字符串通知入口或生命周期状态；QObject 的继承成员继续可用。完整接口、QML 注册与所有权约定见 [ViewModelBase](docs/ViewModelBase.md)。
+
 Screen/Conductor 的初始生命周期约定沿用设计来源：`initialize()`、`activate()`、`deactivate(bool close=false)`；关闭不隐式删除。Conductor 通过 `addItem(std::unique_ptr<ScreenViewModel>)` 接管子项，切换活动项先停用旧项再激活新项。`removeItem(ScreenViewModel*)` 仅接受已登记的非活动项，取消登记后 `deleteLater()`，保留 QObject 父所有权直到实际释放。
 
 接管子 VM 时验证非空、没有既有 QObject 父对象、处于同一 GUI 线程；设置父对象成功后释放临时 unique_ptr。父对象的成员指针用于访问，不能再与 QObject 父树同时负责删除。
@@ -87,7 +89,7 @@ Screen/Conductor 的初始生命周期约定沿用设计来源：`initialize()`�
 | 单元 | CMake 目标 | QML URI / 版本 | 计划内容 |
 | --- | --- | --- | --- |
 | 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 本文类型清单中的全部通用 C++ 类型和 QML 组件，包括确认弹窗。 |
-| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 第一批为单页面 Home VM/View，后续逐批增加参数、导航、业务服务和确认交互。 |
+| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 从第一批起以 Shell VM/View 为应用入口，后续逐批增加 Home、详情、业务服务和确认交互。 |
 | 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | 显式构造注入、初始属性注入、根窗口加载和退出次序；第三批加入视图映射登记。 |
 
 框架和用户模块首版均采用静态库，通过 `qt_add_qml_module` 组织各自的 C++ 与 QML；静态插件链接和资源注册纳入后续构建验收。示例采用显式构造注入，下游应用可在装配层使用 Boost.Ext.DI。
@@ -104,7 +106,9 @@ caliburn-micro-qt/
 └── CMakePresets.json              # 计划新增、尚未实现
 ```
 
-依赖方向为“启动程序 → 用户代码模块 → 框架模块 → Qt”。第一批直接加载单页面根窗口；第三批加入框架通用视图注册机制，由应用在加载前登记业务映射，第五批再加入框架确认映射。框架不引用用户类型或业务模块。
+依赖方向为“启动程序 → 用户代码模块 → 框架模块 → Qt”。第一、二批直接加载 `qrc:/qt/qml/CaliburnExample/views/ShellView.qml`，根窗口声明 `required property ShellViewModel viewModel`。第三批加入框架通用视图注册机制，由应用在加载前登记 Shell 根窗口和 Home 子页面映射，第五批再加入框架确认映射。框架不引用用户类型或业务模块。
+
+Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名保持一致。ShellViewModel 第一批继承 ViewModelBase，第三批演进为 ScreenViewModel，第四批演进为 ConductorViewModel；ShellView.qml 始终是根窗口。第一、二批计数由 Shell 保存，第三批整体移入 Home 子页面，第四批再将计数事实迁入共享业务服务。
 
 完整目录、类型归属、模块接入及 qt-snake-lab 调整概要见 [模块与项目结构](docs/模块与项目结构.md)。该概要只规划游戏仓库的后续接入，尚未修改其结构设计。
 
@@ -127,6 +131,7 @@ DI 是应用层可采用的装配方案。参考方式是在应用装配层声�
 
 - [模块与项目结构：框架、用户代码与贪吃蛇接入概要](docs/模块与项目结构.md)
 - [迭代实现计划：框架与 example 同步交付](docs/迭代实现计划.md)
+- [ViewModelBase：类型基础、完整成员与通知辅助](docs/ViewModelBase.md)
 - [ViewHost：视图定位、动态加载与所有权](docs/ViewHost.md)
 - [ActionBinding：操作、守卫与输入适配](docs/ActionBinding.md)
 
@@ -134,20 +139,20 @@ DI 是应用层可采用的装配方案。参考方式是在应用装配层声�
 
 ## 当前状态与后续方向
 
-当前只包含 README、模块结构与迭代计划文档、两份专题文档和 LICENSE；六批功能均未实施，没有运行、编译或平台兼容性验收。所有示例依赖未来的框架与应用类型，不能作为现成工程直接运行。
+当前只包含 README、模块结构与迭代计划文档、三份组件专题文档和 LICENSE；六批功能均未实施，没有运行、编译或平台兼容性验收。所有示例依赖未来的框架与应用类型，不能作为现成工程直接运行。
 
 后续每批同时交付框架功能、example、必要测试和验收记录，验收通过后进入下一批：
 
 | 批次 | 框架与 example 同步目标 | 当前状态 |
 | --- | --- | --- |
-| 1．单页面绑定 | 基类、无参数操作绑定和按钮；计数文字绑定，增加/重置及守卫。 | 未实施、未验证 |
-| 2．参数与键盘 | 单个 int 参数和键盘适配；同页参数按钮及快捷键。 | 未实施、未验证 |
-| 3．生命周期与视图装配 | Screen、注册表与 ViewHost；单页面动态装配及 VM 替换。 | 未实施、未验证 |
-| 4．页面组合与导航 | Conductor；首页、按需详情、共享业务服务及返回后释放。 | 未实施、未验证 |
-| 5．异步确认 | 确认服务与视觉组件；重置/离开确认、取消失效与焦点。 | 未实施、未验证 |
+| 1．单页面绑定 | 基类与类型化通知辅助、无参数操作绑定和按钮；Shell 单页面计数文字绑定，增加/重置及守卫。 | 未实施、未验证 |
+| 2．参数与键盘 | 单个 int 参数和键盘适配；Shell 同页参数按钮及快捷键。 | 未实施、未验证 |
+| 3．生命周期与视图装配 | Screen、注册表与 ViewHost；Shell 保持根入口，计数移入 Home，验证单页面装配及 VM 替换。 | 未实施、未验证 |
+| 4．页面组合与导航 | Shell 演进为 Conductor；首页、按需详情、共享业务服务及返回后释放。 | 未实施、未验证 |
+| 5．异步确认 | Shell 根窗口承载 DialogHost；Home 重置/Detail 离开确认、取消失效与焦点。 | 未实施、未验证 |
 | 6．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
 
-第一版只要求一个页面：初始文字为“已点击 0 次”，增加按钮的文字绑定 VM 属性，操作经 ActionBinding 调用 C++ VM；点击到 5 时禁用增加，重置后归零。第一批不引入生命周期、导航、快捷键、业务服务或弹窗。接口与验收细节见 [迭代实现计划](docs/迭代实现计划.md)。
+第一版只要求 ShellView 一个页面：初始文字为“已点击 0 次”，增加按钮的文字绑定 ShellViewModel 属性，操作经 ActionBinding 调用 C++ VM；点击到 5 时禁用增加，重置后归零。第一批不引入生命周期、导航、快捷键、业务服务或弹窗。接口与验收细节见 [迭代实现计划](docs/迭代实现计划.md)。
 
 ## 参考与许可
 

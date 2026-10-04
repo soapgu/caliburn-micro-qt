@@ -10,6 +10,8 @@ ActionBinding、ActionButton、KeyActionBinding 和 VM 基类统一属于计划�
 
 按 [迭代实现计划](迭代实现计划.md)，第一批实现无参数 ActionBinding 与 ActionButton，用单页面按钮和文字绑定验证；第二批加入单个 int 参数及 KeyActionBinding。本文的参数、键盘和游戏示例属于完整目标，不是第一版已经支持的能力。
 
+target 的共同类型契约见 [ViewModelBase](ViewModelBase.md)：基类提供类型锚点及 protected setAndNotify，不预置 canXxx、业务属性或信号。属性及 NOTIFY 由具体 VM 声明，ActionBinding 从实际目标的元对象读取，而不是要求基类提供统一属性变化事件。
+
 ## 1. 从普通按钮写法开始
 
 不使用 ActionBinding，QML 可以直接连接方法和条件：
@@ -70,7 +72,7 @@ Q_INVOKABLE void selectDifficulty(int difficulty); // 第二批加入此形态�
 
 必须是公开 Q_INVOKABLE void 方法；无参数或单个 int，不支持重载、返回值、多参数或传控件。参数数量和类型必须匹配，不能把任意字符串或任意对象当成可执行参数。
 
-第一批非空 arguments 或带参数方法应诊断并禁用，不临时忽略参数，也不以占位实现声称支持单个 int。第一批 HomeViewModel 直接继承 ViewModelBase；下文 GameViewModel 继承 ScreenViewModel 的片段属于后续完整目标，第一批不依赖 Screen。
+第一批非空 arguments 或带参数方法应诊断并禁用，不临时忽略参数，也不以占位实现声称支持单个 int。第一批 ShellViewModel 直接继承 ViewModelBase，ShellView 为唯一页面，按钮目标指向 Shell；第三批计数操作整体移入 Home，Shell 根窗口通过 ViewHost 展示它。下文 GameViewModel 继承 ScreenViewModel 的片段属于后续完整目标，第一批不依赖 Screen。
 
 守卫名为 `can` 加动作名首字母大写：
 
@@ -137,6 +139,8 @@ bool GameViewModel::canPauseGame() const
 ```
 
 ActionBinding 不知道“暂停需要什么业务条件”，也不会观察会话的全部属性来推导规则。应用 VM 订阅相关变化、重新计算守卫，并在结果变化时发出通知。
+
+VM 可以使用 ViewModelBase 的 `setAndNotify` 比较、赋值并发送指定无参数信号；这不会自动通知依赖该值的独立 canXxx 守卫。第一批 Shell 的 count/message 共用 countChanged，两个守卫由 Shell 另外比较并通知，完整示例见 [ViewModelBase](ViewModelBase.md)。第三批迁入 Home 后保持这些通知与操作约定，第五批 Home 重置和 Detail 离开再加入确认。
 
 ```text
 弹窗或会话状态变化
@@ -335,7 +339,7 @@ QPointer 不延长目标寿命，也不自动取消应用的异步确认回调�
 
 以下为目标完整验收清单；第一批验证无参数绑定与通知、守卫及目标寿命，第二批增加参数/键盘检查，导航与确认场景随第四、五批加入。目前全部未验证。
 
-- 用户模块 VM 继承框架基类，ActionBinding 接收跨模块目标并识别其操作与守卫；静态插件和类型注册正确保留。
+- 第一批 ShellViewModel 继承框架基类，ShellView 注入 typed VM，ActionBinding 接收跨模块目标并识别其操作与守卫；静态插件和类型注册正确保留。第三批迁入 Home 后回归同样的绑定行为。
 - 方法、返回类型、参数数量/类型、重载以及 bool 守卫/NOTIFY 验证。
 - 守卫变化自动刷新 enabled；直接 execute() 仍重新读取守卫。
 - null 或销毁目标禁用，不延长 VM 生命周期。

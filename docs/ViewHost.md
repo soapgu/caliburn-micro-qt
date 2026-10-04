@@ -8,7 +8,9 @@ ViewHost 回答的问题是：**给定一个 ViewModel，现在应该在这个�
 
 ViewHost、ViewRegistry 和 ViewModelBase 统一属于计划中的 `Caliburn.Micro.Qt 1.0` 框架模块。业务 VM/View 属于用户模块，例如示例的 `CaliburnExample 1.0` 或游戏的 `QtSnakeLab 1.0`；用户 QML 显式导入框架，框架不导入用户模块。目录、模块依赖及静态插件/资源说明见 [模块与项目结构](模块与项目结构.md)。
 
-按 [迭代实现计划](迭代实现计划.md)，ViewHost、ViewRegistry 和 Screen 生命周期在第三批加入。第一、二批由引擎直接加载单页面根窗口并注入 Home VM，不依赖本文组件；第四批再加入 Conductor 导航，第五批加入确认弹窗映射。下文描述这些阶段的完整目标。
+按 [迭代实现计划](迭代实现计划.md)，ViewHost、ViewRegistry 和 Screen 生命周期在第三批加入。第一、二批由引擎直接加载 ShellView 单页面根窗口并注入 ShellViewModel，不依赖本文组件。第三批保留 Shell 根入口，将计数整体移入新增的 Home 子页面，Shell 的 ViewHost 绑定 `viewModel.home`；第四批 Shell 演进为 Conductor，改绑 `viewModel.activeItem`，第五批加入确认弹窗映射。下文描述这些阶段的完整目标。
+
+model 的共同类型及派生通知方式见 [ViewModelBase](ViewModelBase.md)。基类提供类型锚点与 protected setAndNotify，不新增展示属性、信号、displayName 或生命周期；ViewHost 仍只借用实际 VM，不通过基类存放 View 引用。
 
 ## 1. 与 WPF ContentControl、Caliburn.Micro 的对应关系
 
@@ -52,13 +54,15 @@ flowchart TD
 
 ViewRegistry 的通用登记入口由框架提供，映射由使用应用在加载 QML 前的装配阶段提供，运行展示阶段查询稳定的映射。QML 查询单例与 C++ 静态查询必须使用同一份配置；本文不规定尚未实现的注册函数签名。贪吃蛇接入概要为八对游戏业务映射，加一对框架确认映射；框架不限定映射数量，也不内置这些业务类型。
 
-映射的概念示例：
+example 第三批起的映射示例（路径均属于 CaliburnExample 用户模块）：
 
 | 应用 VM 类型 | 应用 View 资源 |
 | --- | --- |
-| HomeViewModel | views/HomeView.qml |
-| GameViewModel | views/GameView.qml |
-| DifficultyViewModel | views/DifficultyView.qml |
+| ShellViewModel | views/ShellView.qml：ApplicationWindow 根窗口，由引擎加载。 |
+| HomeViewModel | views/HomeView.qml：第三批新增的 Item 子页面，由 ViewHost 加载。 |
+| DetailViewModel | views/DetailView.qml：第四批新增的 Item 子页面，由 ViewHost 加载。 |
+
+第三批加载前登记 Shell 和 Home 两对映射，第四批增加 Detail，第五批增加框架确认映射。qt-snake-lab 使用自己的 Shell/Home/Game/Difficulty 等业务映射，不能把不同用户模块的同名 VM 和资源混成一张示例清单。
 
 VM 不保存这些资源地址；路径与映射属于应用的视图装配配置。
 
@@ -69,7 +73,7 @@ VM 不保存这些资源地址；路径与映射属于应用的视图装配配�
 以 HomeView 为例，根对象声明明确类型的属性：
 
 ```qml
-// 设计示例：第三批起的 HomeView.qml，根窗口另行装配；类型均待实现。
+// 设计示例：第三批新增的 HomeView.qml，Shell 根窗口由引擎装配；类型均待实现。
 import QtQuick
 import Caliburn.Micro.Qt 1.0
 import CaliburnExample 1.0
@@ -96,17 +100,29 @@ loader.setSource(url, { viewModel: model })
 
 ## 4. ViewHost 的最小用法
 
-假设 ShellViewModel 是 Conductor，公开 activeItem：
+第三批，ShellViewModel 和 HomeViewModel 均继承 ScreenViewModel。Shell 提供类型化 home 属性，Home 保存从 Shell 迁入的唯一计数状态，Shell 不保留计数和操作副本。ShellView 仍是 ApplicationWindow，声明 `required property ShellViewModel viewModel`，内容区域使用：
 
 ```qml
-// 设计示例：ShellView 的内容区域。
+// 设计示例：第三批 ShellView 的内容区域，省略根窗口与导入。
+ViewHost {
+    anchors.fill: parent
+    model: viewModel.home
+}
+```
+
+Home 由 Shell 的 QObject 父所有权管理，应用装配层安排 Shell/Home 的初始化与激活；ViewHost 只装配 HomeView，不接管 VM 或调用生命周期方法。
+
+第四批起，ShellViewModel 演进为 Conductor，接管子项并公开 activeItem，ShellView 的内容区域改为：
+
+```qml
+// 设计示例：第四批起 ShellView 的内容区域，省略根窗口与导入。
 ViewHost {
     anchors.fill: parent
     model: viewModel.activeItem
 }
 ```
 
-应用把 activeItem 设为 HomeViewModel，宿主显示 HomeView；设为 GameViewModel，宿主显示 GameView；设为 null，宿主清空。
+example 通过 Shell/Conductor 切换活动项：HomeViewModel 显示 HomeView，DetailViewModel 显示 DetailView，null 清空宿主。Home 常驻，Detail 按需创建并在返回后延迟释放；第四批子项须按 Conductor 契约以无既有父对象的候选项交给 addItem 接管，不能重复接管第三批已带 parent 的对象。qt-snake-lab 的对应场景是 Home/Game 切换，属于游戏用户模块。
 
 QML 不需要根据业务枚举判断“现在加载哪个页面”，也不在加载时自行创建业务 VM。选择活动对象属于 VM/Conductor 的职责，页面资源查找属于 ViewRegistry。
 
@@ -176,6 +192,8 @@ Item {
 
 不能只监听 URL 变化，因为两个不同的 VM 实例可能对应同一份 QML 文件。重装配的依据是对象替换。
 
+同一 VM 调用 setAndNotify 更新字段并发出其 NOTIFY 时，只刷新关联属性绑定，不改变 model 身份，也不触发 View 重建。计算属性需要显式复用已有 NOTIFY 或自行通知，基类不自动推导依赖。
+
 ## 6. 页面内部也可以使用 ViewHost
 
 在贪吃蛇使用场景中，Home 组合 Difficulty，Game 组合 Board、Status 和覆盖层：
@@ -244,11 +262,11 @@ Loader 本身是焦点作用域，嵌套页面需要相应的 focus 配置。覆
 以下清单在第三批开始验证，动态导航/释放随第四批加入，模态焦点场景随第五批加入；第一版单页面绑定不要求实现本文功能。目前全部未验证。
 
 - 用户模块 VM 继承框架基类，ViewHost 接收跨模块对象；业务 View 的 typed 属性正确识别其类型。
-- 应用登记映射，根与子页面使用同一查询入口；未知类型明确诊断。
+- 第三批应用登记 Shell 根窗口与 Home 子页面映射，两者使用同一查询入口；未知类型明确诊断。根窗口保持 typed Shell 注入，Home 通过 `viewModel.home` 装配，生命周期由应用管理。
 - required viewModel 在创建前满足，实际收到的 VM 身份与传入对象一致。
 - 同类型不同 VM 也重装配；同一 VM 的属性变化不重建。
 - null、目标销毁和加载错误清空展示，旧 View/动作绑定不保存旧目标。
-- 动态页面先卸载视觉引用再延迟释放 VM，退出时没有悬挂借用。
+- 第四批 Shell 改为 Conductor 后，宿主绑定 activeItem，子项生命周期与所有权由 Conductor 接管；动态页面先卸载视觉引用再延迟释放 VM，退出时没有悬挂借用。
 - 模态关闭后焦点恢复，窗口失焦和业务停用期间不抢焦点。
 
 这些是未来验收设计，不是已有通过结果。
