@@ -1,0 +1,22 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {"major": 3, "minor": 21, "patch": 0},
+  "configurePresets": [
+    {
+      "name": "debug",
+      "displayName": "调试构建与第一批测试",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_PREFIX_PATH": "$env{QT_ROOT}",
+        "CALIBURN_BUILD_EXAMPLE": "ON",
+        "CALIBURN_BUILD_TESTS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [{"name": "debug", "configurePreset": "debug"}],
+  "testPresets": [
+    {"name": "debug", "configurePreset": "debug", "output": {"outputOnFailure": true}}
+  ]
+}

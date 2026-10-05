@@ -1,8 +1,8 @@
 # Caliburn.Micro.Qt
 
-受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架设计。
+受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
-> 当前状态：初始想法与设计文档。下文列出的组件全部尚未实现，仓库没有可编译的 Qt 工程；文档代码均为设计示例。
+> 当前状态：第一批单页面绑定已实现并在 macOS arm64 / Qt 6.8.3 验收通过。框架当前提供 ViewModelBase 与类型化通知辅助；按钮手写 enabled 与 onClicked，1.0 不提供动作自动装配或统一执行组件；第二至六批仍未实施，专题中的后续接口不是当前能力。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
 
@@ -12,9 +12,9 @@ WPF 与 Caliburn.Micro 提供了一组相互配合的概念：属性通知、Scr
 
 Qt 已有属性绑定、信号、元对象系统和动态加载等基础机制，第三方也有 [QtMvvm](https://github.com/Skycoder42/QtMvvm) 等 MVVM 项目。项目动机并不是“Qt 完全没有 MVVM 框架”，而是希望为 Qt Quick 建立一套以 CM 风格为核心、边界明确、可验证的组合约定。
 
-我们希望减少这些重复工作：父 View 转发子组件的一组属性和信号，按钮各自维护可执行条件，页面切换混入业务状态判断，以及创建对象时底层依赖沿父子 VM 构造链传播。
+我们希望减少这些重复工作：父 View 转发子组件的一组属性和信号，页面与业务对象的生命周期连接，页面切换混入业务状态判断，以及创建对象时底层依赖沿父子 VM 构造链传播。
 
-这里的“严格遵循 MVVM”指本项目的设计约定。目前没有实现，也没有自动强制检查架构的能力；是否遵守这些边界，仍需要应用设计、代码评审和后续测试共同保证。
+这里的“严格遵循 MVVM”指本项目的设计约定。目前没有自动强制检查架构的能力；是否遵守这些边界，仍需要应用设计、代码评审和后续测试共同保证。
 
 ## 架构原则
 
@@ -23,8 +23,8 @@ Qt 已有属性绑定、信号、元对象系统和动态加载等基础机制�
 - **VM 不持有控件**：VM 不保存 QML Item、按钮或窗口引用；焦点、键盘事件和布局留在 View 与通用视觉组件中。
 - **父 VM 组合子 VM**：父对象接收所需子对象及自己直接使用的服务，不替子对象转交全部底层依赖。View 通过子 VM 属性嵌套装配。
 - **组合根负责创建**：应用集中装配服务和 VM 树；需要按需创建时由应用提供类型化工厂，业务 VM 不访问容器或服务定位器。
-- **所有权与生命周期分别明确**：C++ 持有 VM 树，QML 持有 View 树。装载或卸载 View 不隐式开始业务，也不隐式删除 VM。
-- **操作统一经过守卫**：输入适配器、VM 和业务用例各自检查职责内的前置条件，按钮禁用只是展示结果。
+- **所有权与生命周期分别明确**：C++ 持有 VM 树，QML 持有 View 树；View 先于其借用的 VM 销毁。装载或卸载 View 不隐式开始业务，也不隐式删除 VM。
+- **操作显式绑定**：View 手写 enabled 与事件处理器，直接读取 VM 的可用状态并调用方法。VM 和业务用例各自检查职责内的前置条件，按钮禁用只是展示结果。
 
 目标数据与操作路径：
 
@@ -33,8 +33,7 @@ flowchart LR
     Root[应用组合根] -->|构造注入| VM[ViewModel 与子 VM]
     VM -->|调用用例与订阅变化| Model[Model / 服务]
     VM -->|属性与通知| View[QML View]
-    View -->|用户操作| Binding[ActionBinding]
-    Binding -->|守卫检查与方法调用| VM
+    View -->|事件处理器直接调用方法| VM
     Host[ViewHost + ViewRegistry] -->|定位、创建并注入 VM| View
 ```
 
@@ -48,13 +47,13 @@ flowchart LR
 | Screen | ScreenViewModel | 初始化一次，激活与停用幂等，生命周期接口由 C++ 管理。 |
 | Conductor | ConductorViewModel | 组合子 Screen，维护唯一 activeItem，显式管理移除与释放。 |
 | ViewLocator / ViewModelBinder | ViewRegistry、ViewHost | 按应用提供的 VM 类型映射定位 View，创建前注入 viewModel。 |
-| ActionMessage / CanXxx | ActionBinding、ActionButton、KeyActionBinding | 显式目标、方法名、布尔守卫及通知；执行前再次检查。 |
+| ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
 | WindowManager 的部分职责 | IDialogService、DialogService、DialogHost | 第五批加入单个模态确认弹窗和异步结果，不包含通用多窗口管理。 |
 | IoC / 构造注入 | 应用组合根 + Boost.Ext.DI 参考方案 | 创建与长期持有分开，框架 VM 不依赖容器。 |
 
-## 计划中的完整类型清单
+## 类型清单与实现状态
 
-全部类型均为待实现设计；“拥有”表示目标所有权契约。这是六批迭代的完整目标清单，第一版只实现 ViewModelBase、无参数 ActionBinding 和 ActionButton，详见 [迭代实现计划](docs/迭代实现计划.md)。
+这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase 与类型化通知辅助，其余类型均待后续批次实现，详见 [迭代实现计划](docs/迭代实现计划.md)。
 
 | 类型 | 形态 | 职责 |
 | --- | --- | --- |
@@ -63,14 +62,11 @@ flowchart LR
 | ConductorViewModel | C++ Screen 子类 | 接管并登记子 Screen，选择唯一活动项，允许显式移除非活动项。 |
 | ViewRegistry | C++，向 QML 提供单例入口 | 按应用登记的 VM 类型查询 QML View 地址，不拥有 VM。 |
 | ViewHost | QML 组件 | 使用 Loader 定位和加载 View，并注入唯一 viewModel 属性。 |
-| ActionBinding | C++，可由 QML 创建 | 验证目标方法与守卫，更新 enabled，并在执行前复核。 |
-| ActionButton | QML Button 组件 | 将按钮可用状态和点击统一连接到 ActionBinding。 |
-| KeyActionBinding | QML 输入适配组件 | 将焦点路径中的键盘事件映射成操作参数，复用操作绑定。 |
 | IDialogService | C++ QObject 接口 | 声明确认请求、当前弹窗、忙状态及按请求者取消的契约。 |
 | DialogService | C++ 服务 | 拥有临时确认 VM，管理单次结果、异步回调和请求失效。 |
 | DialogHost | QML 组件 | 显示当前弹窗，处理模态隔离、关闭和焦点恢复。 |
 | ConfirmActionViewModel | C++ Screen 子类 | 提供确认文案、accept / cancel 操作与一次完成结果。 |
-| ConfirmActionView | QML View | 展示确认 VM，使用操作绑定触发接受或取消。 |
+| ConfirmActionView | QML View | 展示确认 VM，通过手写事件处理器调用接受或取消方法。 |
 
 配套值类型 **ConfirmationRequest** 保存 `title`、`message`、`confirmText`、`cancelText`，不保存业务操作枚举、控件或 VM 引用。
 
@@ -84,26 +80,26 @@ Screen/Conductor 的初始生命周期约定沿用设计来源：`initialize()`�
 
 ## 模块与项目结构
 
-目标结构采用两个独立模块，并为最小示例提供独立启动程序。以下全部计划新增、尚未实现；当前仓库仍只有文档和许可证。
+当前已建立两个静态模块和独立启动程序，仅包含第一批需要的类型与页面。下表同时说明后续扩展方向。
 
-| 单元 | CMake 目标 | QML URI / 版本 | 计划内容 |
+| 单元 | CMake 目标 | QML URI / 版本 | 内容及进度 |
 | --- | --- | --- | --- |
-| 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 本文类型清单中的全部通用 C++ 类型和 QML 组件，包括确认弹窗。 |
-| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 从第一批起以 Shell VM/View 为应用入口，后续逐批增加 Home、详情、业务服务和确认交互。 |
-| 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | 显式构造注入、初始属性注入、根窗口加载和退出次序；第三批加入视图映射登记。 |
+| 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 已实现基类与类型化通知辅助；其余类型与确认弹窗按批次增加。 |
+| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 已实现 Shell VM/View 计数页，后续逐批增加 Home、详情、业务服务和确认交互。 |
+| 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | 已实现显式构造、初始属性注入、根窗口加载和退出次序；第三批加入视图映射登记。 |
 
-框架和用户模块首版均采用静态库，通过 `qt_add_qml_module` 组织各自的 C++ 与 QML；静态插件链接和资源注册纳入后续构建验收。示例采用显式构造注入，下游应用可在装配层使用 Boost.Ext.DI。
+框架和用户模块均采用静态库，通过 `qt_add_qml_module` 组织各自的 C++ 与 QML；应用和 QML 测试显式链接插件目标并用 Q_IMPORT_QML_PLUGIN 导入插件，静态类型注册及内嵌资源加载已验证。示例采用显式构造注入，下游应用可在装配层使用 Boost.Ext.DI。
 
 ```text
 caliburn-micro-qt/
-├── docs/                          # 已有设计文档
-├── modules/Caliburn/Micro/Qt/      # 计划新增、尚未实现：框架模块
-├── examples/minimal/              # 计划新增、尚未实现
+├── docs/                          # 设计文档与第一批验收记录
+├── modules/Caliburn/Micro/Qt/      # 已实现第一批框架能力
+├── examples/minimal/              # 已实现 Shell 单页面示例
 │   ├── app/                      # 示例启动与组合根
 │   └── CaliburnExample/           # 用户代码模块
-├── tests/                         # 计划新增、尚未实现
-├── CMakeLists.txt                 # 计划新增、尚未实现
-└── CMakePresets.json              # 计划新增、尚未实现
+├── tests/                         # 已有 C++ 与 QML 集成测试
+├── CMakeLists.txt                 # 已有模块及构建选项
+└── CMakePresets.json              # 已有可移植 debug 预设
 ```
 
 依赖方向为“启动程序 → 用户代码模块 → 框架模块 → Qt”。第一、二批直接加载 `qrc:/qt/qml/CaliburnExample/views/ShellView.qml`，根窗口声明 `required property ShellViewModel viewModel`。第三批加入框架通用视图注册机制，由应用在加载前登记 Shell 根窗口和 Home 子页面映射，第五批再加入框架确认映射。框架不引用用户类型或业务模块。
@@ -116,43 +112,98 @@ Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名
 
 | 项目 | 设计基线 |
 | --- | --- |
-| Qt | 6.8.3，Qt Quick / QML；当前没有兼容性验证结果。 |
+| Qt | 6.8.3，Qt Quick / QML；已验证 macOS arm64，麒麟待验证。 |
 | C++ | C++17，QObject 属性、信号与元对象系统。 |
-| 后续构建参考 | CMake 与 qt_add_qml_module，框架/示例用户模块为静态库；当前没有构建文件。 |
+| 构建 | CMake 3.21 及以上、Ninja、qt_add_qml_module；框架/示例用户模块为静态库。 |
 | 应用装配参考 | Boost.Ext.DI v1.3.2，服务按已有实例引用绑定。 |
-| 分批操作参数 | 第一批只支持无参数，第二批加入单个 int；无重载，必须配套 bool canXxx 属性及 NOTIFY。 |
+| 操作与输入 | QML 显式读取可用状态并直接调用方法；第一批演示无参数，第二批演示 int 参数和原生键盘事件。框架不规定方法名、返回值或自动守卫契约。 |
 | 视图映射 | 应用配置的类型到 View 映射，初始化阶段确定，不硬编码某个示例的页面数量。 |
 
 DI 是应用层可采用的装配方案。参考方式是在应用装配层声明外部 ctor_traits，排除 `QObject *parent`，让业务 VM 的头文件不包含 DI。容器负责创建，QObject 父子树或根 unique_ptr 负责长期持有；借用服务的寿命必须长于使用者。
 
-游戏专用的 Shell/Home/Game/Board 等 VM、游戏会话、设置服务和 Game 工厂属于使用应用，不是通用框架类型。本轮六批目标不包含事件总线、任意参数反射、视觉树动作冒泡、通用多窗口系统、Qt Widgets 支持或架构自动检查工具。
+游戏专用的 Shell/Home/Game/Board 等 VM、游戏会话、设置服务和 Game 工厂属于使用应用，不是通用框架类型。1.0 不提供动作自动装配、统一执行或输入适配组件；本轮六批目标也不包含事件总线、通用多窗口系统、Qt Widgets 支持或架构自动检查工具。
 
 ## 阅读文档
 
 - [模块与项目结构：框架、用户代码与贪吃蛇接入概要](docs/模块与项目结构.md)
 - [迭代实现计划：框架与 example 同步交付](docs/迭代实现计划.md)
+- [第一批验收记录：环境、测试与真实界面操作](docs/第一批验收记录.md)
 - [ViewModelBase：类型基础、完整成员与通知辅助](docs/ViewModelBase.md)
 - [ViewHost：视图定位、动态加载与所有权](docs/ViewHost.md)
-- [ActionBinding：操作、守卫与输入适配](docs/ActionBinding.md)
+- [操作与输入绑定：显式条件、方法调用与键盘事件](docs/操作与输入绑定.md)
 
 设计起点来自 [qt-snake-lab](https://github.com/soapgu/qt-snake-lab) 中的 [Qt 实现方案](https://github.com/soapgu/qt-snake-lab/blob/main/docs/贪吃蛇Qt实现方案.md) 与 [源码结构设计](https://github.com/soapgu/qt-snake-lab/blob/main/docs/贪吃蛇Qt源码结构设计.md)。贪吃蛇用于解释页面、子 VM 与动态释放，是框架的使用场景，不是框架的业务边界。
 
+## 构建、运行与测试
+
+需要 Qt 6.8.3 及以上（仅框架需要 Core/Qml；示例与 QML 测试另需 Quick/QuickControls2，测试另需 Test）、CMake 3.21 及以上、Ninja 和支持 C++17 的编译器。将 QT_ROOT 设置为本机 Qt kit 的根目录；公共预设不包含个人路径。
+
+```sh
+export QT_ROOT="你的 Qt kit 根目录"
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug
+cmake --build --preset debug --target all_qmllint
+```
+
+macOS 启动 `build/debug/bin/CaliburnExampleApp.app`，也可执行：
+
+```sh
+./build/debug/bin/CaliburnExampleApp.app/Contents/MacOS/CaliburnExampleApp
+```
+
+Linux 的预期入口为 `build/debug/bin/CaliburnExampleApp`，尚未在麒麟验证。CTest 的 QML 测试默认使用 offscreen/software；macOS 可额外运行 `QT_QPA_PLATFORM=cocoa ./build/debug/tests/CaliburnQmlTests`。真实窗口操作记录与离屏测试分别记录。
+
+普通按钮直接绑定 VM 的可用状态与方法，objectName 仅用于对象标识与测试：
+
+```qml
+Item {
+    id: root
+    required property ShellViewModel viewModel
+
+    Button {
+        objectName: "increment"
+        text: root.viewModel.incrementText
+        enabled: root.viewModel.canIncrement
+        onClicked: root.viewModel.increment()
+    }
+    Button {
+        objectName: "reset"
+        text: "重置"
+        enabled: root.viewModel.canReset
+        onClicked: root.viewModel.reset()
+    }
+}
+```
+
+片段省略 QtQuick、QtQuick.Controls 与用户模块导入。特殊目标在表达式中直接引用具体 VM；可空目标显式处理空值。属性的 NOTIFY 驱动 enabled 刷新，VM 方法自身检查条件。框架不扫描按钮、不管理 enabled、不按名称寻找方法；完整用法见 [操作与输入绑定](docs/操作与输入绑定.md)。
+
+仅构建框架时关闭示例和测试：
+
+```sh
+cmake -S . -B build/framework-only -G Ninja -DCMAKE_PREFIX_PATH="$QT_ROOT" \
+    -DCALIBURN_BUILD_EXAMPLE=OFF -DCALIBURN_BUILD_TESTS=OFF
+cmake --build build/framework-only
+```
+
+当前提供源码模块接入，尚未实现安装导出包；外部消费工程和平台验证在第六批完善。静态 QML 模块的插件要求见 [Qt 官方说明](https://doc.qt.io/qt-6.8/qt-add-qml-module.html)。
+
 ## 当前状态与后续方向
 
-当前只包含 README、模块结构与迭代计划文档、三份组件专题文档和 LICENSE；六批功能均未实施，没有运行、编译或平台兼容性验收。所有示例依赖未来的框架与应用类型，不能作为现成工程直接运行。
+第一批已交付可构建运行的框架与 Shell 示例，包含 C++ 契约测试和 QML 集成测试。当前按钮已改为手写绑定，动作层已移除。本次干净构建、CTest、qmllint、仅框架构建、Cocoa 测试和真实窗口操作均通过；麒麟与第二至六批仍待验证。详情见 [第一批验收记录](docs/第一批验收记录.md)。
 
 后续每批同时交付框架功能、example、必要测试和验收记录，验收通过后进入下一批：
 
 | 批次 | 框架与 example 同步目标 | 当前状态 |
 | --- | --- | --- |
-| 1．单页面绑定 | 基类与类型化通知辅助、无参数操作绑定和按钮；Shell 单页面计数文字绑定，增加/重置及守卫。 | 未实施、未验证 |
-| 2．参数与键盘 | 单个 int 参数和键盘适配；Shell 同页参数按钮及快捷键。 | 未实施、未验证 |
+| 1．单页面绑定 | 基类与类型化通知辅助；Shell 单页面计数文字及按钮 enabled/onClicked 显式绑定。 | 已完成，macOS arm64 验收通过 |
+| 2．参数与键盘 | Shell 同页演示 int 参数按钮与原生键盘事件，直接调用 VM，不增加框架输入组件。 | 未实施、未验证 |
 | 3．生命周期与视图装配 | Screen、注册表与 ViewHost；Shell 保持根入口，计数移入 Home，验证单页面装配及 VM 替换。 | 未实施、未验证 |
 | 4．页面组合与导航 | Shell 演进为 Conductor；首页、按需详情、共享业务服务及返回后释放。 | 未实施、未验证 |
 | 5．异步确认 | Shell 根窗口承载 DialogHost；Home 重置/Detail 离开确认、取消失效与焦点。 | 未实施、未验证 |
 | 6．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
 
-第一版只要求 ShellView 一个页面：初始文字为“已点击 0 次”，增加按钮的文字绑定 ShellViewModel 属性，操作经 ActionBinding 调用 C++ VM；点击到 5 时禁用增加，重置后归零。第一批不引入生命周期、导航、快捷键、业务服务或弹窗。接口与验收细节见 [迭代实现计划](docs/迭代实现计划.md)。
+第一版只要求 ShellView 一个页面：初始文字为“已点击 0 次”，增加按钮的文字绑定 ShellViewModel 属性，按钮的 onClicked 直接调用 C++ VM；点击到 5 时禁用增加，重置后归零。第一批不引入生命周期、导航、快捷键、业务服务或弹窗。接口与验收细节见 [迭代实现计划](docs/迭代实现计划.md)。
 
 ## 参考与许可
 

@@ -1,16 +1,15 @@
 # ViewModelBase：类型基础与通知辅助
 
-> 状态：目标完整契约，尚未实现。本文接口和代码均为设计示例，省略构建、模板定义及部分类型注册配置，不能作为现成工程运行。本轮只完善文档，不创建源码或测试骨架。
+> 状态：第一批已实现本文基类与类型化通知辅助，macOS arm64 / Qt 6.8.3 验收通过，见 [记录](第一批验收记录.md)。下文接口片段省略模板定义，完整定义位于框架公开头文件；Screen/Conductor 仍待后续批次实现。
 
 ViewModelBase 是所有框架与业务 VM 的共同 QObject 基类，提供两项能力：**作为框架接口的类型锚点，以及辅助派生 VM 比较、赋值并发送通知**。
 
-它不增加 displayName、业务属性或生命周期状态。第一批实现该基类与类型化通知辅助，用 ShellViewModel 的单页面按钮和文字绑定验证；Screen 生命周期在第三批加入。模块归属见 [模块与项目结构](模块与项目结构.md)，交付顺序见 [迭代实现计划](迭代实现计划.md)。
+它不增加 displayName、业务属性或生命周期状态。第一批已实现该基类与类型化通知辅助，用 ShellViewModel 的单页面按钮和文字绑定验证；Screen 生命周期在第三批加入。模块归属见 [模块与项目结构](模块与项目结构.md)，交付顺序见 [迭代实现计划](迭代实现计划.md)。
 
 ## 1. 类型锚点有什么作用
 
 | 使用位置 | ViewModelBase 的作用 |
 | --- | --- |
-| `ActionBinding.target` | 接收 ViewModelBase 派生对象，框架通过目标对象的元对象查找业务操作、守卫和通知。 |
 | `ViewHost.model` | 接收 ViewModelBase 派生对象，视图注册表根据实际 VM 类型定位 View。 |
 | `ScreenViewModel` | 在共同类型和通知辅助之上增加初始化、激活、停用；不把生命周期放回基类。 |
 | 用户 `ShellViewModel`、后续 `HomeViewModel` 等 | 继承框架共同类型，自己声明属性、信号、操作与业务依赖。 |
@@ -19,10 +18,10 @@ ViewModelBase 是所有框架与业务 VM 的共同 QObject 基类，提供两�
 
 ## 2. 完整成员契约
 
-下面是计划公开的完整类声明。模板辅助的定义在后续实施时放入公开头文件；这里仅列接口，不提供占位实现。
+下面列出已实现基类的完整成员接口；模板定义位于 [公开头文件](../modules/Caliburn/Micro/Qt/include/CaliburnMicroQt/ViewModelBase.h)，构造函数位于框架源码。
 
 ```cpp
-// 设计声明：尚未实现，省略模板定义。
+// 已实现接口：此处省略模板定义，完整源码见公开头文件。
 #include <QObject>
 #include <QtQmlIntegration/qqmlintegration.h>
 
@@ -57,7 +56,7 @@ protected:
 
 QObject 的继承成员继续存在，例如 objectName、destroyed、parent、deleteLater；“不新增属性/信号”不表示这些继承能力消失。objectName 仅可用于对象识别或调试，不承担页面标题或视图映射职责。复制和移动沿用 QObject 的限制，不提供克隆或值对象语义。[Qt QObject 说明](https://doc.qt.io/qt-6.8/qobject.html)
 
-框架头文件目标路径为 `include/CaliburnMicroQt/ViewModelBase.h`；构造函数实现放入框架源码，模板定义随公开头文件提供，使用 C++17，不引入用户模块或 DI 库。
+框架公开头文件路径为 `include/CaliburnMicroQt/ViewModelBase.h`；构造函数实现放入框架源码，模板定义随公开头文件提供，使用 C++17，不引入用户模块或 DI 库。
 
 ## 3. setAndNotify 的输入与执行结果
 
@@ -119,10 +118,10 @@ QML 依赖此处的 countChanged 更新绑定。增加一个普通的 `propertyC
 
 ## 5. 第一批 ShellViewModel 示例
 
-下面片段表达第一批根 Shell VM 的完整属性与通知路径，仍依赖尚未实现的基类和模块装配，未经过编译或运行验证。Shell 是入口命名约定，第一批只继承 ViewModelBase；第三批才增加 Screen 生命周期并把计数、文案、参数操作及守卫整体移入 Home，第四批 Shell 再演进为 Conductor。
+下面片段表达已实现的第一批根 Shell VM 属性与通知路径；实际源码将声明与方法定义分开，见 [ShellViewModel.h](../examples/minimal/CaliburnExample/viewmodels/ShellViewModel.h) 和 [ShellViewModel.cpp](../examples/minimal/CaliburnExample/viewmodels/ShellViewModel.cpp)。Shell 是入口命名约定，第一批只继承 ViewModelBase；第三批才增加 Screen 生命周期并把计数、文案、参数操作及守卫整体移入 Home，第四批 Shell 再演进为 Conductor。
 
 ```cpp
-// 设计示例：ShellViewModel，非已有源码。
+// 第一批源码的等价展示：合并声明与方法定义，便于阅读。
 #include <CaliburnMicroQt/ViewModelBase.h>
 #include <QString>
 
@@ -186,11 +185,11 @@ private:
 };
 ```
 
-示例中 count 是唯一计数存储，message 和两个守卫均由它计算；调用 countChanged 时读取这些属性已经得到新值。message 复用 countChanged，不另发 messageChanged；两个守卫有各自的 NOTIFY，仅 bool 结果变化才通知。increment/reset 先检查条件，即使 C++ 调用绕过 ActionBinding，也不能越过计数范围。
+示例中 count 是唯一计数存储，message 和两个守卫均由它计算；调用 countChanged 时读取这些属性已经得到新值。message 复用 countChanged，不另发 messageChanged；两个守卫有各自的 NOTIFY，仅 bool 结果变化才通知。increment/reset 自身检查条件，直接从 QML 或 C++ 调用也不能越过计数范围。
 
 这里假定属性观察者只读取展示状态，不在 countChanged 的同步处理栈中再次修改计数；辅助函数不串行化重入操作。后续业务服务状态的事务、依赖更新或操作重入由业务层自行处理，不能把 setAndNotify 当成批量通知框架。
 
-与页面的关系是：ShellView 绑定 message 和 incrementText；ActionButton 通过 [ActionBinding](ActionBinding.md) 读取 canIncrement/canReset 并执行操作。ViewModelBase 不持有按钮、窗口或 ActionBinding 实例。
+与页面的关系是：ShellView 绑定 message 和 incrementText；按钮的 enabled 显式读取 canIncrement/canReset，onClicked 直接调用 increment/reset，见 [操作与输入绑定](操作与输入绑定.md)。这些名称属于示例 VM，不是框架约定。ViewModelBase 不持有按钮或窗口。
 
 ## 6. 所有权、线程与生命周期
 
@@ -206,7 +205,7 @@ QML 不可创建类型与 CppOwnership 是不同契约：注册宏控制能否�
 
 基类不保存 View、QML 引擎、容器、服务定位器或业务依赖。派生 VM 可借用构造注入的业务服务，服务寿命由应用装配保证；这不成为基类统一服务入口。关闭程序先销毁 View 与引擎，再销毁 VM 树及其借用服务，保持 [ViewHost](ViewHost.md) 的所有权约定。
 
-## 7. 第一批待实现验收场景
+## 7. 第一批验收场景
 
 | 场景 | 预期结果 |
 | --- | --- |
@@ -221,7 +220,7 @@ QML 不可创建类型与 CppOwnership 是不同契约：注册宏控制能否�
 | 所有权 | QML 不接管 C++ VM；根 RAII 和子对象父树释放不重复删除，保持既定退出顺序。 |
 | example | 点击到 5 禁用增加，重置归零，文字与按钮状态自动刷新；VM 直接调用仍检查条件。 |
 
-这些测试应与第一批框架和 example 同步实现，目前均未验证。本轮只检查文档成员、示例、模块归属、链接及阶段说明一致，不以设计示例声称 Qt 编译或运行通过。
+上述场景已由第一批 C++ 契约测试、QML 集成测试及真实 example 操作验证；编译期断言检查辅助签名和 QObject 复制/移动限制。环境与结果见 [第一批验收记录](第一批验收记录.md)，麒麟仍待验证。
 
 ## 参考资料
 
