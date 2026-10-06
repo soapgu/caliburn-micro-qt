@@ -1,0 +1,70 @@
+# Bootstrapper 与应用启动
+
+框架提供纯 C++ 的 `BootstrapperBase`，应用派生 `AppBootstrapper`。它不向 QML 注册类型，不依赖 Boost.Ext.DI，不创建 QGuiApplication。应用先创建 QGuiApplication，再创建 Bootstrapper，在主线程调用一次 `Run()`；应用对象必须比 Bootstrapper 活得更久。
+
+## 应用入口与扩展点
+
+```cpp
+int main(int argc, char *argv[])
+{
+    QGuiApplication app(argc, argv);
+    AppBootstrapper bootstrapper(app);
+    return bootstrapper.Run();
+}
+```
+
+静态模块的 Q_IMPORT_QML_PLUGIN 仍放在入口，链接要求保持不变。
+
+| 接口 | 契约 |
+| --- | --- |
+| `int Run()` | 编排配置、启动、事件循环和清理。同一实例只能调用一次；重复调用返回 1，不重复执行退出钩子。 |
+| `bool Configure()` | 应用设置样式、登记所有 View 映射和根工厂；返回 false 则停止启动。 |
+| `bool OnStartup()` | 应用调用 `DisplayRootViewFor<T>()`，返回启动结果。返回 true 但未成功加载根窗口仍会判定失败。 |
+| `void OnExit()` | 可选的应用退出钩子，在根生命周期关闭之后、View 和 VM 释放之前调用。配置或启动中途失败也会调用，须兼容部分初始化。 |
+| `bool RegisterRootFactory<T>(factory)` | 只允许在 Configure 中登记，每个类型只能登记一次，工厂返回 unique_ptr<T>。登记时不创建对象。 |
+| `bool DisplayRootViewFor<T>()` | 只允许在 OnStartup 中调用；每个 Bootstrapper 只允许一次显示尝试，T 必须继承 ScreenViewModel。 |
+
+示例 AppBootstrapper::Configure 设置 Basic 样式，登记 Shell/Home 映射，并用 `[] { return buildShell(); }` 提供 Shell 工厂。OnStartup 只调用 `DisplayRootViewFor<ShellViewModel>()`。业务 VM 的构造接口、DI 自动推导与父所有权不变。
+
+## 工厂与所有权
+
+Bootstrapper 保存按 VM 元对象地址索引的根工厂；它只负责创建根对象，不提供应用级服务定位接口。服务与子 VM 的依赖仍由应用装配层解决。
+
+工厂包装返回两个字段，关联同一个 VM：
+
+- `unique_ptr<ScreenViewModel> model` 持有对象，负责调用生命周期及最终删除。
+- `QVariant viewModel` 保存从原始 unique_ptr<T> 取出的 T*，保留具体类型供 QML required 属性注入；不接管对象。
+
+根对象必须无 QObject 父对象，并位于应用主线程。Bootstrapper 在暴露根 VM 前设置 CppOwnership；子对象所有权继续由 buildShell 明确设置，Bootstrapper 不递归猜测对象图。
+
+## 启动与退出顺序
+
+1. Run 显式执行 Configure，不在构造函数里调用虚方法。
+2. OnStartup 调用根工厂。所有映射登记必须在此之前完成，因为 ViewRegistry 首次查询后全局冻结。
+3. 查询根 View 地址，拒绝空映射与远程 URL。
+4. 初始化并激活根 Screen；Shell 钩子继续驱动 Home。
+5. 创建 QQmlApplicationEngine，类型化注入 viewModel，加载根 View。
+6. 验证加载结果恰有一个 QQuickWindow，再进入应用事件循环。
+7. aboutToQuit 只关闭根生命周期，不在发起退出的 QML 调用栈内销毁引擎。
+8. 事件循环返回后，调用 OnExit，销毁引擎与 View，最后释放根 VM 和子对象树。
+
+根对象关闭最多尝试一次，退出钩子调用一次。基类析构只兜底清理，不调用派生类 OnExit。Run 的清理路径捕获关闭钩子和 OnExit 的异常，继续释放剩余资源；异常不会从 aboutToQuit 回调逸出。
+
+配置失败、缺少工厂、空对象、工厂或启动异常、缺少映射、QML 加载失败及根对象不是窗口都打印诊断并返回 1。正常退出保留 Qt 事件循环退出码；如果原退出码为 0 但清理失败，返回 1。
+
+第一版仅支持一个根窗口、本地或 qrc QML 和同步 Screen 生命周期。远程 QML、异步生命周期、多窗口管理和运行时模块加载不包含在当前接口中。
+
+## 验证
+
+CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周期、View 先于 VM 释放、重复运行保护、失败清理和异常退出。各场景由 CTest 在独立进程运行，避免全局 ViewRegistry 冻结影响后续场景。实际 AppBootstrapper 另有窗口关闭退出的集成场景。
+
+2026-10-06 在 macOS arm64 / Qt 6.8.3 验证：
+
+| 检查 | 结果 |
+| --- | --- |
+| macos-local 全量构建 | 通过。 |
+| CTest | 原有 core、composition、qml 与 16 个 Bootstrapper 场景全部通过，共 19 个测试项。 |
+| all_qmllint | 框架与示例均通过。 |
+| 仅框架构建及 qmllint | 关闭示例和测试后通过，不加入 Boost DI 或应用装配目标。 |
+
+新增测试使用 offscreen/software 与 Basic 样式；未进行本轮人工窗口操作或麒麟验证。构建与测试在沙箱外执行，避免沙箱内 Qt 工具无法识别 NEON 指令的问题。故意非法的既有 QML 夹具与静态插件重复链接继续产生预期诊断，不影响验收结果。

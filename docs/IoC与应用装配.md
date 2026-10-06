@@ -1,6 +1,6 @@
 # IoC 与应用装配
 
-示例采用 Boost.Ext.DI v1.3.2，在应用装配层递归构造 Shell/Home。Home 在构造 Shell 时创建并接管；初始化钩子用于初始化已有对象。main 只驱动根 Shell 生命周期。当前只有固定 Home 页面，尚未引入 Conductor、业务服务或动态页面工厂。
+示例采用 Boost.Ext.DI v1.3.2，在应用装配层递归构造 Shell/Home。Home 在构造 Shell 时创建并接管；初始化钩子用于初始化已有对象。Bootstrapper 驱动根 Shell 生命周期，main 只创建应用并运行 Bootstrapper。当前只有固定 Home 页面，尚未引入 Conductor、业务服务或动态页面工厂。
 
 ## 创建与依赖边界
 
@@ -36,9 +36,9 @@ CaliburnExampleApp → CaliburnExampleComposition → CaliburnExampleModule → 
 
 ## 所有权交接
 
-[ShellViewModel](../examples/minimal/CaliburnExample/viewmodels/ShellViewModel.cpp) 构造函数接收 `std::unique_ptr<HomeViewModel>`，要求对象非空、没有既有父对象，且 Shell、Home 和调用者均位于应用主线程。非法参数抛出 invalid_argument，父关系未建立则抛出 runtime_error；main 捕获装配异常并非零退出。
+[ShellViewModel](../examples/minimal/CaliburnExample/viewmodels/ShellViewModel.cpp) 构造函数接收 `std::unique_ptr<HomeViewModel>`，要求对象非空、没有既有父对象，且 Shell、Home 和调用者均位于应用主线程。非法参数抛出 invalid_argument，父关系未建立则抛出 runtime_error；Bootstrapper 捕获装配异常，完成清理并非零退出。
 
-合法对象先 setParent(this)，检查 parent 确实为 Shell，再 release 临时 unique_ptr。之后根 unique_ptr 负责 Shell，QObject 父树负责 Home。Shell 的 QPointer 用于访问和失效保护，Home 意外销毁时显式发送 homeChanged；后续钩子对空 Home 安全跳过。
+合法对象先 setParent(this)，检查 parent 确实为 Shell，再 release 临时 unique_ptr。之后 Bootstrapper 的根 unique_ptr 负责 Shell，QObject 父树负责 Home。Shell 的 QPointer 用于访问和失效保护，Home 意外销毁时显式发送 homeChanged；后续钩子对空 Home 安全跳过。
 
 QML 暴露前，buildShell 明确设置两个 VM 为 CppOwnership。Loader 只拥有 View，不接管 VM。根 Shell 释放时，Home 由 QObject 父树回收一次；注入器既不长期持有对象，也不参与退出回收。
 
@@ -54,16 +54,16 @@ Shell 显式覆盖以下钩子：
 
 Screen 基类的幂等与重入检查继续有效。Shell 钩子先完成 Home 的转换，再返回给 Screen 提交 Shell 状态，因此初始化、激活及活动对象关闭的状态通知先 Home 后 Shell。停用后关闭仍调用 Home 关闭钩子；重复关闭无操作；关闭后重新激活不重置初始化或计数。
 
-[main.cpp](../examples/minimal/app/main.cpp) 按以下顺序执行：
+[main.cpp](../examples/minimal/app/main.cpp) 创建 QGuiApplication 和 AppBootstrapper，再调用 Run。具体启动流程见 [Bootstrapper](Bootstrapper.md)：
 
-1. buildShell 创建 VM 树并设置 QML 所有权。
-2. 登记 Shell 根窗口与 Home 页面映射。
-3. shell->initialize()、shell->activate()。
-4. 向引擎注入 Shell，通过 ViewRegistry::viewUrl 加载根窗口。
-5. 正常退出或根加载失败时，shell->deactivate(true)。
+1. AppBootstrapper::Configure 登记 Shell/Home 映射和调用 buildShell 的根工厂，并设置样式。
+2. OnStartup 调用 DisplayRootViewFor<ShellViewModel>()，按需调用 buildShell 创建 VM 树并设置 QML 所有权。
+3. Bootstrapper 查询根 View 映射，调用 shell->initialize()、shell->activate()。
+4. 创建引擎并类型化注入 Shell，加载根窗口；成功后进入事件循环。
+5. 正常退出或启动失败时关闭根生命周期，再执行 OnExit。
 6. 先销毁引擎与 View，再释放根 unique_ptr 和 Home 父树。
 
-main 不单独创建、激活或关闭 Home。ViewRegistry 继续只定位 View，ViewHost 继续只借用 VM 并创建/卸载 View；窗口失焦不触发生命周期。
+Bootstrapper 不单独创建、激活或关闭 Home。ViewRegistry 继续只定位 View，ViewHost 继续只借用 VM 并创建/卸载 View；窗口失焦不触发生命周期。
 
 后续引入 Conductor 时再将通用子项生命周期管理交给它；动态详情页通过应用提供的类型化工厂按需创建。当前 VM 不接收容器或全局服务定位器。
 

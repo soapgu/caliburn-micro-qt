@@ -50,10 +50,11 @@ flowchart LR
 | ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
 | WindowManager 的部分职责 | IDialogService、DialogService、DialogHost | 第五批加入单个模态确认弹窗和异步结果，不包含通用多窗口管理。 |
 | IoC / 构造注入 | 应用组合根 + Boost.Ext.DI v1.3.2 | 创建与长期持有分开，框架 VM 不依赖容器。 |
+| Bootstrapper | BootstrapperBase + AppBootstrapper | Configure 配置映射和根工厂，OnStartup 显示根窗口，Run 统一生命周期与清理。 |
 
 ## 类型清单与实现状态
 
-这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry 和 ViewHost；Conductor 与弹窗类型待后续批次实现，详见 [迭代实现计划](docs/迭代实现计划.md)。
+这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry、ViewHost 和 BootstrapperBase；Conductor 与弹窗类型待后续批次实现，详见 [迭代实现计划](docs/迭代实现计划.md)。
 
 | 类型 | 形态 | 职责 |
 | --- | --- | --- |
@@ -62,6 +63,7 @@ flowchart LR
 | ConductorViewModel | C++ Screen 子类 | 接管并登记子 Screen，选择唯一活动项，允许显式移除非活动项。 |
 | ViewRegistry | C++，向 QML 提供单例入口 | 按应用登记的 VM 类型查询 QML View 地址，不拥有 VM。 |
 | ViewHost | QML 组件 | 使用 Loader 定位和加载 View，并注入唯一 viewModel 属性。 |
+| BootstrapperBase | C++ 应用启动基类 | 编排配置、根对象创建、窗口加载、生命周期及退出清理，不依赖 DI 库。 |
 | IDialogService | C++ QObject 接口 | 声明确认请求、当前弹窗、忙状态及按请求者取消的契约。 |
 | DialogService | C++ 服务 | 拥有临时确认 VM，管理单次结果、异步回调和请求失效。 |
 | DialogHost | QML 组件 | 显示当前弹窗，处理模态隔离、关闭和焦点恢复。 |
@@ -87,7 +89,7 @@ ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected �
 | 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 已实现基类、Screen 生命周期、注册表与 ViewHost；Conductor 和弹窗按批次增加。 |
 | 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 已实现 Shell 根窗口和 Home 计数页、参数按钮、键盘输入及生命周期状态；详情、业务服务和确认交互待后续批次。 |
 | 示例装配库 | `CaliburnExampleComposition` | 无独立 QML URI | Boost.Ext.DI 创建 Shell/Home，设置 CppOwnership，返回根 unique_ptr。 |
-| 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | 获取根 Shell、登记映射、驱动根生命周期、typed 初始注入及有序退出。 |
+| 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | AppBootstrapper 配置映射与根工厂，框架 Bootstrapper 统一启动、根生命周期、类型化注入及有序退出。 |
 
 框架和用户模块均采用静态库，通过 `qt_add_qml_module` 组织各自的 C++ 与 QML；应用和 QML 测试显式链接插件目标并用 Q_IMPORT_QML_PLUGIN 导入插件，静态类型注册及内嵌资源加载已验证。示例装配库采用 Boost.Ext.DI，Shell 通过构造函数接管 Home；两个 QML 模块和 VM 头文件不包含 DI。
 
@@ -121,7 +123,7 @@ Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名
 | 操作与输入 | QML 显式读取可用状态并直接调用方法；第一批演示无参数，第二批演示 int 参数和原生键盘事件。框架不规定方法名、返回值或自动守卫契约。 |
 | 视图映射 | 应用配置的类型到 View 映射，初始化阶段确定，不硬编码某个示例的页面数量。 |
 
-Home 使用无参构造函数，Shell 只接收 Home 的 unique_ptr；两个业务 VM 不暴露 parent 参数。应用装配层由 DI 自动推导构造依赖，递归创建无父对象的 Home 与 Shell，无需额外构造 traits。Shell 构造函数接管 Home 并验证 QObject 父关系，再释放 Home 的临时 unique_ptr；根 unique_ptr 管理 Shell。局部注入器在 buildShell 返回时销毁，对象继续由父树持有。main 只调用 Shell 生命周期，Shell 的钩子显式驱动 Home。详见 [IoC 与应用装配](docs/IoC与应用装配.md)。
+Home 使用无参构造函数，Shell 只接收 Home 的 unique_ptr；两个业务 VM 不暴露 parent 参数。应用装配层由 DI 自动推导构造依赖，递归创建无父对象的 Home 与 Shell，无需额外构造 traits。Shell 构造函数接管 Home 并验证 QObject 父关系，再释放 Home 的临时 unique_ptr；根 unique_ptr 管理 Shell。局部注入器在 buildShell 返回时销毁，对象继续由父树持有。Bootstrapper 只调用 Shell 生命周期，Shell 的钩子显式驱动 Home；main 只创建应用并调用 Run。详见 [IoC 与应用装配](docs/IoC与应用装配.md)。
 
 游戏专用的 Shell/Home/Game/Board 等 VM、游戏会话、设置服务和 Game 工厂属于使用应用，不是通用框架类型。1.0 不提供动作自动装配、统一执行或输入适配组件；本轮六批目标也不包含事件总线、通用多窗口系统、Qt Widgets 支持或架构自动检查工具。
 
@@ -134,6 +136,7 @@ Home 使用无参构造函数，Shell 只接收 Home 的 unique_ptr；两个业�
 - [第三批验收记录：生命周期与视图装配](docs/第三批验收记录.md)
 - [IoC 与应用装配：构造注入、父所有权与根生命周期](docs/IoC与应用装配.md)
 - [IoC 装配验收记录](docs/IoC装配验收记录.md)
+- [Bootstrapper：配置、根窗口启动与退出清理](docs/Bootstrapper.md)
 - [ScreenViewModel：同步生命周期](docs/ScreenViewModel.md)
 - [ViewModelBase：类型基础、完整成员与通知辅助](docs/ViewModelBase.md)
 - [ViewHost：视图定位、动态加载与所有权](docs/ViewHost.md)

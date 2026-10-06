@@ -19,3 +19,35 @@ target_link_libraries(CaliburnQmlTests PRIVATE
 )
 add_test(NAME qml COMMAND CaliburnQmlTests)
 set_tests_properties(qml PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+
+qt_add_executable(CaliburnBootstrapperTests
+    cpp/tst_bootstrapper.cpp
+    ../examples/minimal/app/AppBootstrapper.h
+    ../examples/minimal/app/AppBootstrapper.cpp
+)
+qt_add_resources(CaliburnBootstrapperTests bootstrapper_fixtures
+    PREFIX /tests
+    FILES fixtures/NonVisual.qml
+)
+target_link_libraries(CaliburnBootstrapperTests PRIVATE
+    CaliburnExampleComposition CaliburnMicroQtplugin CaliburnExampleModuleplugin
+    Qt6::Test Qt6::Quick Qt6::QuickControls2
+)
+# 注册表首次查询后全局冻结；各启动场景必须在独立进程验收。
+foreach(scenario IN ITEMS
+    success exitCode configureFailure missingFactory factoryException nullRoot
+    missingMapping remoteView missingResource nonWindow noRoot ignoredLoadFailure
+    duplicateRoot exitException closeException
+)
+    add_test(NAME bootstrapper_${scenario}
+        COMMAND CaliburnBootstrapperTests "startupAndCleanup:${scenario}")
+    set_tests_properties(bootstrapper_${scenario} PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+        TIMEOUT 15
+    )
+endforeach()
+add_test(NAME bootstrapper_example COMMAND CaliburnBootstrapperTests exampleStartup)
+set_tests_properties(bootstrapper_example PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+    TIMEOUT 15
+)

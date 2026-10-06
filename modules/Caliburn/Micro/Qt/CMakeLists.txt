@@ -6,6 +6,8 @@ qt_add_qml_module(CaliburnMicroQt
     CLASS_NAME CaliburnMicroQtPlugin
     RESOURCE_PREFIX /qt/qml
     SOURCES
+        include/CaliburnMicroQt/BootstrapperBase.h
+        src/BootstrapperBase.cpp
         include/CaliburnMicroQt/ViewModelBase.h
         src/ViewModelBase.cpp
         include/CaliburnMicroQt/ScreenViewModel.h

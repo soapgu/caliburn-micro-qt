@@ -10,7 +10,11 @@ target_link_libraries(CaliburnExampleComposition
     PRIVATE Caliburn::BoostDI
 )
 if(CALIBURN_BUILD_EXAMPLE)
-    qt_add_executable(CaliburnExampleApp MACOSX_BUNDLE app/main.cpp)
+    qt_add_executable(CaliburnExampleApp MACOSX_BUNDLE
+        app/main.cpp
+        app/AppBootstrapper.h
+        app/AppBootstrapper.cpp
+    )
     target_link_libraries(CaliburnExampleApp PRIVATE
         CaliburnExampleComposition
         CaliburnMicroQtplugin
