@@ -118,7 +118,7 @@ QML 依赖此处的 countChanged 更新绑定。增加一个普通的 `propertyC
 
 ## 5. 第一批 ShellViewModel 示例
 
-下面片段表达已实现的第一批根 Shell VM 属性与通知路径；实际源码将声明与方法定义分开，见 [ShellViewModel.h](../examples/minimal/CaliburnExample/viewmodels/ShellViewModel.h) 和 [ShellViewModel.cpp](../examples/minimal/CaliburnExample/viewmodels/ShellViewModel.cpp)。Shell 是入口命名约定，第一批只继承 ViewModelBase；第三批才增加 Screen 生命周期并把计数、文案、参数操作及守卫整体移入 Home，第四批 Shell 再演进为 Conductor。
+下面片段保留第一批根 Shell VM 属性与通知路径；第二批已增加 add(int) 与 canAddTwo，完整当前接口以源码及 [操作与输入绑定](操作与输入绑定.md) 为准。实际源码将声明与方法定义分开，见 [ShellViewModel.h](../examples/minimal/CaliburnExample/viewmodels/ShellViewModel.h) 和 [ShellViewModel.cpp](../examples/minimal/CaliburnExample/viewmodels/ShellViewModel.cpp)。Shell 是入口命名约定，第一批只继承 ViewModelBase；第三批才增加 Screen 生命周期并把计数、文案、参数操作及守卫整体移入 Home，第四批 Shell 再演进为 Conductor。
 
 ```cpp
 // 第一批源码的等价展示：合并声明与方法定义，便于阅读。

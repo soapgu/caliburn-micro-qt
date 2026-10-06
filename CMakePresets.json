@@ -4,7 +4,7 @@
   "configurePresets": [
     {
       "name": "debug",
-      "displayName": "调试构建与第一批测试",
+      "displayName": "调试构建与示例测试",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/debug",
       "cacheVariables": {

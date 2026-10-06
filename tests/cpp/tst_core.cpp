@@ -3,6 +3,7 @@
 #include <QtTest>
 #include <type_traits>
 #include <memory>
+#include <limits>
 
 struct TrackedValue
 {
@@ -105,6 +106,7 @@ private slots:
         ShellViewModel vm;
         QSignalSpy count(&vm, &ShellViewModel::countChanged);
         QSignalSpy increment(&vm, &ShellViewModel::canIncrementChanged);
+        QSignalSpy addTwo(&vm, &ShellViewModel::canAddTwoChanged);
         QSignalSpy reset(&vm, &ShellViewModel::canResetChanged);
         QString observed;
         connect(&vm, &ShellViewModel::countChanged, this, [&] { observed = vm.message(); });
@@ -123,12 +125,54 @@ private slots:
         QCOMPARE(count.count(), 5);
         QCOMPARE(increment.count(), 1);
         QVERIFY(!vm.canIncrement());
+        QVERIFY(!vm.canAddTwo());
+        QCOMPARE(addTwo.count(), 1);
         vm.reset();
         QCOMPARE(vm.count(), 0);
         QCOMPARE(count.count(), 6);
         QCOMPARE(increment.count(), 2);
         QCOMPARE(reset.count(), 2);
         QVERIFY(!vm.canReset());
+        QVERIFY(vm.canAddTwo());
+        QCOMPARE(addTwo.count(), 2);
+    }
+
+    void shellAddBoundaries_data()
+    {
+        QTest::addColumn<int>("initial");
+        QTest::addColumn<int>("delta");
+        for (int initial = 0; initial <= 5; ++initial) {
+            for (int delta : {std::numeric_limits<int>::min(), -1, 0, 1, 2, 3, 5, 6,
+                              std::numeric_limits<int>::max()}) {
+                const QByteArray row = QByteArray::number(initial) + "/" + QByteArray::number(delta);
+                QTest::newRow(row.constData()) << initial << delta;
+            }
+        }
+    }
+
+    void shellAddBoundaries()
+    {
+        QFETCH(int, initial);
+        QFETCH(int, delta);
+        ShellViewModel vm;
+        for (int i = 0; i < initial; ++i)
+            vm.increment();
+        QSignalSpy count(&vm, &ShellViewModel::countChanged);
+        QSignalSpy increment(&vm, &ShellViewModel::canIncrementChanged);
+        QSignalSpy addTwo(&vm, &ShellViewModel::canAddTwoChanged);
+        QSignalSpy reset(&vm, &ShellViewModel::canResetChanged);
+        const bool accepted = delta > 0 && delta <= 5 - initial;
+        const int expected = accepted ? initial + delta : initial;
+        vm.add(delta);
+        QCOMPARE(vm.count(), expected);
+        QCOMPARE(vm.message(), QStringLiteral("已点击 %1 次").arg(expected));
+        QCOMPARE(vm.canIncrement(), expected < 5);
+        QCOMPARE(vm.canAddTwo(), expected <= 3);
+        QCOMPARE(vm.canReset(), expected > 0);
+        QCOMPARE(count.count(), accepted ? 1 : 0);
+        QCOMPARE(increment.count(), int((initial < 5) != (expected < 5)));
+        QCOMPARE(addTwo.count(), int((initial <= 3) != (expected <= 3)));
+        QCOMPARE(reset.count(), int((initial > 0) != (expected > 0)));
     }
 
 };

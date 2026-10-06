@@ -2,7 +2,7 @@
 
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
-> 当前状态：第一批单页面绑定已实现并在 macOS arm64 / Qt 6.8.3 验收通过。框架当前提供 ViewModelBase 与类型化通知辅助；按钮手写 enabled 与 onClicked，1.0 不提供动作自动装配或统一执行组件；第二至六批仍未实施，专题中的后续接口不是当前能力。
+> 当前状态：第一、二批已实现并在 macOS arm64 / Qt 6.8.3 验收通过，示例支持参数按钮与原生键盘操作。框架当前提供 ViewModelBase 与类型化通知辅助；按钮手写 enabled 与 onClicked，1.0 不提供动作自动装配或统一执行组件；第三至六批仍未实施，专题中的后续接口不是当前能力。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
 
@@ -80,19 +80,19 @@ Screen/Conductor 的初始生命周期约定沿用设计来源：`initialize()`�
 
 ## 模块与项目结构
 
-当前已建立两个静态模块和独立启动程序，仅包含第一批需要的类型与页面。下表同时说明后续扩展方向。
+当前已建立两个静态模块和独立启动程序，包含前两批需要的类型与页面。下表同时说明后续扩展方向。
 
 | 单元 | CMake 目标 | QML URI / 版本 | 内容及进度 |
 | --- | --- | --- | --- |
 | 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 已实现基类与类型化通知辅助；其余类型与确认弹窗按批次增加。 |
-| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 已实现 Shell VM/View 计数页，后续逐批增加 Home、详情、业务服务和确认交互。 |
+| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 已实现 Shell VM/View 计数页、add(int)、参数按钮与键盘演示，后续逐批增加 Home、详情、业务服务和确认交互。 |
 | 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | 已实现显式构造、初始属性注入、根窗口加载和退出次序；第三批加入视图映射登记。 |
 
 框架和用户模块均采用静态库，通过 `qt_add_qml_module` 组织各自的 C++ 与 QML；应用和 QML 测试显式链接插件目标并用 Q_IMPORT_QML_PLUGIN 导入插件，静态类型注册及内嵌资源加载已验证。示例采用显式构造注入，下游应用可在装配层使用 Boost.Ext.DI。
 
 ```text
 caliburn-micro-qt/
-├── docs/                          # 设计文档与第一批验收记录
+├── docs/                          # 设计文档与各批验收记录
 ├── modules/Caliburn/Micro/Qt/      # 已实现第一批框架能力
 ├── examples/minimal/              # 已实现 Shell 单页面示例
 │   ├── app/                      # 示例启动与组合根
@@ -128,6 +128,7 @@ DI 是应用层可采用的装配方案。参考方式是在应用装配层声�
 - [模块与项目结构：框架、用户代码与贪吃蛇接入概要](docs/模块与项目结构.md)
 - [迭代实现计划：框架与 example 同步交付](docs/迭代实现计划.md)
 - [第一批验收记录：环境、测试与真实界面操作](docs/第一批验收记录.md)
+- [第二批验收记录：参数、键盘与焦点](docs/第二批验收记录.md)
 - [ViewModelBase：类型基础、完整成员与通知辅助](docs/ViewModelBase.md)
 - [ViewHost：视图定位、动态加载与所有权](docs/ViewHost.md)
 - [操作与输入绑定：显式条件、方法调用与键盘事件](docs/操作与输入绑定.md)
@@ -153,6 +154,8 @@ macOS 启动 `build/debug/bin/CaliburnExampleApp.app`，也可执行：
 ```
 
 Linux 的预期入口为 `build/debug/bin/CaliburnExampleApp`，尚未在麒麟验证。CTest 的 QML 测试默认使用 offscreen/software；macOS 可额外运行 `QT_QPA_PLATFORM=cocoa ./build/debug/tests/CaliburnQmlTests`。真实窗口操作记录与离屏测试分别记录。
+
+当前示例还支持“加 2”按钮与无修饰数字键 `2`，计数超过 3 时禁用。文本框中的数字键用于输入文字，点击空白处恢复页面焦点；长按重复事件不会增加计数。
 
 普通按钮直接绑定 VM 的可用状态与方法，objectName 仅用于对象标识与测试：
 
@@ -190,14 +193,14 @@ cmake --build build/framework-only
 
 ## 当前状态与后续方向
 
-第一批已交付可构建运行的框架与 Shell 示例，包含 C++ 契约测试和 QML 集成测试。当前按钮已改为手写绑定，动作层已移除。本次干净构建、CTest、qmllint、仅框架构建、Cocoa 测试和真实窗口操作均通过；麒麟与第二至六批仍待验证。详情见 [第一批验收记录](docs/第一批验收记录.md)。
+第一批已交付框架基础和 Shell 示例，第二批增加 add(int)、canAddTwo、“加 2”按钮和数字键 2 操作。文本框优先消费输入，页面过滤自动重复；Tab / Shift+Tab 显式切换焦点并跳过禁用按钮。第二批独立目录配置与构建、CTest、qmllint、Cocoa 测试和真实示例操作均通过。详情见 [第一批验收记录](docs/第一批验收记录.md) 与 [第二批验收记录](docs/第二批验收记录.md)。第三至六批、麒麟与外部消费工程仍待验证。下一批实现 ScreenViewModel、ViewRegistry 和 ViewHost，并将计数移入 Home。
 
 后续每批同时交付框架功能、example、必要测试和验收记录，验收通过后进入下一批：
 
 | 批次 | 框架与 example 同步目标 | 当前状态 |
 | --- | --- | --- |
 | 1．单页面绑定 | 基类与类型化通知辅助；Shell 单页面计数文字及按钮 enabled/onClicked 显式绑定。 | 已完成，macOS arm64 验收通过 |
-| 2．参数与键盘 | Shell 同页演示 int 参数按钮与原生键盘事件，直接调用 VM，不增加框架输入组件。 | 未实施、未验证 |
+| 2．参数与键盘 | Shell 同页演示 int 参数按钮与原生键盘事件，直接调用 VM，不增加框架输入组件。 | 已完成，macOS arm64 验收通过 |
 | 3．生命周期与视图装配 | Screen、注册表与 ViewHost；Shell 保持根入口，计数移入 Home，验证单页面装配及 VM 替换。 | 未实施、未验证 |
 | 4．页面组合与导航 | Shell 演进为 Conductor；首页、按需详情、共享业务服务及返回后释放。 | 未实施、未验证 |
 | 5．异步确认 | Shell 根窗口承载 DialogHost；Home 重置/Detail 离开确认、取消失效与焦点。 | 未实施、未验证 |
