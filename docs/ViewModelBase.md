@@ -1,10 +1,10 @@
 # ViewModelBase：类型基础与通知辅助
 
-> 状态：第一批已实现本文基类与类型化通知辅助，macOS arm64 / Qt 6.8.3 验收通过，见 [记录](第一批验收记录.md)。下文接口片段省略模板定义，完整定义位于框架公开头文件；Screen/Conductor 仍待后续批次实现。
+> 状态：第一批已实现本文基类与类型化通知辅助，macOS arm64 / Qt 6.8.3 验收通过，见 [记录](第一批验收记录.md)。下文接口片段省略模板定义，完整定义位于框架公开头文件；Screen 已在第三批实现，见 [生命周期专题](ScreenViewModel.md)；Conductor 待第四批。
 
 ViewModelBase 是所有框架与业务 VM 的共同 QObject 基类，提供两项能力：**作为框架接口的类型锚点，以及辅助派生 VM 比较、赋值并发送通知**。
 
-它不增加 displayName、业务属性或生命周期状态。第一批已实现该基类与类型化通知辅助，用 ShellViewModel 的单页面按钮和文字绑定验证；Screen 生命周期在第三批加入。模块归属见 [模块与项目结构](模块与项目结构.md)，交付顺序见 [迭代实现计划](迭代实现计划.md)。
+它不增加 displayName、业务属性或生命周期状态。第一批已实现该基类与类型化通知辅助，用 ShellViewModel 的单页面按钮和文字绑定验证；Screen 生命周期已在第三批加入。模块归属见 [模块与项目结构](模块与项目结构.md)，交付顺序见 [迭代实现计划](迭代实现计划.md)。
 
 ## 1. 类型锚点有什么作用
 
@@ -12,7 +12,7 @@ ViewModelBase 是所有框架与业务 VM 的共同 QObject 基类，提供两�
 | --- | --- |
 | `ViewHost.model` | 接收 ViewModelBase 派生对象，视图注册表根据实际 VM 类型定位 View。 |
 | `ScreenViewModel` | 在共同类型和通知辅助之上增加初始化、激活、停用；不把生命周期放回基类。 |
-| 用户 `ShellViewModel`、后续 `HomeViewModel` 等 | 继承框架共同类型，自己声明属性、信号、操作与业务依赖。 |
+| 用户 `ShellViewModel`、`HomeViewModel` 等 | 继承框架共同类型，自己声明属性、信号、操作与业务依赖。 |
 
 框架可以接收用户模块的具体 VM，但不需要包含用户 VM 头文件。普通 QObject 不是本项目的 VM 类型，不能直接作为这些类型化入口的替代对象。框架读取的是实际派生对象的元对象，不因使用基类指针而丢失派生类属性。
 
@@ -118,7 +118,7 @@ QML 依赖此处的 countChanged 更新绑定。增加一个普通的 `propertyC
 
 ## 5. 第一批 ShellViewModel 示例
 
-下面片段保留第一批根 Shell VM 属性与通知路径；第二批已增加 add(int) 与 canAddTwo，完整当前接口以源码及 [操作与输入绑定](操作与输入绑定.md) 为准。实际源码将声明与方法定义分开，见 [ShellViewModel.h](../examples/minimal/CaliburnExample/viewmodels/ShellViewModel.h) 和 [ShellViewModel.cpp](../examples/minimal/CaliburnExample/viewmodels/ShellViewModel.cpp)。Shell 是入口命名约定，第一批只继承 ViewModelBase；第三批才增加 Screen 生命周期并把计数、文案、参数操作及守卫整体移入 Home，第四批 Shell 再演进为 Conductor。
+下面片段保留第一批根 Shell VM 属性与通知路径；这是历史快照。第三批已把计数和操作整体移入 [HomeViewModel.h](../examples/minimal/CaliburnExample/viewmodels/HomeViewModel.h)，Shell 仅保留 home 引用，两者继承 Screen。第二批已增加 add(int) 与 canAddTwo，完整当前接口以 Home 源码及 [操作与输入绑定](操作与输入绑定.md) 为准。当前 Home 源码将声明与方法定义分开，见 [HomeViewModel.h](../examples/minimal/CaliburnExample/viewmodels/HomeViewModel.h) 和 [HomeViewModel.cpp](../examples/minimal/CaliburnExample/viewmodels/HomeViewModel.cpp)。Shell 是入口命名约定，第一批只继承 ViewModelBase；第三批已增加 Screen 生命周期并把计数、文案、参数操作及守卫整体移入 Home，第四批 Shell 再演进为 Conductor。
 
 ```cpp
 // 第一批源码的等价展示：合并声明与方法定义，便于阅读。

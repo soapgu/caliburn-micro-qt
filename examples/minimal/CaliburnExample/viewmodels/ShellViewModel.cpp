@@ -1,41 +1,39 @@
 #include "ShellViewModel.h"
+#include <QCoreApplication>
+#include <QThread>
+#include <stdexcept>
 
-ShellViewModel::ShellViewModel(QObject *parent) : ViewModelBase(parent) {}
-
-QString ShellViewModel::message() const
+ShellViewModel::ShellViewModel(std::unique_ptr<HomeViewModel> home)
 {
-    return QStringLiteral("已点击 %1 次").arg(m_count);
+    auto *app = QCoreApplication::instance();
+    if (!home || home->parent() || !app || thread() != app->thread()
+            || QThread::currentThread() != thread() || home->thread() != thread())
+        throw std::invalid_argument("Shell 接管 Home 要求非空、无父对象且位于同一应用主线程");
+
+    home->setParent(this);
+    if (home->parent() != this)
+        throw std::runtime_error("Shell 接管 Home：QObject 父关系建立失败");
+    m_home = home.release();
+    connect(m_home.data(), &QObject::destroyed, this, [this] {
+        m_home.clear();
+        emit homeChanged();
+    });
 }
 
-void ShellViewModel::increment()
+void ShellViewModel::onInitialize()
 {
-    add(1);
+    if (m_home)
+        m_home->initialize();
 }
 
-void ShellViewModel::add(int delta)
+void ShellViewModel::onActivate()
 {
-    // 先比较剩余额度，再相加，避免极大参数导致有符号整数溢出。
-    if (canAdd(delta))
-        updateCount(m_count + delta);
+    if (m_home)
+        m_home->activate();
 }
 
-void ShellViewModel::reset()
+void ShellViewModel::onDeactivate(bool close)
 {
-    if (canReset())
-        updateCount(0);
-}
-
-void ShellViewModel::updateCount(int value)
-{
-    const bool oldCanIncrement = canIncrement();
-    const bool oldCanAddTwo = canAddTwo();
-    const bool oldCanReset = canReset();
-    if (!setAndNotify(m_count, value, &ShellViewModel::countChanged))
-        return;
-    if (oldCanIncrement != canIncrement())
-        emit canIncrementChanged();
-    if (oldCanAddTwo != canAddTwo())
-        emit canAddTwoChanged();
-    if (oldCanReset != canReset())
-        emit canResetChanged();
+    if (m_home)
+        m_home->deactivate(close);
 }

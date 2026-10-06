@@ -1,280 +1,88 @@
 # ViewHost：视图定位、动态加载与所有权
 
-> 状态：目标完整契约，尚未实现。本文所有代码均为设计示例，部分片段省略模块导入、完整类型注册及工程配置，不能直接作为可运行工程。第一批基础绑定已实现，但不包含本文组件；ViewHost、ViewRegistry 和 Screen 在第三批实现。
+第三批已实现 ViewRegistry 与 ViewHost，属于静态框架模块 `Caliburn.Micro.Qt 1.0`。本机验收状态见 [第三批验收记录](第三批验收记录.md)。生命周期由 [ScreenViewModel](ScreenViewModel.md) 提供，宿主负责 View 装配。
 
-ViewHost 回答的问题是：**给定一个 ViewModel，现在应该在这个位置显示哪个 View？**
+## 1. 登记与查询
 
-它可以服务于根活动页面，也可以服务于页面内部的子 VM。View 通过手写 QML 事件处理器直接调用 VM，见 [操作与输入绑定](操作与输入绑定.md)；整体原则见 [README](../README.md)。
+应用在首次非空查询前登记全部映射：
 
-ViewHost、ViewRegistry 和 ViewModelBase 统一属于计划中的 `Caliburn.Micro.Qt 1.0` 框架模块。业务 VM/View 属于用户模块，例如示例的 `CaliburnExample 1.0` 或游戏的 `QtSnakeLab 1.0`；用户 QML 显式导入框架，框架不导入用户模块。目录、模块依赖及静态插件/资源说明见 [模块与项目结构](模块与项目结构.md)。
+```cpp
+const bool registered = ViewRegistry::registerView<HomeViewModel>(
+    QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")));
+const QUrl url = ViewRegistry::viewUrl(home);
+```
 
-按 [迭代实现计划](迭代实现计划.md)，ViewHost、ViewRegistry 和 Screen 生命周期在第三批加入。第一、二批由引擎直接加载 ShellView 单页面根窗口并注入 ShellViewModel，不依赖本文组件。第三批保留 Shell 根入口，将计数整体移入新增的 Home 子页面，Shell 的 ViewHost 绑定 `viewModel.home`；第四批 Shell 演进为 Conductor，改绑 `viewModel.activeItem`，第五批加入确认弹窗映射。下文描述这些阶段的完整目标。
+`registerView<T>(const QUrl&) -> bool` 编译期要求 T 继承 ViewModelBase。登记使用 T::staticMetaObject，查询使用运行时 QMetaObject；具体类型需要自己的 Q_OBJECT 才有独立映射身份。注册表不按名称猜路径，不沿基类回退。
 
-model 的共同类型及派生通知方式见 [ViewModelBase](ViewModelBase.md)。基类提供类型锚点与 protected setAndNotify，不新增展示属性、信号、displayName 或生命周期；ViewHost 仍只借用实际 VM，不通过基类存放 View 引用。
+| 输入或时机 | 结果 |
+| --- | --- |
+| 有效、非空、绝对 URL | 登记成功；不提前检查资源存在性。 |
+| 相同类型与 URL 再次登记 | 冻结前返回 true。 |
+| 相同类型、不同 URL | 返回 false 并诊断，保留原映射。 |
+| 空、非法、相对 URL | 返回 false 并诊断，不修改表。 |
+| 空对象查询 | 返回空 URL，不冻结。 |
+| 首次非空对象查询 | 冻结，即使类型未知；随后任何登记均拒绝。 |
+| 未登记的实际类型 | 诊断并返回空 URL，不使用基类映射。 |
 
-## 1. 与 WPF ContentControl、Caliburn.Micro 的对应关系
+C++ 静态 `viewUrl(const ViewModelBase*)` 与 QML 单例 `resolve(ViewModelBase*)` 共用进程级表。每个引擎拥有自己的查询单例，销毁或重建引擎不丢失映射。表只保存元对象和 URL，不保存 VM。登记、查询和展示 VM 均限定在应用主线程，非法线程调用诊断并拒绝。
 
-WPF 的 ContentControl 可以承载动态内容，并借助 DataTemplate 选择展示方式；Caliburn.Micro 则提供根据 ViewModel 定位、绑定 View 的能力。
+## 2. 宿主接口与用法
 
-Qt Quick 提供动态创建 QML 对象的基础组件 Loader。本项目在它之上增加 ViewRegistry 与 ViewHost，形成面向 VM 的装配入口。
+| 属性 | 契约 |
+| --- | --- |
+| model: ViewModelBase | 可读写，借用目标；默认 null。 |
+| 只读 item: Item | 成功装配的 View；未完成、清空或失败时 null。 |
+| 只读 errorString: string | 最近一次装配错误；新装配开始或空模型时清空。 |
 
-| 需求 | WPF / CM 中的相关概念 | Qt 设计 |
-| --- | --- | --- |
-| 容纳当前内容 | ContentControl | ViewHost 的视觉位置与布局。 |
-| 选择展示方式 | DataTemplate / CM ViewLocator | ViewRegistry 查询应用提供的类型映射。 |
-| 创建界面 | 模板实例化或视图创建 | Loader 创建目标 QML View。 |
-| 连接 View 与 VM | DataContext / CM ViewModelBinder | 创建前设置 View 的 required viewModel 属性。 |
+Shell 是 ApplicationWindow，由引擎直接创建，不能放入 ViewHost。HomeView 的根 FocusScope 是 Item 子类，声明 required property HomeViewModel viewModel。Shell 内容区域使用以下片段，省略导入与根窗口：
 
-这是职责对照。ViewHost 不实现 WPF 的模板系统，也不提供 DataContext 的隐式继承。每个业务 View 明确接收自己的 VM，按钮显式读取它的可用状态并直接调用方法。需要调用其他目标时在表达式中明确引用；框架不扫描视觉树或提供默认动作目标。
+```qml
+ViewHost {
+    model: root.viewModel ? root.viewModel.home : null
+    focus: true
+    Layout.fillWidth: true
+    Layout.fillHeight: true
+}
+```
 
-## 2. 三个组件各自做什么
+完整代码见 [ShellView.qml](../examples/minimal/CaliburnExample/qml/views/ShellView.qml)。Loader 将页面尺寸设为宿主的可用区域，内部布局由页面决定。
 
-**Loader** 是 Qt 原生的对象加载器。**ViewRegistry** 是计划中的 C++ 类型映射入口。**ViewHost** 是计划中的 QML 视觉宿主，串联查询、加载和注入。
+## 3. 创建与失败处理
 
 ```mermaid
-flowchart TD
-    VM[传入 ViewModel 对象] --> Host[ViewHost.model]
-    Host --> Registry[ViewRegistry.resolve]
-    Registry --> URL[应用登记的 QML URL]
-    URL --> Loader[Loader.setSource]
-    VM -->|初始属性 viewModel| Loader
-    Loader --> View[实际 QML View]
+flowchart LR
+    Model[模型身份变化] --> Clear[卸载旧 View，清空 item 与错误]
+    Clear --> Resolve[查询注册表]
+    Resolve --> Load[Loader.setSource：初始属性 viewModel]
+    Load --> Check[检查 Item 与 VM 身份]
+    Check --> Item[公开成功装配的 item]
 ```
 
-目标接口：
+组件完成创建后才加载；身份变化先卸载旧实例，再调用 `Loader.setSource(url, { viewModel: model })`，使 required 属性在创建阶段得到值，不在 onLoaded 后补注入。[Qt Loader 初始属性机制](https://doc.qt.io/qt-6.8/qml-qtquick-loader.html#setSource-method)
 
-| 成员 | 含义 |
+本批使用本地内嵌资源与同步 Loader。无映射、资源不存在、语法错误、required 属性缺失、类型不兼容、缺少 viewModel、创建过程中改写了 VM 身份以及非 Item 根对象都会留下空内容与错误文字，并输出诊断。失败不保留旧页面，不自动重试；换成有效模型可重新装配。Loader 错误文字保留请求 URL，详细 QML 原因由引擎诊断提供。
+
+| 变化 | 结果 |
 | --- | --- |
-| ViewHost.model：ViewModelBase | 借用要展示的 VM；null 表示无内容。 |
-| ViewHost.item：只读 Item | 当前加载完成的视觉对象；未加载或失败时为空。 |
-| ViewRegistry.resolve(ViewModelBase*)：QUrl | 向 QML 提供类型映射查询，不创建 VM。 |
-| ViewRegistry.viewUrl(const ViewModelBase*)：静态 QUrl | 供 C++ 根装配入口使用同一映射表。 |
+| 换成另一类型 VM | 卸载旧 View，查询并创建新 View。 |
+| 换成同类型另一对象 | URL 相同也重建 View。 |
+| 同一对象属性通知 | 只刷新绑定，View 身份不变。 |
+| 同一对象重复赋给 model | 不重建。 |
+| null 或目标销毁 | 清空展示及错误文字。 |
+| 旧对象在替换后销毁 | 不影响新对象与页面。 |
 
-由 ViewHost 承载的业务 View 根对象要求为 Item 或其子类。应用根窗口可以是 ApplicationWindow，由 QML 引擎直接创建，第三批起使用同一注册表定位，不装进 ViewHost。Loader 自身还能加载非视觉 QObject，但不属于这里的视觉宿主契约。
+替换后不要保留旧控件裸指针。QML 绑定更新可能在后续事件处理发生，测试先等待当前 item 的 viewModel 身份匹配，再获取新控件。
 
-ViewRegistry 的通用登记入口由框架提供，映射由使用应用在加载 QML 前的装配阶段提供，运行展示阶段查询稳定的映射。QML 查询单例与 C++ 静态查询必须使用同一份配置；本文不规定尚未实现的注册函数签名。贪吃蛇接入概要为八对游戏业务映射，加一对框架确认映射；框架不限定映射数量，也不内置这些业务类型。
+## 4. 借用与所有权
 
-example 第三批起的映射示例（路径均属于 CaliburnExample 用户模块）：
+内部 ViewHostState 用 QPointer 保存模型，替换时断开旧 destroyed 连接。销毁通知到达时指针可能已清空，因此回调无条件发送 modelChanged，触发卸载。辅助类位于 src，属于实现细节，不是公开 C++ 接口；应用使用宿主的三个属性。
 
-| 应用 VM 类型 | 应用 View 资源 |
-| --- | --- |
-| ShellViewModel | views/ShellView.qml：ApplicationWindow 根窗口，由引擎加载。 |
-| HomeViewModel | views/HomeView.qml：第三批新增的 Item 子页面，由 ViewHost 加载。 |
-| DetailViewModel | views/DetailView.qml：第四批新增的 Item 子页面，由 ViewHost 加载。 |
+C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，卸载不删除 VM，也不调用生命周期。正常退出先关闭 Home、Shell，再销毁引擎和 View，最后释放 VM 树。装配见 [IoC 与应用装配](IoC与应用装配.md)：buildShell 通过 DI 递归创建对象，Shell 构造函数接收 Home 的 unique_ptr，确认非空、无父对象及同一应用主线程，设置并验证 parent 后 release Home。main 只驱动 Shell 生命周期，Shell 的钩子管理 Home。Shell 的 home 属性使用 QPointer，目标意外销毁时发送 homeChanged。
 
-第三批加载前登记 Shell 和 Home 两对映射，第四批增加 Detail，第五批增加框架确认映射。qt-snake-lab 使用自己的 Shell/Home/Game/Difficulty 等业务映射，不能把不同用户模块的同名 VM 和资源混成一张示例清单。
+## 5. 焦点与后续边界
 
-VM 不保存这些资源地址；路径与映射属于应用的视图装配配置。
+ViewHost 使用 FocusScope，内部 Loader 设置 focus。Shell 给宿主设置 focus，Home 根 FocusScope 和内部输入 Item 也设置 focus，形成窗口至页面的焦点链。按键处理位于输入 Item；空白点击对该 Item 调用 forceActiveFocus，避免作用域保留文本框焦点。[Qt 焦点作用域](https://doc.qt.io/qt-6.8/qtquick-input-focus.html)
 
-框架确认 View 的目标资源地址为 `qrc:/qt/qml/Caliburn/Micro/Qt/ConfirmActionView.qml`，由应用在同一初始化流程登记；用户页面使用自身模块的资源地址。这些地址均为待实现设计，必须在后续构建中验证静态插件与实际资源别名。
+窗口失焦不自动停用 VM。通用默认焦点恢复、模态焦点、Conductor、详情导航、缓存、异步加载和自动重试未实现。第四批将宿主改绑 activeItem，第五批加入弹窗。页面内部可使用同一宿主装配子 VM，无须复制加载规则。
 
-## 3. View 如何接收 VM
-
-以 HomeView 为例，根对象声明明确类型的属性：
-
-```qml
-// 设计示例：第三批新增的 HomeView.qml，Shell 根窗口由引擎装配；类型均待实现。
-import QtQuick
-import Caliburn.Micro.Qt 1.0
-import CaliburnExample 1.0
-
-Item {
-    required property HomeViewModel viewModel
-
-    Text {
-        text: viewModel.message
-    }
-}
-```
-
-`required` 表达创建契约：构造这个 View 时就需要提供 viewModel。不能把“加载完成后再赋值”作为正常装配流程。
-
-因此，宿主在创建前传入初始属性：
-
-```qml
-// 设计示例：loader、url、model 均已由宿主提供。
-loader.setSource(url, { viewModel: model })
-```
-
-应用入口创建根 View 时，同样先设置初始属性，再加载注册表返回的 URL；根与子页面使用同一套类型映射，避免维护两份定位规则。
-
-## 4. ViewHost 的最小用法
-
-第三批，ShellViewModel 和 HomeViewModel 均继承 ScreenViewModel。Shell 提供类型化 home 属性，Home 保存从 Shell 迁入的唯一计数状态，Shell 不保留计数和操作副本。ShellView 仍是 ApplicationWindow，声明 `required property ShellViewModel viewModel`，内容区域使用：
-
-```qml
-// 设计示例：第三批 ShellView 的内容区域，省略根窗口与导入。
-ViewHost {
-    anchors.fill: parent
-    model: viewModel.home
-}
-```
-
-Home 由 Shell 的 QObject 父所有权管理，应用装配层安排 Shell/Home 的初始化与激活；ViewHost 只装配 HomeView，不接管 VM 或调用生命周期方法。
-
-第四批起，ShellViewModel 演进为 Conductor，接管子项并公开 activeItem，ShellView 的内容区域改为：
-
-```qml
-// 设计示例：第四批起 ShellView 的内容区域，省略根窗口与导入。
-ViewHost {
-    anchors.fill: parent
-    model: viewModel.activeItem
-}
-```
-
-example 通过 Shell/Conductor 切换活动项：HomeViewModel 显示 HomeView，DetailViewModel 显示 DetailView，null 清空宿主。Home 常驻，Detail 按需创建并在返回后延迟释放；第四批子项须按 Conductor 契约以无既有父对象的候选项交给 addItem 接管，不能重复接管第三批已带 parent 的对象。qt-snake-lab 的对应场景是 Home/Game 切换，属于游戏用户模块。
-
-QML 不需要根据业务枚举判断“现在加载哪个页面”，也不在加载时自行创建业务 VM。选择活动对象属于 VM/Conductor 的职责，页面资源查找属于 ViewRegistry。
-
-一个用于讲解加载顺序的宿主草图如下。它并非完整实现，省略了目标销毁保护、焦点恢复和详细错误报告：
-
-```qml
-// 设计示例：ViewHost 的加载核心，省略框架模块导入。
-import QtQuick
-
-Item {
-    id: root
-
-    property ViewModelBase model: null
-    readonly property Item item: loader.item
-    property bool readyToLoad: false
-
-    function reloadView() {
-        // 即使新旧 VM 映射到同一 URL，也先卸载旧实例。
-        loader.source = ""
-
-        if (!root.model)
-            return
-
-        const url = ViewRegistry.resolve(root.model)
-        if (!url || url.toString().length === 0) {
-            console.warn("ViewHost：VM 缺少有效 View 映射")
-            return
-        }
-
-        loader.setSource(url, { viewModel: root.model })
-    }
-
-    onModelChanged: {
-        if (readyToLoad)
-            reloadView()
-    }
-
-    Component.onCompleted: {
-        readyToLoad = true
-        reloadView()
-    }
-
-    Loader {
-        id: loader
-        anchors.fill: parent
-        focus: true
-
-        onStatusChanged: {
-            if (status === Loader.Error)
-                console.warn("ViewHost：QML View 加载失败", source)
-        }
-    }
-}
-```
-
-正式实现应将可见 item 保持为空直到成功装配；无映射、无效资源、required 属性不满足或类型不符时给出明确诊断，不静默显示旧页面或替代页面。
-
-## 5. 什么变化会重建 View
-
-| 变化 | 宿主行为 |
-| --- | --- |
-| model 从 Home 对象换成 Game 对象 | 卸载旧 View，定位并创建新 View。 |
-| model 换成另一个同类型的 VM | 即使 URL 相同，也重新装配，不能继续引用旧 VM。 |
-| 同一个 VM 的 title、score 等属性变化 | 属性通知刷新对应绑定，不重建 View。 |
-| model 变为 null | 卸载 View，item 为空。 |
-| 目标 VM 被销毁 | 解除借用，清空展示，不保留失效引用。 |
-
-不能只监听 URL 变化，因为两个不同的 VM 实例可能对应同一份 QML 文件。重装配的依据是对象替换。
-
-同一 VM 调用 setAndNotify 更新字段并发出其 NOTIFY 时，只刷新关联属性绑定，不改变 model 身份，也不触发 View 重建。计算属性需要显式复用已有 NOTIFY 或自行通知，基类不自动推导依赖。
-
-## 6. 页面内部也可以使用 ViewHost
-
-在贪吃蛇使用场景中，Home 组合 Difficulty，Game 组合 Board、Status 和覆盖层：
-
-```qml
-// 设计示例：HomeView 的一个子区域。
-ViewHost {
-    model: viewModel.difficulty
-}
-```
-
-```qml
-// 设计示例：GameView 的三个子区域，布局省略。
-ViewHost { model: viewModel.board }
-ViewHost { model: viewModel.status }
-ViewHost { model: viewModel.overlay.activeItem }
-```
-
-这里的 difficulty、board、status 是父 VM 的属性，指向不同子对象，不是不同种类的 ViewHost。每个子 View 接收自己的单个 VM；父 View 不逐项转发分数、按钮条件或业务信号。
-
-覆盖层 activeItem 可以指向 Pause、Result，也可以为空。选择由 Conductor 完成，宿主只负责展示。
-
-## 7. View 树与 VM 树分别由谁管理
-
-| 对象 | 创建与所有权 |
-| --- | --- |
-| 根 VM | 应用组合根创建，由根 unique_ptr 等明确的 C++ 所有者持有。 |
-| 子 VM | 经构造注入或应用工厂创建，验证后交给 QObject 父树管理。 |
-| QML View | Loader/QML 创建与释放，只借用 VM。 |
-| 服务 | 应用长期持有，VM 借用；寿命长于使用者。 |
-| ViewRegistry | 目标为 QML 引擎管理的查询单例，不拥有 VM。 |
-
-VM 接管子对象时，临时 unique_ptr 在设置 QObject 父对象成功后 release，成员指针只用于访问。不能让 unique_ptr 与 QObject 父树同时负责同一个子对象的删除。暴露给 QML 的应用 VM 使用 CppOwnership，QML 的属性引用不转移其所有权。
-
-Loader 卸载 View 不等于销毁 VM。Conductor 单纯切换活动项也不自动删除旧 VM；是否常驻、按需创建或返回后释放，由应用生命周期策略决定。
-
-动态页面的顺序示例：
-
-```text
-应用工厂创建候选页面 VM 子树
-    → 初始化并执行开始用例
-    → 成功后登记、接管并激活
-    → activeItem 变化，ViewHost 装配对应 View
-
-返回用例成功
-    → 停用旧 VM、禁用交互并取消所属弹窗请求
-    → 切换 activeItem，宿主替换 View 及其 VM 引用
-    → 清空应用持有的旧访问指针
-    → removeItem 取消登记并安排 deleteLater
-```
-
-开始失败时由应用释放候选对象，保留原页面。不能在旧 VM 自身信号或确认回调栈中同步删除它。停用、析构、加载和卸载都不能代替开始、返回或结算用例。
-
-退出时先销毁 QML 引擎与 View，再销毁根 VM 树，最后释放借用服务。动态页面也须先卸载旧 View，再释放其借用的 VM。按钮的属性绑定与事件处理器随 View 一同释放，不存在独立动作绑定对象；可空目标由 View 的表达式显式处理。尚未执行的 deleteLater 对象仍保留 QObject 父关系，可由父树回收。
-
-## 8. 焦点与生命周期边界
-
-View 可以公开视觉属性 `readonly property Item defaultFocusItem`，供宿主在活动页面创建完成、窗口活动且没有上层模态交互时恢复默认焦点。它只存在于 View 一侧，不放进 VM。
-
-Loader 本身是焦点作用域，嵌套页面需要相应的 focus 配置。覆盖层关闭、可交互子区域重新可用时，也可能需要视觉层恢复焦点；仅监听一次加载完成并不覆盖所有情况。
-
-窗口失焦时不抢焦点，恢复焦点不自动继续业务。嵌套展示组件也不能各自在加载时争抢焦点。ViewHost 不调用 VM 的 initialize/activate/deactivate，生命周期由应用或 Conductor 管理。
-
-## 9. 待实现验收场景
-
-以下清单在第三批开始验证，动态导航/释放随第四批加入，模态焦点场景随第五批加入；第一版单页面绑定已验收，不包含本文功能；以下 ViewHost 场景仍全部未验证。
-
-- 用户模块 VM 继承框架基类，ViewHost 接收跨模块对象；业务 View 的 typed 属性正确识别其类型。
-- 第三批应用登记 Shell 根窗口与 Home 子页面映射，两者使用同一查询入口；未知类型明确诊断。根窗口保持 typed Shell 注入，Home 通过 `viewModel.home` 装配，生命周期由应用管理。
-- required viewModel 在创建前满足，实际收到的 VM 身份与传入对象一致。
-- 同类型不同 VM 也重装配；同一 VM 的属性变化不重建。
-- null、目标销毁和加载错误清空展示，旧 View 不保存旧 VM 引用。
-- 第四批 Shell 改为 Conductor 后，宿主绑定 activeItem，子项生命周期与所有权由 Conductor 接管；动态页面先卸载视觉引用再延迟释放 VM，退出时没有悬挂借用。
-- 模态关闭后焦点恢复，窗口失焦和业务停用期间不抢焦点。
-
-这些是未来验收设计，不是已有通过结果。
-
-## 参考资料
-
-- [Qt Loader：动态加载与 setSource 初始属性](https://doc.qt.io/qt-6.8/qml-qtquick-loader.html)
-- [Qt required 属性](https://doc.qt.io/qt-6.8/qtqml-syntax-objectattributes.html#required-properties)
-- [Qt C++ 与 QML 数据所有权](https://doc.qt.io/qt-6.8/qtqml-cppintegration-data.html#data-ownership)
-- [Caliburn.Micro：命名约定与 View 定位](https://caliburnmicro.com/documentation/conventions)
-- [Caliburn.Micro：组合与生命周期](https://caliburnmicro.com/documentation/composition)
+验收覆盖跨模块 typed 注入、创建完成时机、同类型替换、属性变化保持身份、清空与销毁、旧连接解绑及各类失败；证据与平台限制见 [第三批验收记录](第三批验收记录.md)。

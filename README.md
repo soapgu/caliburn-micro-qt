@@ -2,7 +2,7 @@
 
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
-> 当前状态：第一、二批已实现并在 macOS arm64 / Qt 6.8.3 验收通过，示例支持参数按钮与原生键盘操作。框架当前提供 ViewModelBase 与类型化通知辅助；按钮手写 enabled 与 onClicked，1.0 不提供动作自动装配或统一执行组件；第三至六批仍未实施，专题中的后续接口不是当前能力。
+> 当前状态：第三批已实现并在 macOS arm64 / Qt 6.8.3 验收通过，提供 ViewModelBase、ScreenViewModel、ViewRegistry 与 ViewHost。Shell 保持根窗口，Home 承接计数、参数按钮及键盘输入；Shell 展示两者的生命周期状态。独立构建、CTest、qmllint、仅框架构建、Cocoa 集成测试及实际窗口操作均通过。后续 IoC 装配调整也已通过本机验收，见 [记录](docs/IoC装配验收记录.md)。第四至六批未实施，麒麟待验证。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
 
@@ -49,11 +49,11 @@ flowchart LR
 | ViewLocator / ViewModelBinder | ViewRegistry、ViewHost | 按应用提供的 VM 类型映射定位 View，创建前注入 viewModel。 |
 | ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
 | WindowManager 的部分职责 | IDialogService、DialogService、DialogHost | 第五批加入单个模态确认弹窗和异步结果，不包含通用多窗口管理。 |
-| IoC / 构造注入 | 应用组合根 + Boost.Ext.DI 参考方案 | 创建与长期持有分开，框架 VM 不依赖容器。 |
+| IoC / 构造注入 | 应用组合根 + Boost.Ext.DI v1.3.2 | 创建与长期持有分开，框架 VM 不依赖容器。 |
 
 ## 类型清单与实现状态
 
-这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase 与类型化通知辅助，其余类型均待后续批次实现，详见 [迭代实现计划](docs/迭代实现计划.md)。
+这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry 和 ViewHost；Conductor 与弹窗类型待后续批次实现，详见 [迭代实现计划](docs/迭代实现计划.md)。
 
 | 类型 | 形态 | 职责 |
 | --- | --- | --- |
@@ -72,7 +72,7 @@ flowchart LR
 
 ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected 模板辅助 `setAndNotify(field, value, &Owner::notifySignal)`。同值不通知，更新先赋值再同步通知；空信号或对象类型不兼容时诊断并拒绝修改。它没有 displayName、字符串通知入口或生命周期状态；QObject 的继承成员继续可用。完整接口、QML 注册与所有权约定见 [ViewModelBase](docs/ViewModelBase.md)。
 
-Screen/Conductor 的初始生命周期约定沿用设计来源：`initialize()`、`activate()`、`deactivate(bool close=false)`；关闭不隐式删除。Conductor 通过 `addItem(std::unique_ptr<ScreenViewModel>)` 接管子项，切换活动项先停用旧项再激活新项。`removeItem(ScreenViewModel*)` 仅接受已登记的非活动项，取消登记后 `deleteLater()`，保留 QObject 父所有权直到实际释放。
+已实现的 Screen 生命周期见 [ScreenViewModel](docs/ScreenViewModel.md)：关闭后可重激活，初始化仍只执行一次。后续 Conductor 的设计约定沿用此接口：`initialize()`、`activate()`、`deactivate(bool close=false)`；关闭不隐式删除。Conductor 通过 `addItem(std::unique_ptr<ScreenViewModel>)` 接管子项，切换活动项先停用旧项再激活新项。`removeItem(ScreenViewModel*)` 仅接受已登记的非活动项，取消登记后 `deleteLater()`，保留 QObject 父所有权直到实际释放。
 
 接管子 VM 时验证非空、没有既有 QObject 父对象、处于同一 GUI 线程；设置父对象成功后释放临时 unique_ptr。父对象的成员指针用于访问，不能再与 QObject 父树同时负责删除。
 
@@ -80,31 +80,33 @@ Screen/Conductor 的初始生命周期约定沿用设计来源：`initialize()`�
 
 ## 模块与项目结构
 
-当前已建立两个静态模块和独立启动程序，包含前两批需要的类型与页面。下表同时说明后续扩展方向。
+当前已建立两个静态模块和独立启动程序，包含前三批需要的类型与页面。下表同时说明后续扩展方向。
 
 | 单元 | CMake 目标 | QML URI / 版本 | 内容及进度 |
 | --- | --- | --- | --- |
-| 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 已实现基类与类型化通知辅助；其余类型与确认弹窗按批次增加。 |
-| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 已实现 Shell VM/View 计数页、add(int)、参数按钮与键盘演示，后续逐批增加 Home、详情、业务服务和确认交互。 |
-| 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | 已实现显式构造、初始属性注入、根窗口加载和退出次序；第三批加入视图映射登记。 |
+| 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 已实现基类、Screen 生命周期、注册表与 ViewHost；Conductor 和弹窗按批次增加。 |
+| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 已实现 Shell 根窗口和 Home 计数页、参数按钮、键盘输入及生命周期状态；详情、业务服务和确认交互待后续批次。 |
+| 示例装配库 | `CaliburnExampleComposition` | 无独立 QML URI | Boost.Ext.DI 创建 Shell/Home，设置 CppOwnership，返回根 unique_ptr。 |
+| 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | 获取根 Shell、登记映射、驱动根生命周期、typed 初始注入及有序退出。 |
 
-框架和用户模块均采用静态库，通过 `qt_add_qml_module` 组织各自的 C++ 与 QML；应用和 QML 测试显式链接插件目标并用 Q_IMPORT_QML_PLUGIN 导入插件，静态类型注册及内嵌资源加载已验证。示例采用显式构造注入，下游应用可在装配层使用 Boost.Ext.DI。
+框架和用户模块均采用静态库，通过 `qt_add_qml_module` 组织各自的 C++ 与 QML；应用和 QML 测试显式链接插件目标并用 Q_IMPORT_QML_PLUGIN 导入插件，静态类型注册及内嵌资源加载已验证。示例装配库采用 Boost.Ext.DI，Shell 通过构造函数接管 Home；两个 QML 模块和 VM 头文件不包含 DI。
 
 ```text
 caliburn-micro-qt/
 ├── docs/                          # 设计文档与各批验收记录
-├── modules/Caliburn/Micro/Qt/      # 已实现第一批框架能力
-├── examples/minimal/              # 已实现 Shell 单页面示例
+├── modules/Caliburn/Micro/Qt/      # 已实现前三批框架能力
+├── examples/minimal/              # 已实现 Shell 根窗口与 Home 计数页面
 │   ├── app/                      # 示例启动与组合根
 │   └── CaliburnExample/           # 用户代码模块
-├── tests/                         # 已有 C++ 与 QML 集成测试
+├── third_party/boost-di/          # 固定 v1.3.2 单头文件与许可证
+├── tests/                         # 已有核心、装配与 QML 集成测试
 ├── CMakeLists.txt                 # 已有模块及构建选项
 └── CMakePresets.json              # 已有可移植 debug 预设
 ```
 
-依赖方向为“启动程序 → 用户代码模块 → 框架模块 → Qt”。第一、二批直接加载 `qrc:/qt/qml/CaliburnExample/views/ShellView.qml`，根窗口声明 `required property ShellViewModel viewModel`。第三批加入框架通用视图注册机制，由应用在加载前登记 Shell 根窗口和 Home 子页面映射，第五批再加入框架确认映射。框架不引用用户类型或业务模块。
+依赖方向为“启动程序 → 应用装配库 → 用户代码模块 → 框架模块 → Qt”；装配库私有依赖 Boost.Ext.DI。第一、二批直接加载 `qrc:/qt/qml/CaliburnExample/views/ShellView.qml`，根窗口声明 `required property ShellViewModel viewModel`。第三批已加入框架通用视图注册机制，应用在加载前登记 Shell 根窗口和 Home 子页面映射，第五批再加入框架确认映射。框架不引用用户类型或业务模块。
 
-Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名保持一致。ShellViewModel 第一批继承 ViewModelBase，第三批演进为 ScreenViewModel，第四批演进为 ConductorViewModel；ShellView.qml 始终是根窗口。第一、二批计数由 Shell 保存，第三批整体移入 Home 子页面，第四批再将计数事实迁入共享业务服务。
+Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名保持一致。ShellViewModel 第一批继承 ViewModelBase，第三批已演进为 ScreenViewModel，第四批演进为 ConductorViewModel；ShellView.qml 始终是根窗口。第一、二批计数由 Shell 保存，第三批已整体移入 Home 子页面，第四批再将计数事实迁入共享业务服务。
 
 完整目录、类型归属、模块接入及 qt-snake-lab 调整概要见 [模块与项目结构](docs/模块与项目结构.md)。该概要只规划游戏仓库的后续接入，尚未修改其结构设计。
 
@@ -115,11 +117,11 @@ Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名
 | Qt | 6.8.3，Qt Quick / QML；已验证 macOS arm64，麒麟待验证。 |
 | C++ | C++17，QObject 属性、信号与元对象系统。 |
 | 构建 | CMake 3.21 及以上、Ninja、qt_add_qml_module；框架/示例用户模块为静态库。 |
-| 应用装配参考 | Boost.Ext.DI v1.3.2，服务按已有实例引用绑定。 |
+| 应用装配 | 已采用 Boost.Ext.DI v1.3.2，固定源码及许可证随仓库提供，配置时校验头文件 SHA-256，构建不下载依赖。 |
 | 操作与输入 | QML 显式读取可用状态并直接调用方法；第一批演示无参数，第二批演示 int 参数和原生键盘事件。框架不规定方法名、返回值或自动守卫契约。 |
 | 视图映射 | 应用配置的类型到 View 映射，初始化阶段确定，不硬编码某个示例的页面数量。 |
 
-DI 是应用层可采用的装配方案。参考方式是在应用装配层声明外部 ctor_traits，排除 `QObject *parent`，让业务 VM 的头文件不包含 DI。容器负责创建，QObject 父子树或根 unique_ptr 负责长期持有；借用服务的寿命必须长于使用者。
+Home 使用无参构造函数，Shell 只接收 Home 的 unique_ptr；两个业务 VM 不暴露 parent 参数。应用装配层由 DI 自动推导构造依赖，递归创建无父对象的 Home 与 Shell，无需额外构造 traits。Shell 构造函数接管 Home 并验证 QObject 父关系，再释放 Home 的临时 unique_ptr；根 unique_ptr 管理 Shell。局部注入器在 buildShell 返回时销毁，对象继续由父树持有。main 只调用 Shell 生命周期，Shell 的钩子显式驱动 Home。详见 [IoC 与应用装配](docs/IoC与应用装配.md)。
 
 游戏专用的 Shell/Home/Game/Board 等 VM、游戏会话、设置服务和 Game 工厂属于使用应用，不是通用框架类型。1.0 不提供动作自动装配、统一执行或输入适配组件；本轮六批目标也不包含事件总线、通用多窗口系统、Qt Widgets 支持或架构自动检查工具。
 
@@ -129,6 +131,10 @@ DI 是应用层可采用的装配方案。参考方式是在应用装配层声�
 - [迭代实现计划：框架与 example 同步交付](docs/迭代实现计划.md)
 - [第一批验收记录：环境、测试与真实界面操作](docs/第一批验收记录.md)
 - [第二批验收记录：参数、键盘与焦点](docs/第二批验收记录.md)
+- [第三批验收记录：生命周期与视图装配](docs/第三批验收记录.md)
+- [IoC 与应用装配：构造注入、父所有权与根生命周期](docs/IoC与应用装配.md)
+- [IoC 装配验收记录](docs/IoC装配验收记录.md)
+- [ScreenViewModel：同步生命周期](docs/ScreenViewModel.md)
 - [ViewModelBase：类型基础、完整成员与通知辅助](docs/ViewModelBase.md)
 - [ViewHost：视图定位、动态加载与所有权](docs/ViewHost.md)
 - [操作与输入绑定：显式条件、方法调用与键盘事件](docs/操作与输入绑定.md)
@@ -137,7 +143,7 @@ DI 是应用层可采用的装配方案。参考方式是在应用装配层声�
 
 ## 构建、运行与测试
 
-需要 Qt 6.8.3 及以上（仅框架需要 Core/Qml；示例与 QML 测试另需 Quick/QuickControls2，测试另需 Test）、CMake 3.21 及以上、Ninja 和支持 C++17 的编译器。将 QT_ROOT 设置为本机 Qt kit 的根目录；公共预设不包含个人路径。
+需要 Qt 6.8.3 及以上（仅框架需要 Core/Qml/Quick；示例与 QML 测试另需 QuickControls2，测试另需 Test）、CMake 3.21 及以上、Ninja 和支持 C++17 的编译器。将 QT_ROOT 设置为本机 Qt kit 的根目录；公共预设不包含个人路径。
 
 ```sh
 export QT_ROOT="你的 Qt kit 根目录"
@@ -162,19 +168,19 @@ Linux 的预期入口为 `build/debug/bin/CaliburnExampleApp`，尚未在麒麟�
 ```qml
 Item {
     id: root
-    required property ShellViewModel viewModel
+    required property HomeViewModel viewModel
 
     Button {
         objectName: "increment"
-        text: root.viewModel.incrementText
-        enabled: root.viewModel.canIncrement
-        onClicked: root.viewModel.increment()
+        text: root.viewModel ? root.viewModel.incrementText : "增加"
+        enabled: root.viewModel !== null && root.viewModel.canIncrement
+        onClicked: { if (root.viewModel) root.viewModel.increment() }
     }
     Button {
         objectName: "reset"
         text: "重置"
-        enabled: root.viewModel.canReset
-        onClicked: root.viewModel.reset()
+        enabled: root.viewModel !== null && root.viewModel.canReset
+        onClicked: { if (root.viewModel) root.viewModel.reset() }
     }
 }
 ```
@@ -193,7 +199,7 @@ cmake --build build/framework-only
 
 ## 当前状态与后续方向
 
-第一批已交付框架基础和 Shell 示例，第二批增加 add(int)、canAddTwo、“加 2”按钮和数字键 2 操作。文本框优先消费输入，页面过滤自动重复；Tab / Shift+Tab 显式切换焦点并跳过禁用按钮。第二批独立目录配置与构建、CTest、qmllint、Cocoa 测试和真实示例操作均通过。详情见 [第一批验收记录](docs/第一批验收记录.md) 与 [第二批验收记录](docs/第二批验收记录.md)。第三至六批、麒麟与外部消费工程仍待验证。下一批实现 ScreenViewModel、ViewRegistry 和 ViewHost，并将计数移入 Home。
+第一批已交付框架基础和 Shell 示例，第二批增加 add(int)、canAddTwo、“加 2”按钮和数字键 2 操作。文本框优先消费输入，页面过滤自动重复；Tab / Shift+Tab 显式切换焦点并跳过禁用按钮。第二批独立目录配置与构建、CTest、qmllint、Cocoa 测试和真实示例操作均通过。详情见 [第一批验收记录](docs/第一批验收记录.md) 与 [第二批验收记录](docs/第二批验收记录.md)。第三批已实现 ScreenViewModel、ViewRegistry 与 ViewHost，计数整体迁入 Home；自动检查及实际窗口验收通过，见 [第三批验收记录](docs/第三批验收记录.md)。第四批将实现 Conductor、详情导航和共享业务服务；麒麟与外部消费工程待验证。
 
 后续每批同时交付框架功能、example、必要测试和验收记录，验收通过后进入下一批：
 
@@ -201,7 +207,7 @@ cmake --build build/framework-only
 | --- | --- | --- |
 | 1．单页面绑定 | 基类与类型化通知辅助；Shell 单页面计数文字及按钮 enabled/onClicked 显式绑定。 | 已完成，macOS arm64 验收通过 |
 | 2．参数与键盘 | Shell 同页演示 int 参数按钮与原生键盘事件，直接调用 VM，不增加框架输入组件。 | 已完成，macOS arm64 验收通过 |
-| 3．生命周期与视图装配 | Screen、注册表与 ViewHost；Shell 保持根入口，计数移入 Home，验证单页面装配及 VM 替换。 | 未实施、未验证 |
+| 3．生命周期与视图装配 | Screen、注册表与 ViewHost；Shell 根入口、Home 计数页面及 VM 替换。 | 已完成，macOS arm64 验收通过 |
 | 4．页面组合与导航 | Shell 演进为 Conductor；首页、按需详情、共享业务服务及返回后释放。 | 未实施、未验证 |
 | 5．异步确认 | Shell 根窗口承载 DialogHost；Home 重置/Detail 离开确认、取消失效与焦点。 | 未实施、未验证 |
 | 6．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
