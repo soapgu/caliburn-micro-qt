@@ -59,6 +59,7 @@ private slots:
         QVERIFY(ViewRegistry::registerView<NonVisualVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/NonVisual.qml"))));
         QVERIFY(ViewRegistry::registerView<SyntaxVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/SyntaxError.qml"))));
         QVERIFY(ViewRegistry::registerView<MismatchVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/Mismatch.qml"))));
+        QVERIFY(ViewRegistry::freeze());
     }
 
     void registeredTypesAreNotCreatable_data()
@@ -79,6 +80,18 @@ private slots:
         component.setData(source, QUrl());
         QVERIFY(component.isError());
         QVERIFY(component.errorString().contains(QStringLiteral("创建")));
+    }
+
+    void viewHostStateIsCreatable()
+    {
+        QQmlEngine engine;
+        useEmbeddedModules(engine);
+        QQmlComponent component(&engine);
+        component.setData("import Caliburn.Micro.Qt 1.0; ViewHostState {}", QUrl());
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> state(component.create());
+        QVERIFY2(state, qPrintable(component.errorString()));
+        QVERIFY(!state->property("model").value<QObject *>());
     }
 
     void requiredTypedInjection()

@@ -76,13 +76,24 @@ protected:
         if (m_scenario == "remoteView")
             url = QUrl(QStringLiteral("https://example.invalid/ShellView.qml"));
 
-        return ViewRegistry::registerView<ShellViewModel>(url)
-            && ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")));
+        if (!ViewRegistry::registerView<ShellViewModel>(url))
+            return false;
+        if (m_scenario == "configureQuery") {
+            ShellViewModel probe(std::make_unique<HomeViewModel>());
+            if (ViewRegistry::viewUrl(&probe) != url)
+                return false;
+        }
+        return ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")));
     }
 
     bool OnStartup() override
     {
         m_observation.order << "startup";
+        if (m_scenario == "lateRegistration") {
+            QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：配置已冻结，拒绝登记");
+            if (ViewRegistry::registerView<ShellViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))))
+                return false;
+        }
         if (m_scenario == "noRoot")
             return true;
         const bool displayed = DisplayRootViewFor<ShellViewModel>();
@@ -173,6 +184,8 @@ private slots:
         QTest::addColumn<int>("closeCalls");
         QTest::addColumn<bool>("aliveAtExit");
         QTest::newRow("success") << QString("success") << 0 << true << 1 << 1 << true;
+        QTest::newRow("configureQuery") << QString("configureQuery") << 0 << true << 1 << 1 << true;
+        QTest::newRow("lateRegistration") << QString("lateRegistration") << 0 << true << 1 << 1 << true;
         QTest::newRow("exitCode") << QString("exitCode") << 7 << true << 1 << 1 << true;
         QTest::newRow("configureFailure") << QString("configureFailure") << 1 << false << 0 << 0 << false;
         QTest::newRow("missingFactory") << QString("missingFactory") << 1 << false << 0 << 0 << false;
@@ -209,6 +222,8 @@ private slots:
             QCOMPARE(observation.activeAtExit, scenario == "closeException");
             QCOMPARE(observation.exitCalls, 1);
             QVERIFY(!observation.shell && !observation.home && !observation.window);
+            if (scenario == "configureFailure")
+                QVERIFY(ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))));
             if (entersLoop) {
                 QVERIFY(observation.typedInjection);
                 QVERIFY(observation.homeLoaded);

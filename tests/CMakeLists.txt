@@ -33,9 +33,9 @@ target_link_libraries(CaliburnBootstrapperTests PRIVATE
     CaliburnExampleComposition CaliburnMicroQtplugin CaliburnExampleModuleplugin
     Qt6::Test Qt6::Quick Qt6::QuickControls2
 )
-# 注册表首次查询后全局冻结；各启动场景必须在独立进程验收。
+# 注册表映射与冻结状态均为进程级；各场景需要不同映射或空表，独立进程验收。
 foreach(scenario IN ITEMS
-    success exitCode configureFailure missingFactory factoryException nullRoot
+    success configureQuery lateRegistration exitCode configureFailure missingFactory factoryException nullRoot
     missingMapping remoteView missingResource nonWindow noRoot ignoredLoadFailure
     duplicateRoot exitException closeException
 )

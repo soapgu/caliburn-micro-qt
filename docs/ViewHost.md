@@ -4,11 +4,12 @@
 
 ## 1. 登记与查询
 
-应用在首次非空查询前登记全部映射：
+应用在配置阶段登记全部映射，完成后显式冻结。使用 BootstrapperBase 时，它在 Configure 成功后自动调用 freeze()；独立使用注册表与宿主时，由应用在创建界面前调用：
 
 ```cpp
 const bool registered = ViewRegistry::registerView<HomeViewModel>(
     QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")));
+const bool frozen = ViewRegistry::freeze();
 const QUrl url = ViewRegistry::viewUrl(home);
 ```
 
@@ -20,11 +21,12 @@ const QUrl url = ViewRegistry::viewUrl(home);
 | 相同类型与 URL 再次登记 | 冻结前返回 true。 |
 | 相同类型、不同 URL | 返回 false 并诊断，保留原映射。 |
 | 空、非法、相对 URL | 返回 false 并诊断，不修改表。 |
-| 空对象查询 | 返回空 URL，不冻结。 |
-| 首次非空对象查询 | 冻结，即使类型未知；随后任何登记均拒绝。 |
+| freeze() | 在应用主线程返回 true 并冻结；重复调用返回 true，随后任何登记均拒绝。非法线程调用返回 false，不改变配置。 |
+| 空对象查询 | 返回空 URL，不改变冻结状态。 |
+| 非空对象查询 | 冻结前后均可查询，不改变冻结状态；配置阶段查询后仍可继续登记。 |
 | 未登记的实际类型 | 诊断并返回空 URL，不使用基类映射。 |
 
-C++ 静态 `viewUrl(const ViewModelBase*)` 与 QML 单例 `resolve(ViewModelBase*)` 共用进程级表。每个引擎拥有自己的查询单例，销毁或重建引擎不丢失映射。表只保存元对象和 URL，不保存 VM。登记、查询和展示 VM 均限定在应用主线程，非法线程调用诊断并拒绝。
+C++ 静态 `viewUrl(const ViewModelBase*)` 与 QML 单例 `resolve(ViewModelBase*)` 共用进程级表。freeze() 是 C++ 配置入口，不向 QML 暴露。每个引擎拥有自己的查询单例，销毁或重建引擎不丢失映射或冻结状态。表只保存元对象和 URL，不保存 VM。登记、冻结、查询和展示 VM 均限定在应用主线程，非法线程调用诊断并拒绝。未知类型及非法查询也不冻结注册表；运行期不提供解冻或清空接口。
 
 ## 2. 宿主接口与用法
 
@@ -75,7 +77,15 @@ flowchart LR
 
 ## 4. 借用与所有权
 
-内部 ViewHostState 用 QPointer 保存模型，替换时断开旧 destroyed 连接。销毁通知到达时指针可能已清空，因此回调无条件发送 modelChanged，触发卸载。辅助类位于 src，属于实现细节，不是公开 C++ 接口；应用使用宿主的三个属性。
+ViewHostState 是 `Caliburn.Micro.Qt 1.0` 模块公开、可创建的 QML 辅助类型。应用导入模块后可以直接使用 `ViewHostState {}`，ViewHost 自身也通过这种方式创建它。其头文件位于 src，不作为公开 C++ 头文件提供；这不限制它的公开 QML 接口。一般页面装配优先使用 ViewHost 的三个属性。
+
+| ViewHostState 的 QML 接口 | 契约 |
+| --- | --- |
+| model: ViewModelBase | 可读写，默认 null；借用 VM，不接管所有权。赋值必须在辅助对象所属线程执行，非空 VM 必须属于同一线程；非法赋值输出诊断并保留旧模型。 |
+| modelChanged() | 模型身份变化或当前模型销毁时通知；重复赋入同一对象不通知，VM 自身属性变化不触发此信号。 |
+| matchesView(view: QObject) -> bool | 当前模型和 view 均非空，且 view 的 viewModel 属性可转换为 QObject 指针并与当前模型指针相同时返回 true；否则返回 false。 |
+
+ViewHostState 用 QPointer 保存模型，替换时断开旧 destroyed 连接。销毁通知到达时指针可能已清空，因此回调无条件发送 modelChanged，触发 ViewHost 卸载。QML 可创建性由契约测试覆盖。
 
 C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，卸载不删除 VM，也不调用生命周期。正常退出先关闭 Home、Shell，再销毁引擎和 View，最后释放 VM 树。装配见 [IoC 与应用装配](IoC与应用装配.md)：buildShell 通过 DI 递归创建对象，Shell 构造函数接收 Home 的 unique_ptr，确认非空、无父对象及同一应用主线程，设置并验证 parent 后 release Home。main 只驱动 Shell 生命周期，Shell 的钩子管理 Home。Shell 的 home 属性使用 QPointer，目标意外销毁时发送 homeChanged。
 

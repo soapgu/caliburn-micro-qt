@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
 | 接口 | 契约 |
 | --- | --- |
 | `int Run()` | 编排配置、启动、事件循环和清理。同一实例只能调用一次；重复调用返回 1，不重复执行退出钩子。 |
-| `bool Configure()` | 应用设置样式、登记所有 View 映射和根工厂；返回 false 则停止启动。 |
+| `bool Configure()` | 应用设置样式、登记所有 View 映射和根工厂；返回 false 则停止启动，不自动冻结注册表。成功后由 Bootstrapper 显式冻结，再进入 OnStartup。 |
 | `bool OnStartup()` | 应用调用 `DisplayRootViewFor<T>()`，返回启动结果。返回 true 但未成功加载根窗口仍会判定失败。 |
 | `void OnExit()` | 可选的应用退出钩子，在根生命周期关闭之后、View 和 VM 释放之前调用。配置或启动中途失败也会调用，须兼容部分初始化。 |
 | `bool RegisterRootFactory<T>(factory)` | 只允许在 Configure 中登记，每个类型只能登记一次，工厂返回 unique_ptr<T>。登记时不创建对象。 |
@@ -40,7 +40,7 @@ Bootstrapper 保存按 VM 元对象地址索引的根工厂；它只负责创建
 ## 启动与退出顺序
 
 1. Run 显式执行 Configure，不在构造函数里调用虚方法。
-2. OnStartup 调用根工厂。所有映射登记必须在此之前完成，因为 ViewRegistry 首次查询后全局冻结。
+2. Configure 成功后调用 ViewRegistry::freeze()，然后进入 OnStartup 并调用根工厂。所有映射登记必须在 Configure 中完成；配置阶段查询不会提前冻结。
 3. 查询根 View 地址，拒绝空映射与远程 URL。
 4. 初始化并激活根 Screen；Shell 钩子继续驱动 Home。
 5. 创建 QQmlApplicationEngine，类型化注入 viewModel，加载根 View。
@@ -56,7 +56,7 @@ Bootstrapper 保存按 VM 元对象地址索引的根工厂；它只负责创建
 
 ## 验证
 
-CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周期、View 先于 VM 释放、重复运行保护、失败清理和异常退出。各场景由 CTest 在独立进程运行，避免全局 ViewRegistry 冻结影响后续场景。实际 AppBootstrapper 另有窗口关闭退出的集成场景。
+CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周期、View 先于 VM 释放、重复运行保护、失败清理和异常退出，并覆盖 Configure 中查询后继续登记、进入 OnStartup 前已经冻结以及 Configure 失败不自动冻结。各场景由 CTest 在独立进程运行：注册表的映射和冻结状态均为进程级，不同场景需要为同一类型使用不同映射或保留空表；显式冻结不消除这项隔离需求。实际 AppBootstrapper 另有窗口关闭退出的集成场景。
 
 2026-10-06 在 macOS arm64 / Qt 6.8.3 验证：
 

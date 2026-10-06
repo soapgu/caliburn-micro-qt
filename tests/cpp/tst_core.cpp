@@ -178,17 +178,31 @@ private slots:
         QCOMPARE(ViewRegistry::viewUrl(&home), homeUrl);
         QCOMPARE(registry.resolve(&home), homeUrl);
         QCOMPARE(ViewRegistry::viewUrl(&shell), QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml")));
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：配置已冻结，拒绝登记");
-        QVERIFY(!ViewRegistry::registerView<HomeViewModel>(homeUrl));
         DerivedHome unknown;
         QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：未登记类型 DerivedHome");
         QVERIFY(ViewRegistry::viewUrl(&unknown).isEmpty());
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：登记与查询必须在应用主线程调用");
+        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：登记、冻结与查询必须在应用主线程调用");
+        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：登记、冻结与查询必须在应用主线程调用");
         QUrl workerUrl;
-        auto worker = std::unique_ptr<QThread>(QThread::create([&] { workerUrl = ViewRegistry::viewUrl(&home); }));
+        bool workerFrozen = true;
+        auto worker = std::unique_ptr<QThread>(QThread::create([&] {
+            workerUrl = ViewRegistry::viewUrl(&home);
+            workerFrozen = ViewRegistry::freeze();
+        }));
         worker->start();
         QVERIFY(worker->wait(5000));
         QVERIFY(workerUrl.isEmpty());
+        QVERIFY(!workerFrozen);
+        // 成功、未知类型和非法线程查询都不能结束配置；非法线程冻结也无副作用。
+        const QUrl derivedUrl(QStringLiteral("qrc:/derived.qml"));
+        QVERIFY(ViewRegistry::registerView<DerivedHome>(derivedUrl));
+        QCOMPARE(ViewRegistry::viewUrl(&unknown), derivedUrl);
+        QVERIFY(ViewRegistry::freeze());
+        QVERIFY(ViewRegistry::freeze());
+        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：配置已冻结，拒绝登记");
+        QVERIFY(!ViewRegistry::registerView<HomeViewModel>(homeUrl));
+        QCOMPARE(ViewRegistry::viewUrl(&home), homeUrl);
+        QCOMPARE(registry.resolve(&home), homeUrl);
     }
 
     void shellOwnsHomeAfterHandoff()

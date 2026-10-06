@@ -67,6 +67,8 @@ bool BootstrapperBase::Initialize()
     m_state = State::Configuring;
     if (!Configure())
         return Fail(QStringLiteral("Configure 失败"));
+    if (!ViewRegistry::freeze())
+        return Fail(QStringLiteral("ViewRegistry 冻结失败"));
     m_state = State::Starting;
     if (!OnStartup())
         return Fail(QStringLiteral("OnStartup 失败"));

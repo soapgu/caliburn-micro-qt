@@ -19,6 +19,8 @@ public:
         return registerType(T::staticMetaObject, url);
     }
 
+    // 在应用主线程显式结束映射登记；重复冻结返回 true。
+    [[nodiscard]] static bool freeze();
     static QUrl viewUrl(const ViewModelBase *model);
     Q_INVOKABLE QUrl resolve(ViewModelBase *model) const { return viewUrl(model); }
 

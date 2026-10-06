@@ -3,7 +3,7 @@
 #include <CaliburnMicroQt/ViewModelBase.h>
 #include <QPointer>
 
-// 宿主内部的借用保护；应用应使用 ViewHost，不直接依赖此辅助类型。
+// 公开、可创建的 QML 借用保护辅助类型；页面装配优先使用 ViewHost。
 class ViewHostState : public QObject
 {
     Q_OBJECT

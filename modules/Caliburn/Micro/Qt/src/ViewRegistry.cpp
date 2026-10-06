@@ -20,7 +20,7 @@ bool isApplicationThread()
     auto *app = QCoreApplication::instance();
     if (app && QThread::currentThread() == app->thread())
         return true;
-    qWarning("ViewRegistry：登记与查询必须在应用主线程调用");
+    qWarning("ViewRegistry：登记、冻结与查询必须在应用主线程调用");
     return false;
 }
 }
@@ -49,18 +49,25 @@ bool ViewRegistry::registerType(const QMetaObject &type, const QUrl &url)
     return true;
 }
 
+bool ViewRegistry::freeze()
+{
+    if (!isApplicationThread())
+        return false;
+    registryData().frozen = true;
+    return true;
+}
+
 QUrl ViewRegistry::viewUrl(const ViewModelBase *model)
 {
     if (!isApplicationThread())
         return {};
     if (!model)
         return {};
-    auto &data = registryData();
-    data.frozen = true;
     if (model->thread() != QThread::currentThread()) {
         qWarning("ViewRegistry：模型必须位于应用主线程");
         return {};
     }
+    const auto &data = registryData();
     const auto found = data.views.constFind(model->metaObject());
     if (found != data.views.cend())
         return *found;
