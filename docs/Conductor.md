@@ -1,6 +1,6 @@
 # Conductor<T>：泛型单项导航
 
-本轮实现普通单项 Conductor 的核心与自动测试，尚未改造 Shell/Home 示例。`Collection.OneActive` 留到下一轮；第四批页面导航、共享服务和实际窗口验收尚未完成。
+第四批 4A 已实现普通单项 Conductor 核心与自动测试，尚未改造 Shell/Home 示例。下一步 4B 先接入 Shell 与共享计数服务；后续 4C 再完善 `Collection.OneActive`、Home 常驻及 Detail 导航。4B/4C 尚未实现或验收，阶段设计见 [实现计划](迭代实现计划.md#第四批阶段划分)。
 
 ## 类型与使用
 
@@ -78,9 +78,17 @@ Screen 的停用条件与 CM 一致：`isActive || (isInitialized && close)`；�
 | 已初始化对象重复关闭 | 每次执行关闭钩子，不维护关闭标记。 | 相同；Conductor 当前项为空时不重复通知或删除。 |
 | 已初始化普通 Conductor 父关闭 | 向当前项传播 close=true，保留 ActiveItem 引用。 | 清空 activeItem、传播关闭并延迟删除当前项；再次激活父对象时无当前项。 |
 | 关闭守卫和异步 | CloseStrategy、异步生命周期。 | 暂不实现守卫，沿用同步 Screen。 |
-| Collection.OneActive | 保留多项，仅一个活动，切换不关闭旧项。 | 下一轮实现，不与普通 Conductor 混用。 |
+| Collection.OneActive | 保留多项，仅一个活动，切换不关闭旧项。 | 4C 后续目标，不与 4B 的单项 Conductor 混用。 |
 
 CM 可重复传入已有对象；本轮 Qt 接管入口使用 unique_ptr，不重复移交已经接管的对象。返回旧页面需要重新创建 VM；业务事实应保存在寿命更长的服务中。需要保持 Home 常驻或页面复用时，应使用后续集合型 Conductor。
+
+## 4B 示例接入与 4C 边界（待实现）
+
+4B 计划让 Shell 继承 `Conductor<ScreenViewModel>`，构造注入 HomeViewModelFactory；初始创建并接管 Home，但不初始化或激活。Shell.initialize() 只初始化自身，onActivate() 在当前项为空时创建 Home，再调用 Conductor 基类实现；不再手写子项的初始化、停用和关闭传播。home 属性仅是 activeItem 的类型化投影，ViewHost 绑定 activeItem。
+
+普通停用保留同一个 Home，已初始化 Shell 关闭则清空并延迟释放它；关闭后重新激活通过工厂创建新 Home。计数迁入工厂与页面共同持有的共享服务，页面重建不重置计数。当前项意外销毁时不自动导航，留待下一次 Shell 激活重建。构造接口、依赖边界及服务寿命见 [4B 装配设计](IoC与应用装配.md#4b-目标设计待实现)。
+
+这只是计划中的应用接入方式，不改变前文已实现的单项核心契约，也不加入缓存或 Items 集合。4C 再完善 Collection.OneActive 和 Detail 导航，调整 Shell 支持 Home 常驻、Detail 按需创建与返回后释放；接口与关闭策略在该阶段单独确定。4B 完成不表示第四批导航整批完成。
 
 ## 验证范围
 

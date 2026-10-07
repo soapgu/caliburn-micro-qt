@@ -93,6 +93,14 @@ C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，卸载不删除
 
 ViewHost 使用 FocusScope，内部 Loader 设置 focus。Shell 给宿主设置 focus，Home 根 FocusScope 和内部输入 Item 也设置 focus，形成窗口至页面的焦点链。按键处理位于输入 Item；空白点击对该 Item 调用 forceActiveFocus，避免作用域保留文本框焦点。[Qt 焦点作用域](https://doc.qt.io/qt-6.8/qtquick-input-focus.html)
 
-窗口失焦不自动停用 VM。泛型单项 Conductor 核心已实现，并通过 activeItem 绑定宿主的集成验证，见 [Conductor](Conductor.md)。通用默认焦点恢复、模态焦点、集合型 Conductor、详情导航、缓存、异步加载和自动重试未实现。第四批将宿主改绑 activeItem，第五批加入弹窗。页面内部可使用同一宿主装配子 VM，无须复制加载规则。
+窗口失焦不自动停用 VM。泛型单项 Conductor 核心已实现，并通过 activeItem 绑定宿主的集成验证，见 [Conductor](Conductor.md)。通用默认焦点恢复、模态焦点、集合型 Conductor、详情导航、缓存、异步加载和自动重试未实现。第四批 4B 计划先将宿主改绑 activeItem 并迁移共享计数服务，4C 再完善集合型与 Detail 导航，第五批加入弹窗。页面内部可使用同一宿主装配子 VM，无须复制加载规则。
 
 验收覆盖跨模块 typed 注入、创建完成时机、同类型替换、属性变化保持身份、清空与销毁、旧连接解绑及各类失败；证据与平台限制见 [第三批验收记录](第三批验收记录.md)。
+
+## 6. 4B 宿主接入计划（待实现）
+
+上文 home 绑定及 Shell 持有方式仍是当前示例实现。下一步 [4B 计划](迭代实现计划.md#阶段-4b目标设计待实现) 将 ShellView 的 model 改绑 `root.viewModel ? root.viewModel.activeItem : null`；Shell 的 home 属性仅作为类型化投影，通过 activeItemChanged 通知，不再单独保存 Home 指针。HomeView 仍声明 required property HomeViewModel viewModel。
+
+该阶段只展示 Home。Shell 普通停用时页面身份不变；已初始化 Shell 关闭时 activeItem 清空，宿主卸载旧 View，Conductor 再关闭并延迟回收旧 VM。后续 Shell 激活会创建新的 Home，触发宿主重建，而计数由共享服务保留；当前项意外销毁时先清空界面，不在销毁通知中自动导航。依赖与寿命见 [4B 装配设计](IoC与应用装配.md#4b-目标设计待实现)。
+
+本次不改 ViewHost、Loader 或所有权契约，不增加宿主缓存、自动重试或通用焦点恢复。4B 实现时验证旧 View 先于旧 VM 销毁，以及新 Home 注入、按钮、键盘与焦点回归；4C 再完善集合型和 Detail 导航、登记 Detail 映射。此前验收记录不作为这些新行为的通过证据。

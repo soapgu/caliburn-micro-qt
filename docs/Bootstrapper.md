@@ -54,6 +54,12 @@ Bootstrapper 保存按 VM 元对象地址索引的根工厂；它只负责创建
 
 第一版仅支持一个根窗口、本地或 qrc QML 和同步 Screen 生命周期。远程 QML、异步生命周期、多窗口管理和运行时模块加载不包含在当前接口中。
 
+## 4B 计划衔接（待实现）
+
+以上描述当前源码。下一步 4B 计划改造 Shell 与共享计数服务，但保留 buildShell()、根工厂注册、DisplayRootViewFor<ShellViewModel>() 和 Run 的入口；Bootstrapper 继续只驱动根生命周期，不负责直接创建 Home 或服务。详见 [阶段计划](迭代实现计划.md#阶段-4b目标设计待实现) 与 [4B 装配设计](IoC与应用装配.md#4b-目标设计待实现)。
+
+计划中子项的父关系与 CppOwnership 由 Conductor 接管流程设置；Shell 构造时选择未初始化 Home，Shell.initialize() 不提前初始化子项，激活时由 Conductor 驱动。已初始化 Shell 关闭会清空 activeItem 并安排旧 Home 延迟删除，不能继续使用旧装配中“关闭后同一 Home 保留”的测试断言。Bootstrapper 的关闭根、卸载 View 及根对象清理职责不变；这些变化待 4B 源码实现和集成验收后再更新为当前行为。4C 集合型与 Detail 导航后续完善，不要求本阶段新增映射。
+
 ## 验证
 
 CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周期、View 先于 VM 释放、重复运行保护、失败清理和异常退出，并覆盖 Configure 中查询后继续登记、进入 OnStartup 前已经冻结以及 Configure 失败不自动冻结。各场景由 CTest 在独立进程运行：注册表的映射和冻结状态均为进程级，不同场景需要为同一类型使用不同映射或保留空表；显式冻结不消除这项隔离需求。实际 AppBootstrapper 另有窗口关闭退出的集成场景。

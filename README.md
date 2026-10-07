@@ -2,7 +2,7 @@
 
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
-> 当前状态：第三批已实现并在 macOS arm64 / Qt 6.8.3 验收通过，提供 ViewModelBase、ScreenViewModel、ViewRegistry 与 ViewHost。Shell 保持根窗口，Home 承接计数、参数按钮及键盘输入；Shell 展示两者的生命周期状态。独立构建、CTest、qmllint、仅框架构建、Cocoa 集成测试及实际窗口操作均通过。后续 IoC 装配调整也已通过本机验收，见 [记录](docs/IoC装配验收记录.md)。现已补充泛型单项 Conductor 核心与自动测试；第四批示例导航尚未完成，Collection.OneActive 下一轮实现，第五、六批未实施，麒麟待验证。
+> 当前状态：第三批已实现并在 macOS arm64 / Qt 6.8.3 验收通过，提供 ViewModelBase、ScreenViewModel、ViewRegistry 与 ViewHost。Shell 保持根窗口，Home 承接计数、参数按钮及键盘输入；Shell 展示两者的生命周期状态。独立构建、CTest、qmllint、仅框架构建、Cocoa 集成测试及实际窗口操作均通过。后续 IoC 装配调整也已通过本机验收，见 [记录](docs/IoC装配验收记录.md)。现已补充泛型单项 Conductor 核心与自动测试；第四批按 4A/4B/4C 推进：4A 单项核心已完成，4B Shell 与共享计数服务待实现，4C Collection.OneActive 与 Detail 导航留到后续；第五、六批未实施，麒麟待验证。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
 
@@ -45,7 +45,7 @@ flowchart LR
 | --- | --- | --- |
 | PropertyChangedBase | ViewModelBase + QObject 属性系统 | 派生 VM 声明 Q_PROPERTY / NOTIFY，基类提供类型化 setAndNotify；不提供字符串通知入口。 |
 | Screen | ScreenViewModel | 初始化一次，激活与普通停用幂等；已初始化对象每次关闭都执行钩子，生命周期接口由 C++ 管理。 |
-| Conductor<T> | Conductor<T> + ConductorViewModelBase | 已实现泛型单项导航；切换关闭旧项并延迟释放。Collection.OneActive 下一轮实现。 |
+| Conductor<T> | Conductor<T> + ConductorViewModelBase | 已实现泛型单项导航；切换关闭旧项并延迟释放。4B 先接入 Shell，4C 再实现 Collection.OneActive。 |
 | ViewLocator / ViewModelBinder | ViewRegistry、ViewHost | 按应用提供的 VM 类型映射定位 View，创建前注入 viewModel。 |
 | ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
 | WindowManager 的部分职责 | IDialogService、DialogService、DialogHost | 第五批加入单个模态确认弹窗和异步结果，不包含通用多窗口管理。 |
@@ -108,7 +108,7 @@ caliburn-micro-qt/
 
 依赖方向为“启动程序 → 应用装配库 → 用户代码模块 → 框架模块 → Qt”；装配库私有依赖 Boost.Ext.DI。第一、二批直接加载 `qrc:/qt/qml/CaliburnExample/views/ShellView.qml`，根窗口声明 `required property ShellViewModel viewModel`。第三批已加入框架通用视图注册机制，应用在加载前登记 Shell 根窗口和 Home 子页面映射，第五批再加入框架确认映射。框架不引用用户类型或业务模块。
 
-Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名保持一致。ShellViewModel 第一批继承 ViewModelBase，第三批已演进为 ScreenViewModel，第四批后续计划采用集合型 Conductor 保留常驻页面；ShellView.qml 始终是根窗口。第一、二批计数由 Shell 保存，第三批已整体移入 Home 子页面，第四批再将计数事实迁入共享业务服务。
+Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名保持一致。ShellViewModel 第一批继承 ViewModelBase，第三批已演进为 ScreenViewModel，第四批 4B 计划先采用单项 Conductor，4C 再采用集合型 Conductor 保留常驻页面；ShellView.qml 始终是根窗口。第一、二批计数由 Shell 保存，第三批已整体移入 Home 子页面，第四批 4B 再将计数事实迁入共享业务服务，Home 常驻与 Detail 导航属于 4C。
 
 完整目录、类型归属、模块接入及 qt-snake-lab 调整概要见 [模块与项目结构](docs/模块与项目结构.md)。该概要只规划游戏仓库的后续接入，尚未修改其结构设计。
 
@@ -210,7 +210,7 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 
 ## 当前状态与后续方向
 
-第一批已交付框架基础和 Shell 示例，第二批增加 add(int)、canAddTwo、“加 2”按钮和数字键 2 操作。文本框优先消费输入，页面过滤自动重复；Tab / Shift+Tab 显式切换焦点并跳过禁用按钮。第二批独立目录配置与构建、CTest、qmllint、Cocoa 测试和真实示例操作均通过。详情见 [第一批验收记录](docs/第一批验收记录.md) 与 [第二批验收记录](docs/第二批验收记录.md)。第三批已实现 ScreenViewModel、ViewRegistry 与 ViewHost，计数整体迁入 Home；自动检查及实际窗口验收通过，见 [第三批验收记录](docs/第三批验收记录.md)。本轮已实现泛型单项 Conductor 核心与测试；下一轮实现 Collection.OneActive，再推进第四批的详情导航和共享业务服务。Shell/Home 示例仍保持第三批行为；麒麟与外部消费工程待验证。
+第一批已交付框架基础和 Shell 示例，第二批增加 add(int)、canAddTwo、“加 2”按钮和数字键 2 操作。文本框优先消费输入，页面过滤自动重复；Tab / Shift+Tab 显式切换焦点并跳过禁用按钮。第二批独立目录配置与构建、CTest、qmllint、Cocoa 测试和真实示例操作均通过。详情见 [第一批验收记录](docs/第一批验收记录.md) 与 [第二批验收记录](docs/第二批验收记录.md)。第三批已实现 ScreenViewModel、ViewRegistry 与 ViewHost，计数整体迁入 Home；自动检查及实际窗口验收通过，见 [第三批验收记录](docs/第三批验收记录.md)。第四批 4A 已实现泛型单项 Conductor 核心与测试；下一步 4B 先改造 Shell 与共享计数服务，后续 4C 再完善 Collection.OneActive 和 Detail 导航。Shell/Home 示例仍保持第三批行为；麒麟与外部消费工程待验证。
 
 后续每批同时交付框架功能、example、必要测试和验收记录，验收通过后进入下一批：
 
@@ -219,9 +219,19 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 | 1．单页面绑定 | 基类与类型化通知辅助；Shell 单页面计数文字及按钮 enabled/onClicked 显式绑定。 | 已完成，macOS arm64 验收通过 |
 | 2．参数与键盘 | Shell 同页演示 int 参数按钮与原生键盘事件，直接调用 VM，不增加框架输入组件。 | 已完成，macOS arm64 验收通过 |
 | 3．生命周期与视图装配 | Screen、注册表与 ViewHost；Shell 根入口、Home 计数页面及 VM 替换。 | 已完成，macOS arm64 验收通过 |
-| 4．页面组合与导航 | 单项 Conductor 核心已实现；集合型 Conductor、首页/详情导航及共享服务待继续。 | 核心自动验收通过，第四批示例导航尚未完成 |
+| 4．页面组合与导航 | 4A 单项核心已完成；4B Shell 与共享计数服务、4C 集合型与 Detail 导航待实现。 | 4A 核心自动验收通过，整批进行中 |
 | 5．异步确认 | Shell 根窗口承载 DialogHost；Home 重置/Detail 离开确认、取消失效与焦点。 | 未实施、未验证 |
 | 6．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
+
+第四批进一步分为以下阶段；本次只同步设计文档，不实施 4B 源码或新增验收通过结论：
+
+| 阶段 | 内容 | 当前状态 |
+| --- | --- | --- |
+| 4A | 泛型单项 Conductor 核心及自动测试。 | 已完成，见 [核心验收记录](docs/Conductor核心验收记录.md) |
+| 4B | Shell 接入单项 Conductor，ViewHost 改绑 activeItem；计数迁入共享服务，关闭后重建 Home 保留计数。 | 设计已明确，待实现、未验证 |
+| 4C | Collection.OneActive、Home 常驻与 Detail 导航；Detail 按需创建及返回后释放。 | 后续完善设计与实现，未验证 |
+
+4B 只展示 Home，普通停用与恢复保留页面身份，关闭后重新激活创建新 Home。Home 常驻是 4C 的导航目标，不改变 4B 所用单项 Conductor 的释放语义。4B 完成后第四批仍为进行中，4C 及实际示例验收完成后才标记整批完成。具体接口与验收要求见 [迭代实现计划](docs/迭代实现计划.md#阶段-4b目标设计待实现) 和 [4B 装配设计](docs/IoC与应用装配.md#4b-目标设计待实现)。
 
 第一版只要求 ShellView 一个页面：初始文字为“已点击 0 次”，增加按钮的文字绑定 ShellViewModel 属性，按钮的 onClicked 直接调用 C++ VM；点击到 5 时禁用增加，重置后归零。第一批不引入生命周期、导航、快捷键、业务服务或弹窗。接口与验收细节见 [迭代实现计划](docs/迭代实现计划.md)。
 
