@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} / Qt 6.8.3
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            qt-arch: linux_gcc_64
+          - os: macos-15
+            qt-arch: clang_64
+    defaults:
+      run:
+        shell: bash
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      QT_QPA_PLATFORM: offscreen
+      QT_QUICK_BACKEND: software
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: 安装 Qt 6.8.3
+        uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4.4.1
+        with:
+          version: '6.8.3'
+          arch: ${{ matrix.qt-arch }}
+          modules: qtshadertools
+          cache: true
+
+      - name: 配置框架、示例与测试
+        run: cmake --preset debug -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
+
+      - name: 编译框架、示例与测试
+        run: cmake --build --preset debug
+
+      - name: 检查 QML
+        run: cmake --build --preset debug --target all_qmllint
+
+      - name: 运行全部测试
+        run: |
+          mkdir -p reports
+          ctest --preset debug --timeout 60 --output-junit "$GITHUB_WORKSPACE/reports/ctest.xml"
+
+      - name: 验证仅框架构建
+        run: |
+          cmake -S . -B build/framework-only -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DCALIBURN_BUILD_EXAMPLE=OFF \
+            -DCALIBURN_BUILD_TESTS=OFF
+          cmake --build build/framework-only
+          cmake --build build/framework-only --target all_qmllint
+
+      - name: 保存测试报告与配置日志
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-reports-${{ matrix.os }}
+          path: |
+            reports/ctest.xml
+            build/debug/Testing/Temporary/LastTest.log
+            build/debug/CMakeFiles/CMakeConfigureLog.yaml
+            build/framework-only/CMakeFiles/CMakeConfigureLog.yaml
+          retention-days: 7
+          if-no-files-found: warn
