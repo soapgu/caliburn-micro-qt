@@ -36,7 +36,7 @@ ApplicationWindow {
 
         ViewHost {
             objectName: "homeHost"
-            model: root.viewModel ? root.viewModel.home : null
+            model: root.viewModel ? root.viewModel.activeItem : null
             focus: true
             Layout.fillWidth: true
             Layout.fillHeight: true

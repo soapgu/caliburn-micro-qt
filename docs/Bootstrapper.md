@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
 | `bool RegisterRootFactory<T>(factory)` | 只允许在 Configure 中登记，每个类型只能登记一次，工厂返回 unique_ptr<T>。登记时不创建对象。 |
 | `bool DisplayRootViewFor<T>()` | 只允许在 OnStartup 中调用；每个 Bootstrapper 只允许一次显示尝试，T 必须继承 ScreenViewModel。 |
 
-示例 AppBootstrapper::Configure 设置 Basic 样式，登记 Shell/Home 映射，并用 `[] { return buildShell(); }` 提供 Shell 工厂。OnStartup 只调用 `DisplayRootViewFor<ShellViewModel>()`。业务 VM 的构造接口、DI 自动推导与父所有权不变。
+示例 AppBootstrapper::Configure 设置 Basic 样式，登记 Shell/Home 映射，并用 `[] { return buildShell(); }` 提供 Shell 工厂。OnStartup 只调用 `DisplayRootViewFor<ShellViewModel>()`。当前装配通过 Home 工厂和共享服务构造 Shell，Bootstrapper 的入口接口不变。
 
 ## 工厂与所有权
 
@@ -35,14 +35,14 @@ Bootstrapper 保存按 VM 元对象地址索引的根工厂；它只负责创建
 - `unique_ptr<ScreenViewModel> model` 持有对象，负责调用生命周期及最终删除。
 - `QVariant viewModel` 保存从原始 unique_ptr<T> 取出的 T*，保留具体类型供 QML required 属性注入；不接管对象。
 
-根对象必须无 QObject 父对象，并位于应用主线程。Bootstrapper 在暴露根 VM 前设置 CppOwnership；子对象所有权继续由 buildShell 明确设置，Bootstrapper 不递归猜测对象图。
+根对象必须无 QObject 父对象，并位于应用主线程。Bootstrapper 在暴露根 VM 前设置 CppOwnership；子对象所有权由 Conductor 接管流程设置，Bootstrapper 不递归猜测对象图。
 
 ## 启动与退出顺序
 
 1. Run 显式执行 Configure，不在构造函数里调用虚方法。
 2. Configure 成功后调用 ViewRegistry::freeze()，然后进入 OnStartup 并调用根工厂。所有映射登记必须在 Configure 中完成；配置阶段查询不会提前冻结。
 3. 查询根 View 地址，拒绝空映射与远程 URL。
-4. 初始化并激活根 Screen；Shell 钩子继续驱动 Home。
+4. 初始化并激活根 Screen；Shell 的 Conductor 基类驱动 Home。
 5. 创建 QQmlApplicationEngine，类型化注入 viewModel，加载根 View。
 6. 验证加载结果恰有一个 QQuickWindow，再进入应用事件循环。
 7. aboutToQuit 只关闭根生命周期，不在发起退出的 QML 调用栈内销毁引擎。
@@ -54,17 +54,19 @@ Bootstrapper 保存按 VM 元对象地址索引的根工厂；它只负责创建
 
 第一版仅支持一个根窗口、本地或 qrc QML 和同步 Screen 生命周期。远程 QML、异步生命周期、多窗口管理和运行时模块加载不包含在当前接口中。
 
-## 4B 计划衔接（待实现）
+## 4B 接入与退出（已实现）
 
-以上描述当前源码。下一步 4B 计划改造 Shell 与共享计数服务，但保留 buildShell()、根工厂注册、DisplayRootViewFor<ShellViewModel>() 和 Run 的入口；Bootstrapper 继续只驱动根生命周期，不负责直接创建 Home 或服务。详见 [阶段计划](迭代实现计划.md#阶段-4b目标设计待实现) 与 [4B 装配设计](IoC与应用装配.md#4b-目标设计待实现)。
+buildShell()、根工厂注册、DisplayRootViewFor<ShellViewModel>() 和 Run 的接口保持不变。Bootstrapper 只驱动根生命周期，Home 工厂及共享服务由应用装配层创建，子项父关系与 CppOwnership 由 Conductor 接管流程设置。
 
-计划中子项的父关系与 CppOwnership 由 Conductor 接管流程设置；Shell 构造时选择未初始化 Home，Shell.initialize() 不提前初始化子项，激活时由 Conductor 驱动。已初始化 Shell 关闭会清空 activeItem 并安排旧 Home 延迟删除，不能继续使用旧装配中“关闭后同一 Home 保留”的测试断言。Bootstrapper 的关闭根、卸载 View 及根对象清理职责不变；这些变化待 4B 源码实现和集成验收后再更新为当前行为。4C 集合型与 Detail 导航后续完善，不要求本阶段新增映射。
+Shell 构造时选择未初始化 Home，initialize() 不提前初始化子项，激活时由 Conductor 驱动。已初始化 Shell 关闭会清空 activeItem 并安排旧 Home 延迟删除。OnExit 时根对象仍存活，旧 Home 可能已处理 DeferredDelete；测试分别验证子 View 先于子 VM、根 View 先于根 VM 释放，不要求旧 Home 一直存活到根析构。
+
+当前装配、生命周期和实际退出结果见 [4B 验收记录](4B验收记录.md)。4C 集合型及 Detail 待实施，阶段状态见 [实现计划](迭代实现计划.md#第四批阶段划分)。
 
 ## 验证
 
 CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周期、View 先于 VM 释放、重复运行保护、失败清理和异常退出，并覆盖 Configure 中查询后继续登记、进入 OnStartup 前已经冻结以及 Configure 失败不自动冻结。各场景由 CTest 在独立进程运行：注册表的映射和冻结状态均为进程级，不同场景需要为同一类型使用不同映射或保留空表；显式冻结不消除这项隔离需求。实际 AppBootstrapper 另有窗口关闭退出的集成场景。
 
-2026-10-06 在 macOS arm64 / Qt 6.8.3 验证：
+以下保留 2026-10-06 原始 Bootstrapper 验收结果；当前 4B 结果见 [4B 验收记录](4B验收记录.md)。原始环境为 macOS arm64 / Qt 6.8.3：
 
 | 检查 | 结果 |
 | --- | --- |
@@ -73,4 +75,4 @@ CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周�
 | all_qmllint | 框架与示例均通过。 |
 | 仅框架构建及 qmllint | 关闭示例和测试后通过，不加入 Boost DI 或应用装配目标。 |
 
-新增测试使用 offscreen/software 与 Basic 样式；未进行本轮人工窗口操作或麒麟验证。构建与测试在沙箱外执行，避免沙箱内 Qt 工具无法识别 NEON 指令的问题。故意非法的既有 QML 夹具与静态插件重复链接继续产生预期诊断，不影响验收结果。
+新增测试使用 offscreen/software 与 Basic 样式；当时未进行人工窗口操作或麒麟验证；4B 已另行完成本机实际窗口回归，麒麟仍待验证。构建与测试在沙箱外执行，避免沙箱内 Qt 工具无法识别 NEON 指令的问题。故意非法的既有 QML 夹具与静态插件重复链接继续产生预期诊断，不影响验收结果。

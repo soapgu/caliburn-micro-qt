@@ -1,29 +1,32 @@
 #pragma once
 
-#include <CaliburnMicroQt/ScreenViewModel.h>
+#include <CaliburnMicroQt/Conductor.h>
 #include <HomeViewModel.h>
-#include <QPointer>
+#include <functional>
 #include <memory>
 
-class ShellViewModel : public ScreenViewModel
+using HomeViewModelFactory = std::function<std::unique_ptr<HomeViewModel>()>;
+
+// 模板层没有自己的元对象；moc/QML 工具使用其实际元对象基类。
+#ifdef Q_MOC_RUN
+class ShellViewModel : public ConductorViewModelBase
+#else
+class ShellViewModel : public Conductor<ScreenViewModel>
+#endif
 {
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("由示例应用装配层创建")
-    Q_PROPERTY(HomeViewModel *home READ home NOTIFY homeChanged)
+    Q_PROPERTY(HomeViewModel *home READ home NOTIFY activeItemChanged)
 
 public:
-    explicit ShellViewModel(std::unique_ptr<HomeViewModel> home);
-    HomeViewModel *home() const { return m_home.data(); }
-
-signals:
-    void homeChanged();
+    explicit ShellViewModel(HomeViewModelFactory homeFactory);
+    HomeViewModel *home() const { return qobject_cast<HomeViewModel *>(activeItem()); }
 
 protected:
-    void onInitialize() override;
     void onActivate() override;
-    void onDeactivate(bool close) override;
 
 private:
-    QPointer<HomeViewModel> m_home;
+    void createHome();
+    HomeViewModelFactory m_homeFactory;
 };

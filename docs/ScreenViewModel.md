@@ -36,20 +36,14 @@ void deactivate(bool close = false);
 
 钩子读取的是提交新状态前的值：首次 onInitialize 中两个状态 false；onActivate 中初始化 true、活动 false；活动对象的 onDeactivate 中活动仍为 true。钩子及同步信号观察者必须保持对象有效，不能在调用栈内销毁它。
 
-本批无异步钩子、关闭守卫、失败返回值或异常恢复协议，钩子应正常返回。析构不补关闭，Screen 基类不自动传播子对象生命周期。示例 Shell 通过钩子显式管理 Home；所有权和业务生命周期分别安排。
+本批无异步钩子、关闭守卫、失败返回值或异常恢复协议，钩子应正常返回。析构不补关闭，Screen 基类不自动传播子对象生命周期。示例 Shell 通过 Conductor 基类管理 Home；所有权和业务生命周期分别安排。
 
-## 示例装配与验收
+## 4B 生命周期与页面重建（已实现）
 
-Shell 和 Home 均继承 Screen，计数完整保存在 Home。IoC 递归构造 VM 树，Shell 在构造函数中接管 Home。启动顺序：buildShell 创建 VM 树并设置 CppOwnership → 登记 Shell/Home 映射 → 初始化根 Shell → 激活根 Shell → 注入 Shell → 注册表定位并加载根窗口。Shell 的 onInitialize/onActivate 显式调用 Home 对应方法，子状态在父钩子返回前完成，因此状态通知先 Home 后 Shell。
+Shell 继承 Conductor<ScreenViewModel>，Home 继承 Screen，计数唯一保存在 CounterService。Shell 构造通过工厂选择未初始化 Home；Shell.initialize() 只初始化自身，首次 activate() 才初始化并激活 Home。通知顺序为 Shell 初始化、Home 初始化、Home 激活、Shell 激活。Shell 只在 onActivate 中处理空项创建，再调用基类实现。
 
-退出或根加载失败只调用 shell->deactivate(true)，由 Shell 的 onDeactivate(close) 先关闭 Home，返回后提交 Shell 状态。随后先销毁引擎与 View，再释放 VM 树。窗口失焦和 ViewHost 装配不触发生命周期。Shell 显示两者状态，不新增停用/恢复按钮。
+普通停用保留页面，恢复不重新调用工厂。已初始化 Shell 关闭会清空 activeItem，卸载旧 View，关闭 Home 并延迟删除；再次激活创建新 Home，使用原共享服务和计数。当前项意外销毁时不自动重建，Shell 停用后再次激活才创建页面。Screen 自身关闭不删除的契约不变，回收子项属于 Conductor 职责。未初始化 Shell 关闭仍无操作。
 
-自动测试验证钩子与通知顺序、初始化/激活/普通停用幂等、自动初始化、停用后关闭、重复关闭、重激活及关闭不删除。第三批基础结果见 [第三批验收记录](第三批验收记录.md)；IoC 调整后新增根生命周期与接管验证，见 [IoC 装配验收记录](IoC装配验收记录.md)。装配契约见 [IoC 与应用装配](IoC与应用装配.md) 和 [ViewHost](ViewHost.md)。
+Bootstrapper 仅驱动根生命周期。退出关闭根时，旧 Home 的 DeferredDelete 可能在引擎销毁前被处理；宿主先卸载对应 View，根 View 则在根 VM 之前释放。窗口失焦和 ViewHost 装配不触发生命周期，界面没有新增停用或导航按钮。
 
-## 4B 示例演进计划（待实现）
-
-前文的 Shell/Home 装配与通知顺序描述当前实现。下一步 [4B 计划](迭代实现计划.md#阶段-4b目标设计待实现) 将 Shell 改为 `Conductor<ScreenViewModel>`，计数迁入共享服务；Home 仍为 Screen，初始化一次的规则不变。
-
-目标行为中 Shell.initialize() 不提前初始化 Home，首次激活时才由 Conductor 初始化并激活当前项；普通停用保留 Home，已初始化 Shell 关闭时清空并延迟回收 Home，重新激活则通过工厂创建新对象、沿用原计数服务。当前项意外销毁时不自动重建，下一次 Shell 激活再处理。Shell 仅在 onActivate 中处理空项创建并调用基类，停用和关闭沿用 Conductor；本次不修改 Screen 基类或当前示例源码。
-
-该设计区分 Screen 自身“关闭不删除”和 Conductor 对子项的回收职责，不能用当前示例的子先父初始化通知或关闭后复用旧 Home 断言验收新设计。4B 待实现后补充测试和独立记录；4C 再实现集合型与 Detail，Home 常驻属于该后续阶段。构造和所有权见 [4B 装配设计](IoC与应用装配.md#4b-目标设计待实现)。
+基础 Screen 历史结果见 [第三批验收记录](第三批验收记录.md)，原装配结果见 [IoC 装配验收记录](IoC装配验收记录.md)。当前工厂、重建、共享状态与销毁顺序见 [4B 验收记录](4B验收记录.md) 和 [IoC 与应用装配](IoC与应用装配.md)。4C 再设计集合型及 Detail，Home 常驻属于该后续阶段。

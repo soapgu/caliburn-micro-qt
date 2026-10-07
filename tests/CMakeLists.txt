@@ -1,3 +1,7 @@
+qt_add_executable(CaliburnCounterServiceTests cpp/tst_counterservice.cpp)
+target_link_libraries(CaliburnCounterServiceTests PRIVATE CaliburnExampleModule Qt6::Test)
+add_test(NAME counterservice COMMAND CaliburnCounterServiceTests)
+
 qt_add_executable(CaliburnConductorTests cpp/tst_conductor.cpp)
 target_link_libraries(CaliburnConductorTests PRIVATE Caliburn::MicroQt Qt6::Test)
 add_test(NAME conductor COMMAND CaliburnConductorTests)

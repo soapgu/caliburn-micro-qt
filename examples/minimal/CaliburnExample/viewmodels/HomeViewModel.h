@@ -1,7 +1,9 @@
 #pragma once
 
 #include <CaliburnMicroQt/ScreenViewModel.h>
+#include <CounterService.h>
 #include <QString>
+#include <memory>
 
 class HomeViewModel : public ScreenViewModel
 {
@@ -16,13 +18,13 @@ class HomeViewModel : public ScreenViewModel
     Q_PROPERTY(bool canReset READ canReset NOTIFY canResetChanged)
 
 public:
-    HomeViewModel();
-    int count() const { return m_count; }
+    explicit HomeViewModel(std::shared_ptr<CounterService> counterService);
+    int count() const { return m_counterService->count(); }
     QString message() const;
     QString incrementText() const { return QStringLiteral("增加"); }
-    bool canIncrement() const { return canAdd(1); }
-    bool canAddTwo() const { return canAdd(2); }
-    bool canReset() const { return m_count > 0; }
+    bool canIncrement() const { return m_counterService->canAdd(1); }
+    bool canAddTwo() const { return m_counterService->canAdd(2); }
+    bool canReset() const { return count() > 0; }
     Q_INVOKABLE void increment();
     Q_INVOKABLE void add(int delta);
     Q_INVOKABLE void reset();
@@ -34,7 +36,9 @@ signals:
     void canResetChanged();
 
 private:
-    bool canAdd(int delta) const { return delta > 0 && delta <= 5 - m_count; }
-    void updateCount(int value);
-    int m_count = 0;
+    void notifyCountChanged();
+    std::shared_ptr<CounterService> m_counterService;
+    bool m_lastCanIncrement;
+    bool m_lastCanAddTwo;
+    bool m_lastCanReset;
 };

@@ -16,6 +16,13 @@
 Q_IMPORT_QML_PLUGIN(CaliburnMicroQtPlugin)
 Q_IMPORT_QML_PLUGIN(CaliburnExampleModulePlugin)
 
+
+static HomeViewModelFactory makeHomeFactory(
+        std::shared_ptr<CounterService> service = std::make_shared<CounterService>())
+{
+    return [service] { return std::make_unique<HomeViewModel>(service); };
+}
+
 class UnknownVm : public ViewModelBase { Q_OBJECT };
 class MissingResourceVm : public ViewModelBase { Q_OBJECT };
 class WrongTypeVm : public ViewModelBase { Q_OBJECT };
@@ -100,7 +107,7 @@ private slots:
 
     void requiredTypedInjection()
     {
-        HomeViewModel vm;
+        HomeViewModel vm(std::make_shared<CounterService>());
         QQmlEngine::setObjectOwnership(&vm, QQmlEngine::CppOwnership);
         QQmlEngine engine;
         useEmbeddedModules(engine);
@@ -123,7 +130,7 @@ private slots:
 
     void registrySharedAcrossEngines()
     {
-        HomeViewModel home;
+        HomeViewModel home(std::make_shared<CounterService>());
         QPointer<HomeViewModel> weak = &home;
         const QUrl expected = ViewRegistry::viewUrl(&home);
         QPointer<ViewRegistry> firstSingleton;
@@ -143,8 +150,8 @@ private slots:
 
     void hostIdentityAndLifetime()
     {
-        auto original = std::make_unique<HomeViewModel>();
-        auto replacement = std::make_unique<HomeViewModel>();
+        auto original = std::make_unique<HomeViewModel>(std::make_shared<CounterService>());
+        auto replacement = std::make_unique<HomeViewModel>(std::make_shared<CounterService>());
         for (auto *vm : {original.get(), replacement.get()})
             QQmlEngine::setObjectOwnership(vm, QQmlEngine::CppOwnership);
         QQmlEngine engine;
@@ -180,7 +187,7 @@ private slots:
         QVERIFY(!currentItem());
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QVERIFY(!replacedItem);
-        HomeViewModel next;
+        HomeViewModel next(std::make_shared<CounterService>());
         QQmlEngine::setObjectOwnership(&next, QQmlEngine::CppOwnership);
         QVERIFY(host->setProperty("model", QVariant::fromValue(&next)));
         QVERIFY(currentItem());
@@ -210,7 +217,7 @@ private slots:
         HomeConductor conductor;
         QQmlEngine::setObjectOwnership(&conductor, QQmlEngine::CppOwnership);
         conductor.activate();
-        auto first = std::make_unique<HomeViewModel>();
+        auto first = std::make_unique<HomeViewModel>(std::make_shared<CounterService>());
         auto *old = first.get();
         QVERIFY(conductor.activateItem(std::move(first)));
         QQmlEngine engine;
@@ -243,7 +250,7 @@ private slots:
             ++destroyed;
             viewGoneBeforeVm = oldView.isNull();
         });
-        auto next = std::make_unique<HomeViewModel>();
+        auto next = std::make_unique<HomeViewModel>(std::make_shared<CounterService>());
         auto *replacement = next.get();
         QVERIFY(conductor.activateItem(std::move(next)));
         QCOMPARE(host->property("model").value<QObject *>(), replacement);
@@ -278,7 +285,7 @@ private slots:
         QVERIFY(!replacedVm && !replacedView);
         QVERIFY(replacedViewGoneBeforeVm);
         conductor.activate();
-        QVERIFY(conductor.activateItem(std::make_unique<HomeViewModel>()));
+        QVERIFY(conductor.activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>())));
         delete conductor.activeItem();
         QVERIFY(!currentItem());
         QVERIFY(!host->property("model").value<QObject *>());
@@ -288,7 +295,7 @@ private slots:
 
     void hostWaitsForCompletion()
     {
-        HomeViewModel home;
+        HomeViewModel home(std::make_shared<CounterService>());
         QQmlEngine::setObjectOwnership(&home, QQmlEngine::CppOwnership);
         QQmlEngine engine;
         useEmbeddedModules(engine);
@@ -339,10 +346,55 @@ private slots:
         window->close();
     }
 
+    void shellRebuildPreservesCountAndViewLifetime()
+    {
+        auto shell = buildShell();
+        shell->activate();
+        QQmlApplicationEngine engine;
+        useEmbeddedModules(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        engine.setInitialProperties({{"viewModel", QVariant::fromValue(shell.get())}});
+        engine.load(ViewRegistry::viewUrl(shell.get()));
+        QCOMPARE(engine.rootObjects().size(), 1);
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().front());
+        QVERIFY(window && homeItem(window));
+        QPointer<HomeViewModel> oldVm = shell->home();
+        QPointer<QQuickItem> oldView = homeItem(window);
+        bool viewGoneBeforeVm = false;
+        connect(oldVm.data(), &QObject::destroyed, this, [&] { viewGoneBeforeVm = oldView.isNull(); });
+        oldVm->add(4);
+        shell->deactivate();
+        shell->activate();
+        QCOMPARE(shell->home(), oldVm.data());
+        QCOMPARE(homeItem(window), oldView.data());
+        shell->deactivate(true);
+        QVERIFY(!shell->home());
+        QTRY_VERIFY(!homeItem(window));
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!oldVm && !oldView);
+        QVERIFY(viewGoneBeforeVm);
+        shell->activate();
+        QTRY_VERIFY(displaysHome(window, shell->home()));
+        auto *home = shell->home();
+        QCOMPARE(home->count(), 4);
+        auto *label = homeItem(window)->findChild<QQuickItem *>("messageLabel");
+        QVERIFY(label);
+        QCOMPARE(label->property("text").toString(), QStringLiteral("已点击 4 次"));
+        auto *increase = homeItem(window)->findChild<QQuickItem *>("increment");
+        QVERIFY(increase && increase->isEnabled());
+        const QPoint point = increase->mapToScene(QPointF(increase->width() / 2, increase->height() / 2)).toPoint();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point);
+        QTRY_COMPARE(home->count(), 5);
+        QVERIFY(!increase->isEnabled());
+        QCOMPARE(warnings.count(), 0);
+        window->close();
+    }
+
     void hostFailurePaths()
     {
-        HomeViewModel home;
-        ShellViewModel shell(std::make_unique<HomeViewModel>());
+        HomeViewModel home(std::make_shared<CounterService>());
+        ShellViewModel shell(makeHomeFactory());
         UnknownVm unknown;
         MissingResourceVm missing;
         WrongTypeVm wrong;

@@ -14,6 +14,13 @@
 Q_IMPORT_QML_PLUGIN(CaliburnMicroQtPlugin)
 Q_IMPORT_QML_PLUGIN(CaliburnExampleModulePlugin)
 
+
+static HomeViewModelFactory makeHomeFactory(
+        std::shared_ptr<CounterService> service = std::make_shared<CounterService>())
+{
+    return [service] { return std::make_unique<HomeViewModel>(service); };
+}
+
 struct Observation {
     QStringList order;
     QPointer<ShellViewModel> shell;
@@ -33,7 +40,7 @@ class FailingCloseShell : public ShellViewModel
 {
 public:
     explicit FailingCloseShell(Observation &observation)
-        : ShellViewModel(std::make_unique<HomeViewModel>()), m_observation(observation)
+        : ShellViewModel(makeHomeFactory()), m_observation(observation)
     {
         QQmlEngine::setObjectOwnership(home(), QQmlEngine::CppOwnership);
     }
@@ -79,7 +86,7 @@ protected:
         if (!ViewRegistry::registerView<ShellViewModel>(url))
             return false;
         if (m_scenario == "configureQuery") {
-            ShellViewModel probe(std::make_unique<HomeViewModel>());
+            ShellViewModel probe(makeHomeFactory());
             if (ViewRegistry::viewUrl(&probe) != url)
                 return false;
         }
@@ -117,6 +124,8 @@ protected:
                 auto *item = host ? host->property("item").value<QQuickItem *>() : nullptr;
                 m_observation.homeLoaded = item
                     && item->property("viewModel").value<HomeViewModel *>() == m_observation.home;
+                if (item)
+                    connect(item, &QObject::destroyed, this, [this] { m_observation.order << "homeView.destroy"; });
                 connect(root, &QObject::destroyed, this, [this] { m_observation.order << "view.destroy"; });
             }
             QCoreApplication::exit(m_scenario == "exitCode" ? 7 : 0);
@@ -128,7 +137,7 @@ protected:
     {
         ++m_observation.exitCalls;
         m_observation.order << "exit";
-        m_observation.aliveAtExit = m_observation.shell && m_observation.home;
+        m_observation.aliveAtExit = bool(m_observation.shell); // 根对象在 OnExit 时仍有效，Home 可已延迟释放。
         m_observation.activeAtExit = m_observation.shell && m_observation.shell->isActive();
         if (m_scenario == "exitException")
             throw std::runtime_error("测试退出异常");
@@ -230,6 +239,8 @@ private slots:
                 QVERIFY(observation.order.indexOf("close") < observation.order.indexOf("exit"));
                 QVERIFY(observation.order.indexOf("exit") < observation.order.indexOf("view.destroy"));
                 QVERIFY(observation.order.indexOf("view.destroy") < observation.order.indexOf("shell.destroy"));
+                QVERIFY(observation.order.indexOf("homeView.destroy") >= 0);
+                QVERIFY(observation.order.indexOf("homeView.destroy") < observation.order.indexOf("home.destroy"));
                 QCOMPARE(observation.order.mid(0, 3), QStringList({"configure", "startup", "factory"}));
             }
             QCOMPARE(bootstrapper.Run(), 1);

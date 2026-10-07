@@ -1,39 +1,25 @@
 #include "ShellViewModel.h"
-#include <QCoreApplication>
-#include <QThread>
 #include <stdexcept>
+#include <utility>
 
-ShellViewModel::ShellViewModel(std::unique_ptr<HomeViewModel> home)
+ShellViewModel::ShellViewModel(HomeViewModelFactory homeFactory)
+    : m_homeFactory(std::move(homeFactory))
 {
-    auto *app = QCoreApplication::instance();
-    if (!home || home->parent() || !app || thread() != app->thread()
-            || QThread::currentThread() != thread() || home->thread() != thread())
-        throw std::invalid_argument("Shell 接管 Home 要求非空、无父对象且位于同一应用主线程");
-
-    home->setParent(this);
-    if (home->parent() != this)
-        throw std::runtime_error("Shell 接管 Home：QObject 父关系建立失败");
-    m_home = home.release();
-    connect(m_home.data(), &QObject::destroyed, this, [this] {
-        m_home.clear();
-        emit homeChanged();
-    });
+    if (!m_homeFactory)
+        throw std::invalid_argument("Shell 要求非空的 Home 工厂");
+    createHome();
 }
 
-void ShellViewModel::onInitialize()
+void ShellViewModel::createHome()
 {
-    if (m_home)
-        m_home->initialize();
+    auto home = m_homeFactory();
+    if (!home || !activateItem(std::move(home)))
+        throw std::invalid_argument("Shell 工厂必须返回可接管的非空 Home");
 }
 
 void ShellViewModel::onActivate()
 {
-    if (m_home)
-        m_home->activate();
-}
-
-void ShellViewModel::onDeactivate(bool close)
-{
-    if (m_home)
-        m_home->deactivate(close);
+    if (!activeItem())
+        createHome();
+    Conductor<ScreenViewModel>::onActivate();
 }

@@ -9,6 +9,13 @@
 #include <QThread>
 #include <stdexcept>
 
+
+static HomeViewModelFactory makeHomeFactory(
+        std::shared_ptr<CounterService> service = std::make_shared<CounterService>())
+{
+    return [service] { return std::make_unique<HomeViewModel>(service); };
+}
+
 struct TrackedValue
 {
     int value = 0;
@@ -37,11 +44,12 @@ signals:
     void changed();
 };
 
-class DerivedHome : public HomeViewModel { Q_OBJECT };
+class DerivedHome : public HomeViewModel { Q_OBJECT public: using HomeViewModel::HomeViewModel; };
 
 class LifecycleHome : public HomeViewModel
 {
 public:
+    using HomeViewModel::HomeViewModel;
     QStringList events;
 protected:
     void onInitialize() override { events << "initialize"; }
@@ -77,6 +85,8 @@ static_assert(!std::is_invocable_v<NotifyHelper, NotifyVm *, int &, const int &,
                                   int (NotifyVm::*)()>);
 static_assert(!std::is_copy_constructible_v<ViewModelBase>);
 static_assert(!std::is_move_constructible_v<ViewModelBase>);
+static_assert(std::is_base_of_v<Conductor<ScreenViewModel>, ShellViewModel>);
+static_assert(!std::is_default_constructible_v<HomeViewModel>);
 
 class CoreTests : public QObject
 {
@@ -149,14 +159,14 @@ private slots:
 
     void registryContract()
     {
-        HomeViewModel home;
-        ShellViewModel shell(std::make_unique<HomeViewModel>());
+        HomeViewModel home(std::make_shared<CounterService>());
+        ShellViewModel shell(makeHomeFactory());
         ViewRegistry registry;
         const QUrl homeUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"));
         QCOMPARE(ViewRegistry::viewUrl(&home), homeUrl);
         QCOMPARE(registry.resolve(&home), homeUrl);
         QCOMPARE(ViewRegistry::viewUrl(&shell), QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml")));
-        DerivedHome unknown;
+        DerivedHome unknown(std::make_shared<CounterService>());
         QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：未登记类型 DerivedHome");
         QVERIFY(ViewRegistry::viewUrl(&unknown).isEmpty());
         QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：登记、冻结与查询必须在应用主线程调用");
@@ -185,30 +195,39 @@ private slots:
 
     void shellOwnsHomeAfterHandoff()
     {
-        auto home = std::make_unique<HomeViewModel>();
-        QVERIFY(!home->parent());
-        QPointer<HomeViewModel> weak = home.get();
-        auto shell = std::make_unique<ShellViewModel>(std::move(home));
-        QVERIFY(!home);
-        QCOMPARE(shell->home(), weak.data());
-        QCOMPARE(shell->home()->parent(), shell.get());
-        shell->activate();
-        QVERIFY(shell->home()->isInitialized());
-        QVERIFY(shell->home()->isActive());
-        shell->home()->add(2);
-        shell->deactivate(true);
-        QVERIFY(!shell->home()->isActive());
+        auto service = std::make_shared<CounterService>();
+        auto shell = std::make_unique<ShellViewModel>(makeHomeFactory(service));
+        QPointer<HomeViewModel> weak = shell->home();
         QVERIFY(weak);
-        QCOMPARE(shell->home()->count(), 2);
+        QCOMPARE(weak->parent(), shell.get());
+        QCOMPARE(shell->activeItem(), static_cast<ScreenViewModel *>(weak.data()));
+        QCOMPARE(shell->metaObject()->superClass(), &ConductorViewModelBase::staticMetaObject);
+        const auto homeProperty = shell->metaObject()->property(shell->metaObject()->indexOfProperty("home"));
+        QCOMPARE(homeProperty.notifySignal().name(), QByteArray("activeItemChanged"));
+        shell->initialize();
+        QVERIFY(!weak->isInitialized());
+        shell->activate();
+        QVERIFY(weak->isInitialized() && weak->isActive());
+        weak->add(2);
+        shell->deactivate(true);
+        QVERIFY(!shell->home());
+        QVERIFY(weak && !weak->isActive());
+        QCOMPARE(weak->count(), 2);
         shell.reset();
         QVERIFY(!weak);
+        QCOMPARE(service->count(), 2);
 
-        ShellViewModel owner(std::make_unique<HomeViewModel>());
-        QSignalSpy changed(&owner, &ShellViewModel::homeChanged);
-        delete owner.home(); // 验证异常提前销毁后，父对象访问引用仍安全清空。
+        ShellViewModel owner(makeHomeFactory());
+        owner.activate();
+        QSignalSpy changed(&owner, &ConductorViewModelBase::activeItemChanged);
+        delete owner.home();
         QVERIFY(!owner.home());
         QCOMPARE(changed.count(), 1);
+        owner.activate(); // 活动父对象的重复激活不自动导航。
+        QVERIFY(!owner.home());
+        owner.deactivate();
         owner.activate();
+        QVERIFY(owner.home() && owner.home()->isActive());
         owner.deactivate(true);
         QVERIFY(owner.metaObject()->indexOfProperty("count") < 0);
         QVERIFY(owner.metaObject()->indexOfMethod("add(int)") < 0);
@@ -216,32 +235,92 @@ private slots:
 
     void shellRejectsInvalidHandoff()
     {
-        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel(std::unique_ptr<HomeViewModel>{}));
+        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, HomeViewModel(nullptr));
+        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel(HomeViewModelFactory{}));
+        QVERIFY_THROWS_EXCEPTION(std::invalid_argument,
+                                ShellViewModel([] { return std::unique_ptr<HomeViewModel>{}; }));
         QObject parent;
-        auto home = std::make_unique<HomeViewModel>();
-        home->setParent(&parent);
-        QPointer<HomeViewModel> weak = home.get();
-        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel(std::move(home)));
+        QPointer<HomeViewModel> weak;
+        auto invalid = [&] {
+            auto home = std::make_unique<HomeViewModel>(std::make_shared<CounterService>());
+            home->setParent(&parent);
+            weak = home.get();
+            return home;
+        };
+        QTest::ignoreMessage(QtWarningMsg, "Conductor：接管对象必须无父对象且与 Conductor 位于同一线程");
+        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel{invalid});
         QVERIFY(!weak);
         QVERIFY(parent.children().isEmpty());
+        QTest::ignoreMessage(QtWarningMsg, "Conductor：不能接管已经激活的 Screen");
+        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel([] {
+            auto home = std::make_unique<HomeViewModel>(std::make_shared<CounterService>());
+            home->activate();
+            return home;
+        }));
+        QVERIFY_THROWS_EXCEPTION(std::runtime_error, ShellViewModel([]() -> std::unique_ptr<HomeViewModel> {
+            throw std::runtime_error("工厂异常");
+        }));
     }
 
     void shellPropagatesHomeHooks()
     {
-        auto candidate = std::make_unique<LifecycleHome>();
-        auto *home = candidate.get();
-        ShellViewModel shell(std::move(candidate));
-        shell.activate();
+        auto service = std::make_shared<CounterService>();
+        int calls = 0;
+        ShellViewModel shell([&] {
+            ++calls;
+            return std::make_unique<LifecycleHome>(service);
+        });
+        auto *home = static_cast<LifecycleHome *>(shell.home());
+        shell.deactivate(true); // 未初始化父对象关闭不影响候选页。
+        QVERIFY(home->events.isEmpty());
         shell.initialize();
+        QVERIFY(home->events.isEmpty());
+        shell.activate();
         shell.activate();
         shell.deactivate();
         shell.deactivate();
-        shell.deactivate(true); // 已停用且已初始化的 Home 仍收到关闭钩子。
-        shell.deactivate(true);
-        QCOMPARE(home->events, QStringList({"initialize", "activate", "deactivate", "close", "close"}));
         shell.activate();
+        QCOMPARE(calls, 1);
+        QCOMPARE(home->events, QStringList({"initialize", "activate", "deactivate", "activate"}));
         shell.deactivate(true);
-        QCOMPARE(home->events.mid(5), QStringList({"activate", "close"}));
+        shell.deactivate(true);
+        QVERIFY(!shell.home());
+        QCOMPARE(home->events.last(), QStringLiteral("close"));
+        QCOMPARE(home->events.count("close"), 1);
+        shell.activate();
+        QCOMPARE(calls, 2);
+        QVERIFY(shell.home() != home);
+        shell.deactivate(true);
+    }
+
+    void sharedServiceSynchronizesHome()
+    {
+        auto service = std::make_shared<CounterService>();
+        QVERIFY(!service->parent());
+        HomeViewModel first(service);
+        HomeViewModel second(service);
+        QSignalSpy firstCount(&first, &HomeViewModel::countChanged);
+        QSignalSpy secondCount(&second, &HomeViewModel::countChanged);
+        QSignalSpy secondAddTwo(&second, &HomeViewModel::canAddTwoChanged);
+        first.add(4);
+        QCOMPARE(second.count(), 4);
+        QCOMPARE(second.message(), QStringLiteral("已点击 4 次"));
+        QCOMPARE(firstCount.count(), 1);
+        QCOMPARE(secondCount.count(), 1);
+        QCOMPARE(secondAddTwo.count(), 1);
+        HomeViewModel late(service);
+        QCOMPARE(late.count(), 4);
+        QVERIFY(!late.canAddTwo());
+        QSignalSpy lateAddTwo(&late, &HomeViewModel::canAddTwoChanged);
+        second.reset();
+        QCOMPARE(first.count(), 0);
+        QCOMPARE(late.count(), 0);
+        QCOMPARE(lateAddTwo.count(), 1);
+        QCOMPARE(secondAddTwo.count(), 2);
+        service->add(5); // 服务直接变更同样通知全部投影。
+        QCOMPARE(first.count(), 5);
+        QCOMPARE(second.count(), 5);
+        QCOMPARE(late.count(), 5);
     }
 
     void baseContract()
@@ -251,7 +330,7 @@ private slots:
         QCOMPARE(base.parent(), &parent);
         QCOMPARE(base.metaObject()->propertyCount(), QObject::staticMetaObject.propertyCount());
         QCOMPARE(base.metaObject()->methodCount(), QObject::staticMetaObject.methodCount());
-        HomeViewModel home;
+        HomeViewModel home(std::make_shared<CounterService>());
         QCOMPARE(qobject_cast<ViewModelBase *>(&home), static_cast<ViewModelBase *>(&home));
     }
 
@@ -302,7 +381,7 @@ private slots:
 
     void homeNotificationsAndBoundaries()
     {
-        HomeViewModel vm;
+        HomeViewModel vm(std::make_shared<CounterService>());
         QSignalSpy count(&vm, &HomeViewModel::countChanged);
         QSignalSpy increment(&vm, &HomeViewModel::canIncrementChanged);
         QSignalSpy addTwo(&vm, &HomeViewModel::canAddTwoChanged);
@@ -353,7 +432,7 @@ private slots:
     {
         QFETCH(int, initial);
         QFETCH(int, delta);
-        HomeViewModel vm;
+        HomeViewModel vm(std::make_shared<CounterService>());
         for (int i = 0; i < initial; ++i)
             vm.increment();
         QSignalSpy count(&vm, &HomeViewModel::countChanged);

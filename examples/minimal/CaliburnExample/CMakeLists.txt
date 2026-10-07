@@ -9,7 +9,11 @@ qt_add_qml_module(CaliburnExampleModule
     DEPENDENCIES TARGET CaliburnMicroQt
     SOURCES viewmodels/ShellViewModel.h viewmodels/ShellViewModel.cpp
             viewmodels/HomeViewModel.h viewmodels/HomeViewModel.cpp
+            services/CounterService.h services/CounterService.cpp
     QML_FILES qml/views/ShellView.qml qml/views/HomeView.qml
 )
-target_include_directories(CaliburnExampleModule PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/viewmodels")
+target_include_directories(CaliburnExampleModule PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/viewmodels"
+    "${CMAKE_CURRENT_SOURCE_DIR}/services"
+)
 target_link_libraries(CaliburnExampleModule PUBLIC Caliburn::MicroQt PRIVATE Qt6::Quick Qt6::QuickControls2)
