@@ -1,3 +1,8 @@
+qt_add_executable(CaliburnConductorTests cpp/tst_conductor.cpp)
+target_link_libraries(CaliburnConductorTests PRIVATE Caliburn::MicroQt Qt6::Test)
+add_test(NAME conductor COMMAND CaliburnConductorTests)
+set_tests_properties(conductor PROPERTIES TIMEOUT 30)
+
 qt_add_executable(CaliburnCoreTests cpp/tst_core.cpp)
 target_link_libraries(CaliburnCoreTests PRIVATE CaliburnExampleModule Qt6::Test)
 add_test(NAME core COMMAND CaliburnCoreTests)

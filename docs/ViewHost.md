@@ -26,7 +26,7 @@ const QUrl url = ViewRegistry::viewUrl(home);
 | 非空对象查询 | 冻结前后均可查询，不改变冻结状态；配置阶段查询后仍可继续登记。 |
 | 未登记的实际类型 | 诊断并返回空 URL，不使用基类映射。 |
 
-C++ 静态 `viewUrl(const ViewModelBase*)` 与 QML 单例 `resolve(ViewModelBase*)` 共用进程级表。freeze() 是 C++ 配置入口，不向 QML 暴露。每个引擎拥有自己的查询单例，销毁或重建引擎不丢失映射或冻结状态。表只保存元对象和 URL，不保存 VM。登记、冻结、查询和展示 VM 均限定在应用主线程，非法线程调用诊断并拒绝。未知类型及非法查询也不冻结注册表；运行期不提供解冻或清空接口。
+C++ 静态 `viewUrl(const ViewModelBase*)` 与 QML 单例 `resolve(ViewModelBase*)` 共用进程级表。freeze() 是 C++ 配置入口，不向 QML 暴露。每个引擎拥有自己的查询单例，销毁或重建引擎不丢失映射或冻结状态。表只保存元对象和 URL，不保存 VM。登记、冻结和查询均限定在应用主线程，非法线程调用诊断并拒绝；展示 VM 的生命周期由调用方保证在应用主线程执行。未知类型及非法查询也不冻结注册表；运行期不提供解冻或清空接口。
 
 ## 2. 宿主接口与用法
 
@@ -93,6 +93,6 @@ C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，卸载不删除
 
 ViewHost 使用 FocusScope，内部 Loader 设置 focus。Shell 给宿主设置 focus，Home 根 FocusScope 和内部输入 Item 也设置 focus，形成窗口至页面的焦点链。按键处理位于输入 Item；空白点击对该 Item 调用 forceActiveFocus，避免作用域保留文本框焦点。[Qt 焦点作用域](https://doc.qt.io/qt-6.8/qtquick-input-focus.html)
 
-窗口失焦不自动停用 VM。通用默认焦点恢复、模态焦点、Conductor、详情导航、缓存、异步加载和自动重试未实现。第四批将宿主改绑 activeItem，第五批加入弹窗。页面内部可使用同一宿主装配子 VM，无须复制加载规则。
+窗口失焦不自动停用 VM。泛型单项 Conductor 核心已实现，并通过 activeItem 绑定宿主的集成验证，见 [Conductor](Conductor.md)。通用默认焦点恢复、模态焦点、集合型 Conductor、详情导航、缓存、异步加载和自动重试未实现。第四批将宿主改绑 activeItem，第五批加入弹窗。页面内部可使用同一宿主装配子 VM，无须复制加载规则。
 
 验收覆盖跨模块 typed 注入、创建完成时机、同类型替换、属性变化保持身份、清空与销毁、旧连接解绑及各类失败；证据与平台限制见 [第三批验收记录](第三批验收记录.md)。

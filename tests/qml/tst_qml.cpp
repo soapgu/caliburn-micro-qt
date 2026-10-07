@@ -1,3 +1,4 @@
+#include <CaliburnMicroQt/Conductor.h>
 #include <ShellViewModel.h>
 #include <ViewModelComposition.h>
 #include <CaliburnMicroQt/ViewRegistry.h>
@@ -23,6 +24,8 @@ class MissingRequiredVm : public ViewModelBase { Q_OBJECT };
 class NonVisualVm : public ViewModelBase { Q_OBJECT };
 class SyntaxVm : public ViewModelBase { Q_OBJECT };
 class MismatchVm : public ViewModelBase { Q_OBJECT };
+// 验证业务 QObject 可以继承无 Q_OBJECT 的泛型层，并保留基类属性。
+class HomeConductor : public Conductor<HomeViewModel> { Q_OBJECT };
 
 // 仅允许 Qt 安装模块和内嵌资源，防止测试从构建目录的 QML 副本加载。
 static void useEmbeddedModules(QQmlEngine &engine)
@@ -67,6 +70,7 @@ private slots:
         QTest::addColumn<QByteArray>("source");
         QTest::newRow("framework") << QByteArray("import Caliburn.Micro.Qt 1.0; ViewModelBase {}");
         QTest::newRow("example") << QByteArray("import CaliburnExample 1.0; ShellViewModel {}");
+        QTest::newRow("conductor") << QByteArray("import Caliburn.Micro.Qt 1.0; ConductorViewModelBase {}");
         QTest::newRow("screen") << QByteArray("import Caliburn.Micro.Qt 1.0; ScreenViewModel {}");
         QTest::newRow("home") << QByteArray("import CaliburnExample 1.0; HomeViewModel {}");
     }
@@ -189,6 +193,96 @@ private slots:
         QCOMPARE(QQmlEngine::objectOwnership(&next), QQmlEngine::CppOwnership);
         QVERIFY(!next.isInitialized());
         QVERIFY(!next.isActive());
+        QCOMPARE(warnings.count(), 0);
+    }
+
+
+    void conductorBindingAndViewLifetime_data()
+    {
+        QTest::addColumn<bool>("parentClose");
+        QTest::newRow("close-current") << false;
+        QTest::newRow("close-parent") << true;
+    }
+
+    void conductorBindingAndViewLifetime()
+    {
+        QFETCH(bool, parentClose);
+        HomeConductor conductor;
+        QQmlEngine::setObjectOwnership(&conductor, QQmlEngine::CppOwnership);
+        conductor.activate();
+        auto first = std::make_unique<HomeViewModel>();
+        auto *old = first.get();
+        QVERIFY(conductor.activateItem(std::move(first)));
+        QQmlEngine engine;
+        useEmbeddedModules(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import Caliburn.Micro.Qt 1.0
+            ViewHost {
+                required property ConductorViewModelBase conductor
+                width: 400
+                height: 340
+                model: conductor.activeItem
+            }
+        )", QUrl());
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> host(component.createWithInitialProperties({
+            {"conductor", QVariant::fromValue(static_cast<ConductorViewModelBase *>(&conductor))}
+        }));
+        QVERIFY2(host, qPrintable(component.errorString()));
+        const auto currentItem = [&] { return host->property("item").value<QQuickItem *>(); };
+        QVERIFY(currentItem());
+        QCOMPARE(currentItem()->property("viewModel").value<QObject *>(), old);
+        QPointer<QQuickItem> oldView = currentItem();
+        QPointer<HomeViewModel> oldVm = old;
+        int destroyed = 0;
+        bool viewGoneBeforeVm = false;
+        connect(old, &QObject::destroyed, this, [&] {
+            ++destroyed;
+            viewGoneBeforeVm = oldView.isNull();
+        });
+        auto next = std::make_unique<HomeViewModel>();
+        auto *replacement = next.get();
+        QVERIFY(conductor.activateItem(std::move(next)));
+        QCOMPARE(host->property("model").value<QObject *>(), replacement);
+        QVERIFY(currentItem());
+        QCOMPARE(currentItem()->property("viewModel").value<QObject *>(), replacement);
+        QVERIFY(oldVm);
+        QVERIFY(!oldVm->isActive());
+        QVERIFY(replacement->isActive());
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!oldVm && !oldView);
+        QCOMPARE(destroyed, 1);
+        QVERIFY(viewGoneBeforeVm);
+        QCOMPARE(conductor.activeItem(), replacement);
+        QCOMPARE(host->property("model").value<QObject *>(), replacement);
+        QPointer<HomeViewModel> replacedVm = replacement;
+        QPointer<QQuickItem> replacedView = currentItem();
+        bool replacedViewGoneBeforeVm = false;
+        connect(replacement, &QObject::destroyed, this, [&] {
+            replacedViewGoneBeforeVm = replacedView.isNull();
+        });
+        if (parentClose) {
+            conductor.deactivate(true);
+            QVERIFY(!conductor.isActive());
+        } else {
+            QVERIFY(conductor.closeItem(replacement));
+        }
+        QVERIFY(!conductor.activeItem());
+        QVERIFY(!currentItem());
+        QVERIFY(!host->property("model").value<QObject *>());
+        QVERIFY(replacedVm);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!replacedVm && !replacedView);
+        QVERIFY(replacedViewGoneBeforeVm);
+        conductor.activate();
+        QVERIFY(conductor.activateItem(std::make_unique<HomeViewModel>()));
+        delete conductor.activeItem();
+        QVERIFY(!currentItem());
+        QVERIFY(!host->property("model").value<QObject *>());
+        QVERIFY(host->property("errorString").toString().isEmpty());
         QCOMPARE(warnings.count(), 0);
     }
 

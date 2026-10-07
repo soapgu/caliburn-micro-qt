@@ -19,20 +19,20 @@ void deactivate(bool close = false);
 | initialize，尚未初始化 | 初始化钩子返回后设置状态并通知一次。 |
 | initialize，已初始化 | 无钩子、无通知。 |
 | activate，尚未初始化 | 先完成初始化及通知，再激活；激活钩子返回后设置活动状态并通知。 |
-| activate，非活动 | 激活钩子返回后设活动状态，开启下一轮关闭周期。 |
+| activate，非活动 | 激活钩子返回后设活动状态。 |
 | activate，已活动 | 无操作。 |
 | deactivate(false)，活动 | 停用钩子返回后设非活动并通知。 |
 | deactivate(false)，非活动或未初始化 | 无操作。 |
-| deactivate(true)，已初始化且本轮未关闭 | 执行关闭钩子，包括已停用或从未激活的对象；活动状态实际改变才通知。 |
-| deactivate(true)，未初始化或本轮已关闭 | 无操作。 |
+| deactivate(true)，已初始化 | 每次调用都执行关闭钩子，包括已停用、已关闭或初始化后从未激活的对象；活动状态实际改变才通知。 |
+| deactivate(true)，未初始化 | 无操作。 |
 
-初始化一生只执行一次。关闭不删除、不重置初始化或业务字段；关闭后可重新激活。初始化通知最多一次，活动通知只在 bool 改变时发送。关闭标记只用于内部幂等控制。
+初始化一生只执行一次。Screen 基类关闭不删除、不重置初始化或业务字段；关闭后可重新激活。初始化通知最多一次，活动通知只在 bool 改变时发送。停用条件与 [CM Screen](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/master/src/Caliburn.Micro.Core/Screen.cs) 一致：`isActive || (isInitialized && close)`；不维护额外关闭标记或待清理资源扩展。未初始化的 Conductor 同样跳过关闭生命周期，保留当前项及父树所有权；已初始化的 Conductor 在关闭钩子中清空当前项并延迟回收。
 
-例：activate → deactivate(false) → deactivate(true) → deactivate(true) → activate → deactivate(true)，钩子依次是初始化、激活、停用、关闭、激活、关闭；重复关闭无钩子。
+例：activate → deactivate(false) → deactivate(true) → deactivate(true) → activate → deactivate(true)，钩子依次是初始化、激活、停用、关闭、关闭、激活、关闭；重复关闭仍执行钩子。
 
 ## 线程与重入
 
-展示 VM 沿用项目 GUI 线程约定：对象位于应用主线程，调用也在该线程同步执行。跨线程调用诊断并拒绝，不排队调度。生命周期转换期间，包括同步 NOTIFY 回调，不允许重入任意生命周期方法；重入诊断并拒绝，外层正常完成。
+展示 VM 沿用项目 GUI 线程约定：对象位于应用主线程，由调用方保证生命周期在该线程同步执行。Screen 不逐次检查线程，不自动调度，也不维护转换标记或拒绝重入；回调中的嵌套生命周期操作留待具体需求单独处理。
 
 钩子读取的是提交新状态前的值：首次 onInitialize 中两个状态 false；onActivate 中初始化 true、活动 false；活动对象的 onDeactivate 中活动仍为 true。钩子及同步信号观察者必须保持对象有效，不能在调用栈内销毁它。
 
@@ -44,4 +44,4 @@ Shell 和 Home 均继承 Screen，计数完整保存在 Home。IoC 递归构造 
 
 退出或根加载失败只调用 shell->deactivate(true)，由 Shell 的 onDeactivate(close) 先关闭 Home，返回后提交 Shell 状态。随后先销毁引擎与 View，再释放 VM 树。窗口失焦和 ViewHost 装配不触发生命周期。Shell 显示两者状态，不新增停用/恢复按钮。
 
-自动测试验证钩子与通知顺序、幂等、自动初始化、停用后关闭、重复关闭、重激活、关闭不删除以及线程与重入拒绝。第三批基础结果见 [第三批验收记录](第三批验收记录.md)；IoC 调整后新增根生命周期与接管验证，见 [IoC 装配验收记录](IoC装配验收记录.md)。装配契约见 [IoC 与应用装配](IoC与应用装配.md) 和 [ViewHost](ViewHost.md)。
+自动测试验证钩子与通知顺序、初始化/激活/普通停用幂等、自动初始化、停用后关闭、重复关闭、重激活及关闭不删除。第三批基础结果见 [第三批验收记录](第三批验收记录.md)；IoC 调整后新增根生命周期与接管验证，见 [IoC 装配验收记录](IoC装配验收记录.md)。装配契约见 [IoC 与应用装配](IoC与应用装配.md) 和 [ViewHost](ViewHost.md)。

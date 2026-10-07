@@ -52,7 +52,7 @@ Shell 显式覆盖以下钩子：
 | onActivate() | home->activate() |
 | onDeactivate(close) | home->deactivate(close) |
 
-Screen 基类的幂等与重入检查继续有效。Shell 钩子先完成 Home 的转换，再返回给 Screen 提交 Shell 状态，因此初始化、激活及活动对象关闭的状态通知先 Home 后 Shell。停用后关闭仍调用 Home 关闭钩子；重复关闭无操作；关闭后重新激活不重置初始化或计数。
+Screen 基类保留初始化、激活和普通停用幂等；生命周期调用由装配层保证在应用主线程执行。Shell 钩子先完成 Home 的转换，再返回给 Screen 提交 Shell 状态，因此初始化、激活及活动对象关闭的状态通知先 Home 后 Shell。停用后关闭仍调用 Home 关闭钩子；已初始化的 Shell/Home 重复关闭仍执行关闭钩子，状态不变时不重复通知；关闭后重新激活不重置初始化或计数。
 
 [main.cpp](../examples/minimal/app/main.cpp) 创建 QGuiApplication 和 AppBootstrapper，再调用 Run。具体启动流程见 [Bootstrapper](Bootstrapper.md)：
 

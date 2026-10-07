@@ -28,10 +28,6 @@ protected:
     virtual void onDeactivate(bool close) { Q_UNUSED(close); }
 
 private:
-    bool canTransition() const;
-    void initializeOnce();
     bool m_initialized = false;
     bool m_active = false;
-    bool m_closed = false;
-    bool m_transitioning = false;
 };

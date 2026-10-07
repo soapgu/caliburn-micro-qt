@@ -2,6 +2,10 @@
 
 2026-10-06 完成第三批之后的 IoC 装配调整。macOS arm64 自动检查、Cocoa 集成测试和真实窗口操作全部通过；麒麟待验证。未暂存、提交或推送。
 
+2026-10-07 Conductor 核心调整后，已初始化的 Shell/Home 重复关闭仍执行钩子，未改变的活动状态不重复通知；下文幂等描述保留初次验收语义。当前契约及回归结果见 [ScreenViewModel](ScreenViewModel.md) 和 [Conductor 核心验收记录](Conductor核心验收记录.md)。
+
+2026-10-07 随后统一精简 Screen 与 Conductor：移除逐次调用线程检查和重入保护，主线程执行由调用方保证；下文相关防守测试仅代表原验收行为，当前回归结果见 [Conductor 核心验收记录](Conductor核心验收记录.md)。
+
 ## 改动范围
 
 - 固定 Boost.Ext.DI v1.3.2 单头文件与 Boost Software License 1.0；配置时核对头文件 SHA-256，不在构建阶段访问网络。

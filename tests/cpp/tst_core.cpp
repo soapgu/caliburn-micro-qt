@@ -53,13 +53,10 @@ class ProbeScreen : public ScreenViewModel
 {
 public:
     QStringList events;
-    bool reenter = false;
 protected:
     void onInitialize() override
     {
         events << QStringLiteral("initialize:%1:%2").arg(isInitialized()).arg(isActive());
-        if (reenter)
-            activate();
     }
     void onActivate() override
     {
@@ -126,14 +123,14 @@ private slots:
         screen.deactivate();
         screen.deactivate(true);
         screen.deactivate(true);
-        QCOMPARE(screen.events.mid(4), QStringList({"deactivate:0:1", "active:0", "deactivate:1:0"}));
+        QCOMPARE(screen.events.mid(4), QStringList({"deactivate:0:1", "active:0", "deactivate:1:0", "deactivate:1:0"}));
         QCOMPARE(active.count(), 2);
         QVERIFY(weak);
         QVERIFY(screen.isInitialized());
         screen.activate();
         screen.deactivate(true);
         screen.deactivate(true);
-        QCOMPARE(screen.events.mid(7), QStringList({"activate:1:0", "active:1", "deactivate:1:1", "active:0"}));
+        QCOMPARE(screen.events.mid(8), QStringList({"activate:1:0", "active:1", "deactivate:1:1", "active:0", "deactivate:1:0"}));
         QCOMPARE(initialized.count(), 1);
         QCOMPARE(active.count(), 4);
         QVERIFY(!screen.isActive());
@@ -143,30 +140,9 @@ private slots:
         neverActive.initialize();
         neverActive.deactivate(true);
         neverActive.deactivate(true);
-        QCOMPARE(neverActive.events, QStringList({"initialize:0:0", "deactivate:1:0"}));
+        QCOMPARE(neverActive.events, QStringList({"initialize:0:0", "deactivate:1:0", "deactivate:1:0"}));
         neverActive.activate();
         QVERIFY(neverActive.isActive());
-    }
-
-    void screenRejectsReentryAndWorker()
-    {
-        ProbeScreen screen;
-        screen.reenter = true;
-        QTest::ignoreMessage(QtWarningMsg, "ScreenViewModel：拒绝生命周期重入");
-        screen.initialize();
-        QVERIFY(screen.isInitialized());
-        QVERIFY(!screen.isActive());
-        connect(&screen, &ScreenViewModel::isActiveChanged, this, [&] { screen.deactivate(); });
-        QTest::ignoreMessage(QtWarningMsg, "ScreenViewModel：拒绝生命周期重入");
-        screen.activate();
-        QVERIFY(screen.isActive());
-        const auto events = screen.events;
-        QTest::ignoreMessage(QtWarningMsg, "ScreenViewModel：生命周期必须在应用主线程调用");
-        auto worker = std::unique_ptr<QThread>(QThread::create([&] { screen.deactivate(true); }));
-        worker->start();
-        QVERIFY(worker->wait(5000));
-        QCOMPARE(screen.events, events);
-        QVERIFY(screen.isActive());
         QVERIFY(screen.metaObject()->indexOfMethod("activate()") < 0);
         QVERIFY(screen.metaObject()->indexOfMethod("initialize()") < 0);
     }
@@ -260,12 +236,12 @@ private slots:
         shell.activate();
         shell.deactivate();
         shell.deactivate();
-        shell.deactivate(true); // 已停用的 Home 仍收到一次关闭钩子。
+        shell.deactivate(true); // 已停用且已初始化的 Home 仍收到关闭钩子。
         shell.deactivate(true);
-        QCOMPARE(home->events, QStringList({"initialize", "activate", "deactivate", "close"}));
+        QCOMPARE(home->events, QStringList({"initialize", "activate", "deactivate", "close", "close"}));
         shell.activate();
         shell.deactivate(true);
-        QCOMPARE(home->events.mid(4), QStringList({"activate", "close"}));
+        QCOMPARE(home->events.mid(5), QStringList({"activate", "close"}));
     }
 
     void baseContract()

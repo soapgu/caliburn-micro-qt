@@ -12,6 +12,9 @@ qt_add_qml_module(CaliburnMicroQt
         src/ViewModelBase.cpp
         include/CaliburnMicroQt/ScreenViewModel.h
         src/ScreenViewModel.cpp
+        include/CaliburnMicroQt/ConductorViewModelBase.h
+        include/CaliburnMicroQt/Conductor.h
+        src/ConductorViewModelBase.cpp
         include/CaliburnMicroQt/ViewRegistry.h
         src/ViewRegistry.cpp
         src/ViewHostState.h
