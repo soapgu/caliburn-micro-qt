@@ -28,6 +28,8 @@ class NotifyVm : public ViewModelBase
 public:
     using ViewModelBase::ViewModelBase;
     using ViewModelBase::setAndNotify;
+    // 在派生类内提取受保护模板的类型，兼容 GCC 的访问检查。
+    using SetAndNotifyType = decltype(&NotifyVm::setAndNotify<NotifyVm, int>);
     int value = 0;
     QString text;
     TrackedValue tracked;
@@ -71,7 +73,7 @@ protected:
 
 // 通知辅助只接受无参数 void 成员指针，QObject 基类不可复制或移动。
 using NotifyHelper = bool (ViewModelBase::*)(int &, const int &, void (NotifyVm::*)());
-static_assert(std::is_same_v<decltype(&NotifyVm::setAndNotify<NotifyVm, int>), NotifyHelper>);
+static_assert(std::is_same_v<NotifyVm::SetAndNotifyType, NotifyHelper>);
 static_assert(!std::is_invocable_v<NotifyHelper, NotifyVm *, int &, const int &,
                                   void (NotifyVm::*)(int)>);
 static_assert(!std::is_invocable_v<NotifyHelper, NotifyVm *, int &, const int &,
