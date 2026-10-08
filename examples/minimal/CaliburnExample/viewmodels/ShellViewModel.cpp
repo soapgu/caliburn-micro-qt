@@ -2,24 +2,72 @@
 #include <stdexcept>
 #include <utility>
 
-ShellViewModel::ShellViewModel(HomeViewModelFactory homeFactory)
-    : m_homeFactory(std::move(homeFactory))
+ShellViewModel::ShellViewModel(HomeViewModelFactory homeFactory, DetailViewModelFactory detailFactory)
+    : m_homeFactory(std::move(homeFactory)), m_detailFactory(std::move(detailFactory))
 {
-    if (!m_homeFactory)
-        throw std::invalid_argument("Shell 要求非空的 Home 工厂");
-    createHome();
+    if (!m_homeFactory || !m_detailFactory)
+        throw std::invalid_argument("Shell 要求非空的 Home 与 Detail 工厂");
+    auto *initial = ensureHome();
+    if (!activateItem(initial))
+        throw std::invalid_argument("Shell 无法选择初始 Home");
+    connect(this, &ShellViewModel::itemsChanged, this, &ShellViewModel::navigationChanged);
+    connect(this, &ShellViewModel::activeItemChanged, this, &ShellViewModel::navigationChanged);
+    connect(this, &ShellViewModel::isActiveChanged, this, &ShellViewModel::navigationChanged);
 }
 
-void ShellViewModel::createHome()
+HomeViewModel *ShellViewModel::home() const
 {
+    for (auto *item : items())
+        if (auto *home = qobject_cast<HomeViewModel *>(item))
+            return home;
+    return nullptr;
+}
+
+DetailViewModel *ShellViewModel::detail() const
+{
+    for (auto *item : items())
+        if (auto *detail = qobject_cast<DetailViewModel *>(item))
+            return detail;
+    return nullptr;
+}
+
+HomeViewModel *ShellViewModel::ensureHome()
+{
+    if (auto *existing = home())
+        return existing;
     auto home = m_homeFactory();
-    if (!home || !activateItem(std::move(home)))
+    auto *raw = home.get();
+    if (!home || !addItem(std::move(home)))
         throw std::invalid_argument("Shell 工厂必须返回可接管的非空 Home");
+    return raw;
+}
+
+bool ShellViewModel::showDetail()
+{
+    if (!canShowDetail())
+        return false;
+    if (auto *existing = detail())
+        return activateItem(existing);
+    auto next = m_detailFactory();
+    if (!next || !activateItem(std::move(next)))
+        throw std::invalid_argument("Shell 工厂必须返回可接管的非空 Detail");
+    return true;
+}
+
+bool ShellViewModel::goHome()
+{
+    if (!canGoHome())
+        return false;
+    ensureHome();
+    return closeItem(detail());
 }
 
 void ShellViewModel::onActivate()
 {
-    if (!activeItem())
-        createHome();
-    Conductor<ScreenViewModel>::onActivate();
+    auto *availableHome = ensureHome();
+    if (!activeItem()) {
+        if (!activateItem(availableHome))
+            throw std::invalid_argument("Shell 无法选择 Home");
+    }
+    Conductor<ScreenViewModel>::Collection::OneActive::onActivate();
 }

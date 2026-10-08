@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
 | `bool RegisterRootFactory<T>(factory)` | 只允许在 Configure 中登记，每个类型只能登记一次，工厂返回 unique_ptr<T>。登记时不创建对象。 |
 | `bool DisplayRootViewFor<T>()` | 只允许在 OnStartup 中调用；每个 Bootstrapper 只允许一次显示尝试，T 必须继承 ScreenViewModel。 |
 
-示例 AppBootstrapper::Configure 设置 Basic 样式，登记 Shell/Home 映射，并用 `[] { return buildShell(); }` 提供 Shell 工厂。OnStartup 只调用 `DisplayRootViewFor<ShellViewModel>()`。当前装配通过 Home 工厂和共享服务构造 Shell，Bootstrapper 的入口接口不变。
+示例 AppBootstrapper::Configure 设置 Basic 样式，登记 Shell/Home/Detail 映射，并用 `[] { return buildShell(); }` 提供 Shell 工厂。OnStartup 只调用 `DisplayRootViewFor<ShellViewModel>()`。当前装配通过 Home/Detail 工厂和共享服务构造 Shell，Bootstrapper 的入口接口不变。
 
 ## 工厂与所有权
 
@@ -54,19 +54,19 @@ Bootstrapper 保存按 VM 元对象地址索引的根工厂；它只负责创建
 
 第一版仅支持一个根窗口、本地或 qrc QML 和同步 Screen 生命周期。远程 QML、异步生命周期、多窗口管理和运行时模块加载不包含在当前接口中。
 
-## 4B 接入与退出（已实现）
+## 4C 集合导航接入与退出
 
-buildShell()、根工厂注册、DisplayRootViewFor<ShellViewModel>() 和 Run 的接口保持不变。Bootstrapper 只驱动根生命周期，Home 工厂及共享服务由应用装配层创建，子项父关系与 CppOwnership 由 Conductor 接管流程设置。
+buildShell、根工厂、DisplayRootViewFor 和 Run 接口不变。AppBootstrapper 配置 Shell/Home/Detail 映射，应用装配层提供共享服务及两个页面工厂。构造只选择 Home，激活由集合型 Conductor 传播。
 
-Shell 构造时选择未初始化 Home，initialize() 不提前初始化子项，激活时由 Conductor 驱动。已初始化 Shell 关闭会清空 activeItem 并安排旧 Home 延迟删除。OnExit 时根对象仍存活，旧 Home 可能已处理 DeferredDelete；测试分别验证子 View 先于子 VM、根 View 先于根 VM 释放，不要求旧 Home 一直存活到根析构。
+从 Home 或 Detail 退出都只关闭根 Shell，集合型一次清空所有页面和选择，关闭并延迟回收成员。OnExit 时根仍存活，子页可能已处理 DeferredDelete；测试分别验证当前子 View 先于子 VM、根 View 先于根 VM 释放，不要求旧页面活到根析构。
 
-当前装配、生命周期和实际退出结果见 [4B 验收记录](4B验收记录.md)。4C 集合型及 Detail 待实施，阶段状态见 [实现计划](迭代实现计划.md#第四批阶段划分)。
+本轮实际示例启动测试从 Home 进入 Detail 后关闭窗口，自动及实际窗口退出均通过，见 [4C 验收记录](4C验收记录.md)。Bootstrapper 不直接管理导航或 View 缓存，历史 [4B 验收记录](4B验收记录.md) 保留原样。
 
 ## 验证
 
 CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周期、View 先于 VM 释放、重复运行保护、失败清理和异常退出，并覆盖 Configure 中查询后继续登记、进入 OnStartup 前已经冻结以及 Configure 失败不自动冻结。各场景由 CTest 在独立进程运行：注册表的映射和冻结状态均为进程级，不同场景需要为同一类型使用不同映射或保留空表；显式冻结不消除这项隔离需求。实际 AppBootstrapper 另有窗口关闭退出的集成场景。
 
-以下保留 2026-10-06 原始 Bootstrapper 验收结果；当前 4B 结果见 [4B 验收记录](4B验收记录.md)。原始环境为 macOS arm64 / Qt 6.8.3：
+以下保留 2026-10-06 原始 Bootstrapper 验收结果；4B 历史结果见 [4B 验收记录](4B验收记录.md)，当前结果见 [4C 验收记录](4C验收记录.md)。原始环境为 macOS arm64 / Qt 6.8.3：
 
 | 检查 | 结果 |
 | --- | --- |

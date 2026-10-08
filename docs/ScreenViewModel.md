@@ -38,12 +38,14 @@ void deactivate(bool close = false);
 
 本批无异步钩子、关闭守卫、失败返回值或异常恢复协议，钩子应正常返回。析构不补关闭，Screen 基类不自动传播子对象生命周期。示例 Shell 通过 Conductor 基类管理 Home；所有权和业务生命周期分别安排。
 
-## 4B 生命周期与页面重建（已实现）
+## 4C 集合导航的生命周期
 
-Shell 继承 Conductor<ScreenViewModel>，Home 继承 Screen，计数唯一保存在 CounterService。Shell 构造通过工厂选择未初始化 Home；Shell.initialize() 只初始化自身，首次 activate() 才初始化并激活 Home。通知顺序为 Shell 初始化、Home 初始化、Home 激活、Shell 激活。Shell 只在 onActivate 中处理空项创建，再调用基类实现。
+Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，Home 和 Detail 均继承 Screen，计数唯一保存在 CounterService。构造选择未初始化 Home；Shell.initialize() 只初始化自身，首次 activate 才初始化并激活 Home。通知顺序仍为 Shell 初始化、Home 初始化、Home 激活、Shell 激活。
 
-普通停用保留页面，恢复不重新调用工厂。已初始化 Shell 关闭会清空 activeItem，卸载旧 View，关闭 Home 并延迟删除；再次激活创建新 Home，使用原共享服务和计数。当前项意外销毁时不自动重建，Shell 停用后再次激活才创建页面。Screen 自身关闭不删除的契约不变，回收子项属于 Conductor 职责。未初始化 Shell 关闭仍无操作。
+进入 Detail 普通停用 Home，Home VM 留在集合；返回关闭并移除 Detail、重新激活原 Home，Home 不重复初始化。Home View 离开时销毁、返回时新建，不能用 View 创建次数判断 VM 初始化次数。普通父停用保留当前选择，恢复时只激活当前页。
 
-Bootstrapper 仅驱动根生命周期。退出关闭根时，旧 Home 的 DeferredDelete 可能在引擎销毁前被处理；宿主先卸载对应 View，根 View 则在根 VM 之前释放。窗口失焦和 ViewHost 装配不触发生命周期，界面没有新增停用或导航按钮。
+已初始化 Shell 关闭清空全部成员及选择，关闭 Home/Detail 并延迟删除；再激活创建新 Home，服务和计数保留。未初始化 Shell 关闭仍无操作。页面意外销毁不自动导航，下次 Shell 停用后激活补 Home，在空选择时选 Home。
 
-基础 Screen 历史结果见 [第三批验收记录](第三批验收记录.md)，原装配结果见 [IoC 装配验收记录](IoC装配验收记录.md)。当前工厂、重建、共享状态与销毁顺序见 [4B 验收记录](4B验收记录.md) 和 [IoC 与应用装配](IoC与应用装配.md)。4C 再设计集合型及 Detail，Home 常驻属于该后续阶段。
+Screen 自身关闭不删除的契约不变；集合成员移除、延迟回收属于 Conductor。Bootstrapper 只驱动根生命周期，ViewHost 不驱动生命周期，窗口失焦不自动停用。退出时当前 View 先于对应 VM 释放，根 View 先于根 VM 释放。
+
+基础历史结果见 [第三批验收记录](第三批验收记录.md) 和 [4B 验收记录](4B验收记录.md)。当前集合生命周期、异常恢复、单次回收及导航验收见 [4C 验收记录](4C验收记录.md)；装配接口见 [IoC 与应用装配](IoC与应用装配.md)。

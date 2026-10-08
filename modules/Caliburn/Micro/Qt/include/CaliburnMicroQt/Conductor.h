@@ -1,6 +1,7 @@
 #pragma once
 
 #include <CaliburnMicroQt/ConductorViewModelBase.h>
+#include <CaliburnMicroQt/ConductorCollectionOneActive.h>
 #include <cstddef>
 #include <type_traits>
 #include <utility>
@@ -14,6 +15,7 @@ class Conductor : public ConductorViewModelBase
                   "Conductor<T> 的 T 必须为非 const/volatile 的 ViewModelBase 派生类");
 
 public:
+    struct Collection { using OneActive = ConductorCollectionOneActive<T>; };
     using ConductorViewModelBase::ConductorViewModelBase;
     T *activeItem() const
     {

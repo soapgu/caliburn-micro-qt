@@ -36,11 +36,17 @@ struct Observation {
     bool activeAtExit = false;
 };
 
+static DetailViewModelFactory makeDetailFactory(
+        std::shared_ptr<CounterService> service = std::make_shared<CounterService>())
+{
+    return [service] { return std::make_unique<DetailViewModel>(service); };
+}
+
 class FailingCloseShell : public ShellViewModel
 {
 public:
     explicit FailingCloseShell(Observation &observation)
-        : ShellViewModel(makeHomeFactory()), m_observation(observation)
+        : ShellViewModel(makeHomeFactory(), makeDetailFactory()), m_observation(observation)
     {
         QQmlEngine::setObjectOwnership(home(), QQmlEngine::CppOwnership);
     }
@@ -86,11 +92,12 @@ protected:
         if (!ViewRegistry::registerView<ShellViewModel>(url))
             return false;
         if (m_scenario == "configureQuery") {
-            ShellViewModel probe(makeHomeFactory());
+            ShellViewModel probe(makeHomeFactory(), makeDetailFactory());
             if (ViewRegistry::viewUrl(&probe) != url)
                 return false;
         }
-        return ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")));
+        return ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")))
+            && ViewRegistry::registerView<DetailViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/DetailView.qml")));
     }
 
     bool OnStartup() override
@@ -254,6 +261,7 @@ private slots:
         AppBootstrapper bootstrapper(*qobject_cast<QGuiApplication *>(qApp));
         bool shellActive = false;
         bool homeActive = false;
+        bool detailLoaded = false;
         QPointer<ShellViewModel> shell;
         QPointer<QQuickWindow> window;
         QTimer::singleShot(0, &bootstrapper, [&] {
@@ -267,12 +275,19 @@ private slots:
                 window = root;
                 shellActive = shell->isInitialized() && shell->isActive();
                 homeActive = shell->home()->isInitialized() && shell->home()->isActive();
-                // 验证窗口关闭可以结束应用，而非仅测试直接 exit。
+                shell->home()->add(2);
+                if (shell->showDetail()) {
+                    auto *host = root->findChild<QQuickItem *>(QStringLiteral("homeHost"));
+                    auto *item = host ? host->property("item").value<QQuickItem *>() : nullptr;
+                    detailLoaded = item && shell->detail()->count() == 2
+                        && item->property("viewModel").value<DetailViewModel *>() == shell->detail();
+                }
+                // 验证从 Detail 关闭窗口也能清理集合，而非仅测试直接 exit。
                 root->close();
             }
         });
         QCOMPARE(bootstrapper.Run(), 0);
-        QVERIFY(shellActive && homeActive);
+        QVERIFY(shellActive && homeActive && detailLoaded);
         QVERIFY(!shell && !window);
     }
 };

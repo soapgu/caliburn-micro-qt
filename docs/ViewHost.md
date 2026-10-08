@@ -87,20 +87,20 @@ ViewHostState 是 `Caliburn.Micro.Qt 1.0` 模块公开、可创建的 QML 辅助
 
 ViewHostState 用 QPointer 保存模型，替换时断开旧 destroyed 连接。销毁通知到达时指针可能已清空，因此回调无条件发送 modelChanged，触发 ViewHost 卸载。QML 可创建性由契约测试覆盖。
 
-C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，卸载不删除 VM，也不调用生命周期。Shell 通过 Conductor 接管页面，建立父关系并设置 CppOwnership；home 只投影 activeItem，继承 activeItemChanged 通知。计数服务由工厂与 Home 的 shared_ptr 管理，无 QObject 父对象。关闭清空当前项时，宿主先卸载 View，Conductor 再关闭并延迟回收 VM；根引擎与 View 在根 VM 之前销毁。详见 [IoC 与应用装配](IoC与应用装配.md)。
+C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，卸载不删除 VM，也不调用生命周期。Shell 通过集合型 Conductor 接管页面，建立父关系并设置 CppOwnership；home/detail 从集合查找，通过 itemsChanged 通知，实际宿主仍绑定 activeItem。计数服务由工厂与 Home 的 shared_ptr 管理，无 QObject 父对象。关闭清空当前项时，宿主先卸载 View，Conductor 再关闭并延迟回收 VM；根引擎与 View 在根 VM 之前销毁。详见 [IoC 与应用装配](IoC与应用装配.md)。
 
 ## 5. 焦点与后续边界
 
 ViewHost 使用 FocusScope，内部 Loader 设置 focus。Shell 给宿主设置 focus，Home 根 FocusScope 和内部输入 Item 也设置 focus，形成窗口至页面的焦点链。按键处理位于输入 Item；空白点击对该 Item 调用 forceActiveFocus，避免作用域保留文本框焦点。[Qt 焦点作用域](https://doc.qt.io/qt-6.8/qtquick-input-focus.html)
 
-窗口失焦不自动停用 VM。泛型单项 Conductor 核心已实现，并通过 activeItem 绑定宿主的集成验证，见 [Conductor](Conductor.md)。通用默认焦点恢复、模态焦点、集合型 Conductor、详情导航、缓存、异步加载和自动重试未实现。第四批 4B 已将宿主改绑 activeItem 并迁移共享计数服务，4C 再完善集合型与 Detail 导航，第五批加入弹窗。页面内部可使用同一宿主装配子 VM，无须复制加载规则。
+窗口失焦不自动停用 VM。泛型单项 Conductor 核心已实现，并通过 activeItem 绑定宿主的集成验证，见 [Conductor](Conductor.md)。集合型 Conductor 和详情导航在 4C 已实现，仍沿用当前 ViewHost。通用默认焦点恢复、模态焦点、View 缓存、异步加载和自动重试未实现；第五批再加入弹窗。页面内部可使用同一宿主装配子 VM，无须复制加载规则。
 
 验收覆盖跨模块 typed 注入、创建完成时机、同类型替换、属性变化保持身份、清空与销毁、旧连接解绑及各类失败；证据与平台限制见 [第三批验收记录](第三批验收记录.md)。
 
-## 6. 4B 宿主接入（已实现）
+## 6. 4C 导航：VM 保留，View 每次新建
 
-ShellView 的 model 已绑定 `root.viewModel ? root.viewModel.activeItem : null`；home 属性仅提供类型化投影，不再单独保存 Home 指针。HomeView 仍声明 required property HomeViewModel viewModel。
+ShellView 的 model 继续绑定 activeItem，HomeView/DetailView 分别声明 required typed viewModel。集合保存 Home VM，但 ViewHost 在切换时卸载原 View；返回同一 Home VM 也创建新的 View，因此文本框恢复空值、焦点按新页面初始化，计数从共享服务读取。
 
-普通停用时页面身份不变；已初始化 Shell 关闭清空 activeItem，宿主卸载旧 View，Conductor 关闭并延迟回收旧 VM。后续激活创建新 Home，触发宿主重建，计数由共享服务保留；当前项意外销毁时清空界面，等下次激活再重建。
+返回时 Shell 关闭 Detail，集合先公布 Home 为当前项；宿主卸载 Detail View、创建 Home View，Detail VM 随后延迟删除。Shell 关闭时清空集合与选择，宿主清空。意外销毁当前项同样清空界面，不自动导航。
 
-4B 未修改 ViewHost、Loader 或借用契约。旧 View 先于旧 VM 销毁、新 Home 类型化注入、按钮、键盘与焦点回归均已验证，见 [4B 验收记录](4B验收记录.md)。4C 再完善集合型和 Detail 导航及映射，不提前加入宿主缓存或占位页面。
+本轮没有修改 ViewHost/Loader 契约。Home VM 身份保留、View 重建、文本重置、焦点与 View 先于 VM 销毁均已验证，见 [4C 验收记录](4C验收记录.md)。集合导航视图保留机制已列入 [后续版本 ToDoList](后续版本ToDoList.md)，尚未实现。

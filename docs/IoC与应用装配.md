@@ -1,48 +1,52 @@
 # IoC 与应用装配
 
-4B 已实现 Shell 单项 Conductor、共享计数服务及关闭后重建，见 [4B 验收记录](4B验收记录.md)。第三批原装配的历史结果见 [IoC 装配验收记录](IoC装配验收记录.md)，其 Home 无参构造与 Shell 直接接收页面的接口已由下述接口替代。
+当前 4C 已将 Shell 改为 Collection.OneActive，提供 Home/Detail 导航，两页共享计数服务，见 [4C 验收记录](4C验收记录.md)。4B 单项接入及更早装配方式的历史结果分别见 [4B 验收记录](4B验收记录.md) 与 [IoC 装配验收记录](IoC装配验收记录.md)。
 
-## 4B 构造接口与模块边界
+## 4C 构造接口与模块边界
 
 ```cpp
 explicit HomeViewModel(std::shared_ptr<CounterService> counterService);
+explicit DetailViewModel(std::shared_ptr<CounterService> counterService);
 using HomeViewModelFactory = std::function<std::unique_ptr<HomeViewModel>()>;
-explicit ShellViewModel(HomeViewModelFactory homeFactory);
+using DetailViewModelFactory = std::function<std::unique_ptr<DetailViewModel>()>;
+explicit ShellViewModel(HomeViewModelFactory homeFactory,
+                        DetailViewModelFactory detailFactory);
 std::unique_ptr<ShellViewModel> buildShell();
 ```
 
-CounterService 位于示例用户模块 services/，继承 QObject，不注册为 QML 类型，不设置 QObject 父对象。它提供 int count() const、bool canAdd(int) const、void add(int)、void reset() 和 countChanged()。计数唯一保存在服务中，初始 0、范围 0～5，先比较剩余额度再相加；非正、超范围和无变化操作不修改、不通知。
+CounterService 位于示例用户模块 services/，不注册为 QML 类型，没有 QObject 父对象。它唯一保存初始 0、范围 0～5 的计数，提供 count、canAdd、add、reset 和 countChanged；先比较剩余额度再相加，非法输入与无变化操作不通知。
 
-Home 构造必须提供非空服务，没有无参构造或隐式服务，空服务抛出 std::invalid_argument。它保留原 QML 属性、文案、方法和守卫，直接读取服务、委托操作，只缓存上次守卫结果。构造按服务当前状态初始化缓存，不发送初始通知；服务变化时先更新缓存，再发送 countChanged 及实际改变的守卫通知，使通知观察者读到一致状态。
+Home 保留原计数属性、文案、操作及守卫，直接读取服务，只缓存上次守卫结果。构造按已有服务状态初始化缓存，不发初始通知；服务变化时先更新缓存，再通知 count 和实际变化的守卫。Detail 只读展示 count/message，使用同一服务并转发 countChanged。两者必须显式接收非空服务，空服务抛出 invalid_argument，没有隐式服务或无参构造。
 
-Shell 运行时继承 Conductor<ScreenViewModel>，仅保存工厂。构造调用工厂，通过 activateItem 接管初始 Home，页面仍未初始化、未激活。空工厂、空返回值和接管失败抛出 std::invalid_argument，工厂自身异常原样传播。home 只读属性用 qobject_cast 投影 activeItem，以继承的 activeItemChanged 通知；不保存第二份页面指针。业务 VM 与框架不包含 DI 头文件或容器接口。
+Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，只保存两个工厂。home/detail 从集合查找，使用 itemsChanged 通知；activeItem 是实际选择，没有额外页面所有权。构造检查两个工厂非空，创建并选择未初始化 Home。空页面或接管失败抛出 invalid_argument，工厂自身异常原样传播。业务 VM 和框架不包含 DI 容器接口。
 
 ## 创建与所有权
 
-[ViewModelComposition.cpp](../examples/minimal/app/ViewModelComposition.cpp) 每次 buildShell() 创建独立 shared_ptr<CounterService>。Home 工厂仅按值捕获服务，每次调用创建局部 Boost.Ext.DI 注入器，绑定同一服务并创建 unique_ptr<HomeViewModel>；根注入器将该工厂绑定给 Shell，返回根 unique_ptr。闭包不捕获注入器或 Shell，不存在全局计数单例。
+[ViewModelComposition.cpp](../examples/minimal/app/ViewModelComposition.cpp) 每次 buildShell 创建独立 shared_ptr<CounterService>，装配 Home 和 Detail 工厂。两个工厂都仅按值捕获该服务，每次调用局部 Boost.Ext.DI 注入器，绑定同一服务并创建对应 unique_ptr 页面。根注入器绑定两个工厂、创建 Shell，返回根 unique_ptr。
 
-DI 是装配库的私有依赖。局部注入器离开作用域后，工厂和 Home 的 shared_ptr 继续保持服务寿命。服务无 QObject 父对象；页面通过 Conductor 接管建立 QObject 父关系和 CppOwnership，并释放临时 unique_ptr。根 Shell 由返回的 unique_ptr 管理，Bootstrapper 继续只驱动根生命周期。创建、服务更新及生命周期操作由应用保证在主线程执行。
+DI 仍为装配库私有依赖。工厂不捕获注入器或 Shell；局部注入器离开作用域后，工厂和页面的 shared_ptr 保持服务寿命。Conductor 接管页面时设置 QObject 父关系和 CppOwnership，释放临时 unique_ptr。根 Shell 由 unique_ptr 管理，服务没有 QObject 父对象。不同 buildShell 的计数相互隔离。
 
-关闭后的旧页面可能仍等待 DeferredDelete，此时工厂和旧、新页面可以共同持有服务；旧页面析构不会清空新的选择。Shell 提前析构时，父树回收当前页和仍存活的旧页，服务在最后一个 shared_ptr 释放时销毁一次。
+旧 Detail 等待 DeferredDelete 时可以再次创建新 Detail，二者暂时共享服务。关闭 Shell 后重建 Home 仍沿用服务；父树提前销毁时同时回收当前成员及尚未删除的旧页，服务在最后一个 shared_ptr 释放后销毁一次。
 
-## 生命周期与页面重建
+## 生命周期与导航
 
 | 操作 | 当前行为 |
 | --- | --- |
-| Shell 构造 | 创建并选择 Home，不初始化或激活。 |
-| Shell.initialize() | 只初始化 Shell。 |
-| 首次激活 | 初始化并激活 Home，然后提交 Shell 活动状态；通知依次为 Shell 初始化、Home 初始化、Home 激活、Shell 激活。 |
-| 普通停用再激活 | 保留 Home 身份及计数，不再调用工厂。 |
-| 未初始化 Shell 关闭 | 沿用 Screen 无操作规则，保留页面。 |
-| 已初始化 Shell 关闭 | 清空 activeItem，宿主卸载 View，关闭旧项并安排延迟删除。 |
-| 关闭后激活 | 空项时通过工厂创建新 Home，沿用原服务及计数；不要求旧项已处理删除事件。 |
-| 当前项意外销毁 | 清空界面，不在销毁通知中自动导航；Shell 停用后再次激活才重建。 |
-| 重建工厂失败 | 异常传播，选择仍为空，Shell 保持非活动，已有服务状态保留。 |
+| Shell 构造、initialize | 构造选择 Home；initialize 只初始化 Shell，不初始化页面。 |
+| 首次激活 | Home 初始化、激活，最后 Shell 提交活动状态；初始化通知为 Shell 先、Home 后。 |
+| showDetail | 仅活动且 Home 当前时可用；创建并选择 Detail，Home 普通停用且留在集合。 |
+| goHome | 仅活动且 Detail 当前时可用；确保 Home 存在，关闭 Detail，由相邻选择回到 Home。 |
+| 普通停用和恢复 | 保留集合和选择；若 Detail 当前，恢复后仍展示 Detail。 |
+| 已初始化 Shell 关闭 | 清空整个集合及选择，关闭全部页面并延迟删除；未初始化关闭仍无操作。 |
+| 关闭后激活 | 创建新 Home，沿用服务及计数。 |
+| 页面意外销毁 | 移除成员；当前项失效则清空，不自动导航。下次 Shell 停用后激活补 Home、在空选择时选 Home。 |
+| Home 缺失时返回 | 先补入 Home 再关闭 Detail；补入失败保留当前 Detail。 |
+| 工厂失败 | 创建失败不提前改变选择，已有页面与业务状态保留。 |
 
-Shell 只重写 onActivate()：当前项为空时创建 Home，再调用 Conductor 基类实现。初始化、停用和关闭不再手写子生命周期传播。ViewHost 绑定 activeItem，HomeView 仍声明 required property HomeViewModel viewModel。启动、类型化注入和根清理职责见 [Bootstrapper](Bootstrapper.md)，宿主所有权见 [ViewHost](ViewHost.md)。
+Shell 只重写 onActivate：补齐缺失 Home，没有选择时选择 Home，然后调用集合型基类。初始化、普通停用和关闭由基类传播。操作在应用主线程同步执行；生命周期钩子应正常返回，转换回调不得重入修改集合或销毁参与对象。
 
-## 验收与 4C 衔接
+## View 与后续边界
 
-服务边界、共享同步、装配隔离、工厂失败、生命周期、页面及服务单次回收、宿主重建、View 先于 VM 销毁均已覆盖。构建、CTest、qmllint、仅框架构建、Cocoa 与实际窗口回归结果见 [4B 验收记录](4B验收记录.md)。
+ViewHost 继续绑定 activeItem。Home VM 导航期间常驻，但离开即卸载 Home View；返回创建新 View，文本和焦点按新 View 初始化，计数保留。Detail View 在 Detail VM 删除前卸载。Bootstrapper 登记 Shell/Home/Detail 映射，启动接口不变。
 
-4B 只展示 Home。4C 再完善 Collection.OneActive 并调整 Shell 组合方式：Home 在导航期间常驻，Detail 按需创建，返回后关闭、移除并延迟释放，两页沿用共享服务。集合型接口与关闭策略待设计，不改变单项 Conductor 核心契约，不创建占位类型。第四批仍为进行中，麒麟待验证，见 [阶段计划](迭代实现计划.md#第四批阶段划分)。
+本轮验收见 [4C 验收记录](4C验收记录.md)，第四批本机验收完成，麒麟待验证。集合导航的 View 保留机制列入 [后续版本 ToDoList](后续版本ToDoList.md)，本轮没有实现缓存、异步确认或关闭守卫。

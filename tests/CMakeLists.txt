@@ -1,3 +1,8 @@
+qt_add_executable(CaliburnCollectionTests cpp/tst_collection.cpp)
+target_link_libraries(CaliburnCollectionTests PRIVATE Caliburn::MicroQt Qt6::Test)
+add_test(NAME collection COMMAND CaliburnCollectionTests)
+set_tests_properties(collection PROPERTIES TIMEOUT 30)
+
 qt_add_executable(CaliburnCounterServiceTests cpp/tst_counterservice.cpp)
 target_link_libraries(CaliburnCounterServiceTests PRIVATE CaliburnExampleModule Qt6::Test)
 add_test(NAME counterservice COMMAND CaliburnCounterServiceTests)

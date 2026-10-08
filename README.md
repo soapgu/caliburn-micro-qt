@@ -2,7 +2,7 @@
 
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
-> 当前状态：第三批已实现并在 macOS arm64 / Qt 6.8.3 验收通过，提供 ViewModelBase、ScreenViewModel、ViewRegistry 与 ViewHost。Shell 保持根窗口，Home 承接计数、参数按钮及键盘输入；Shell 展示两者的生命周期状态。独立构建、CTest、qmllint、仅框架构建、Cocoa 集成测试及实际窗口操作均通过。后续 IoC 装配调整也已通过本机验收，见 [记录](docs/IoC装配验收记录.md)。现已补充泛型单项 Conductor 核心与自动测试；第四批按 4A/4B/4C 推进：4A 单项核心已完成，4B Shell 与共享计数服务已完成本机验收，4C Collection.OneActive 与 Detail 导航留到后续；第五、六批未实施，麒麟待验证。
+> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/4C验收记录.md)。第五、六批未实施，麒麟待验证。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
 
@@ -45,7 +45,7 @@ flowchart LR
 | --- | --- | --- |
 | PropertyChangedBase | ViewModelBase + QObject 属性系统 | 派生 VM 声明 Q_PROPERTY / NOTIFY，基类提供类型化 setAndNotify；不提供字符串通知入口。 |
 | Screen | ScreenViewModel | 初始化一次，激活与普通停用幂等；已初始化对象每次关闭都执行钩子，生命周期接口由 C++ 管理。 |
-| Conductor<T> | Conductor<T> + ConductorViewModelBase | 已实现泛型单项导航；切换关闭旧项并延迟释放。4B 已接入 Shell，4C 再实现 Collection.OneActive。 |
+| Conductor<T> | Conductor<T> + ConductorViewModelBase | 已实现泛型单项导航；切换关闭旧项并延迟释放。4B 已接入 Shell，4C 已实现 Collection.OneActive，切换保留旧项。 |
 | ViewLocator / ViewModelBinder | ViewRegistry、ViewHost | 按应用提供的 VM 类型映射定位 View，创建前注入 viewModel。 |
 | ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
 | WindowManager 的部分职责 | IDialogService、DialogService、DialogHost | 第五批加入单个模态确认弹窗和异步结果，不包含通用多窗口管理。 |
@@ -54,13 +54,14 @@ flowchart LR
 
 ## 类型清单与实现状态
 
-这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry、ViewHost、BootstrapperBase 和泛型单项 Conductor；集合型 Conductor 与弹窗类型待后续实现，详见 [迭代实现计划](docs/迭代实现计划.md)。
+这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry、ViewHost、BootstrapperBase 和泛型单项 Conductor；集合型 Conductor 已实现，弹窗类型待第五批实现，详见 [迭代实现计划](docs/迭代实现计划.md)。
 
 | 类型 | 形态 | 职责 |
 | --- | --- | --- |
 | ViewModelBase | C++ QObject 基类 | 提供共同类型及 protected setAndNotify，不新增业务属性、状态或信号；完整成员见专题。 |
 | ScreenViewModel | C++ VM 基类 | 管理初始化、激活、停用及 isInitialized / isActive 通知。 |
 | ConductorViewModelBase / Conductor<T> | C++ Screen 子类与模板层 | 接管唯一当前 VM，Screen 子类执行生命周期；切换关闭旧项并 deleteLater。 |
+| ConductorCollectionOneActiveViewModelBase / ConductorCollectionOneActive<T> | C++ Screen 子类与模板层 | 保留多个 VM，仅当前项激活；关闭当前项按前一项优先选择剩余成员。 |
 | ViewRegistry | C++，向 QML 提供单例入口 | 按应用登记的 VM 类型查询 QML View 地址，不拥有 VM。 |
 | ViewHost | QML 组件 | 使用 Loader 定位和加载 View，并注入唯一 viewModel 属性。 |
 | BootstrapperBase | C++ 应用启动基类 | 编排配置、根对象创建、窗口加载、生命周期及退出清理，不依赖 DI 库。 |
@@ -86,9 +87,9 @@ ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected �
 
 | 单元 | CMake 目标 | QML URI / 版本 | 内容及进度 |
 | --- | --- | --- | --- |
-| 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 已实现基类、Screen 生命周期、注册表、ViewHost 和单项 Conductor；集合型 Conductor 和弹窗按批次增加。 |
-| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 已实现 Shell 根窗口和 Home 计数页、参数按钮、键盘输入及生命周期状态；共享计数服务及 Home 重建；详情和确认交互待后续批次。 |
-| 示例装配库 | `CaliburnExampleComposition` | 无独立 QML URI | Boost.Ext.DI 绑定共享服务及 Home 工厂，创建 Shell 并设置根 CppOwnership；子项由 Conductor 接管。 |
+| 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 已实现基类、Screen 生命周期、注册表、ViewHost 和单项 Conductor；集合型 Conductor 已实现，弹窗待第五批。 |
+| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 已实现 Shell 根窗口和 Home 计数页、参数按钮、键盘输入及生命周期状态；共享计数服务及 Home 重建；Detail 只读详情导航已实现，确认交互待后续批次。 |
+| 示例装配库 | `CaliburnExampleComposition` | 无独立 QML URI | Boost.Ext.DI 绑定共享服务及 Home/Detail 工厂，创建 Shell 并设置根 CppOwnership；子项由 Conductor 接管。 |
 | 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | AppBootstrapper 配置映射与根工厂，框架 Bootstrapper 统一启动、根生命周期、类型化注入及有序退出。 |
 
 框架和用户模块均采用静态库，通过 `qt_add_qml_module` 组织各自的 C++ 与 QML；应用和 QML 测试显式链接插件目标并用 Q_IMPORT_QML_PLUGIN 导入插件，静态类型注册及内嵌资源加载已验证。示例装配库采用 Boost.Ext.DI，Shell 通过构造注入工厂，由 Conductor 接管 Home；两个 QML 模块和 VM 头文件不包含 DI。
@@ -108,7 +109,7 @@ caliburn-micro-qt/
 
 依赖方向为“启动程序 → 应用装配库 → 用户代码模块 → 框架模块 → Qt”；装配库私有依赖 Boost.Ext.DI。第一、二批直接加载 `qrc:/qt/qml/CaliburnExample/views/ShellView.qml`，根窗口声明 `required property ShellViewModel viewModel`。第三批已加入框架通用视图注册机制，应用在加载前登记 Shell 根窗口和 Home 子页面映射，第五批再加入框架确认映射。框架不引用用户类型或业务模块。
 
-Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名保持一致。ShellViewModel 第一批继承 ViewModelBase，第三批已演进为 ScreenViewModel，第四批 4B 已采用单项 Conductor，4C 再采用集合型 Conductor 保留常驻页面；ShellView.qml 始终是根窗口。第一、二批计数由 Shell 保存，第三批已整体移入 Home 子页面，第四批 4B 已将计数事实迁入共享业务服务，Home 常驻与 Detail 导航属于 4C。
+Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名保持一致。ShellViewModel 第一批继承 ViewModelBase，第三批已演进为 ScreenViewModel，第四批 4B 采用单项 Conductor，4C 已采用集合型 Conductor 保留 Home VM；ShellView.qml 始终是根窗口。第一、二批计数由 Shell 保存，第三批已整体移入 Home 子页面，第四批 4B 已将计数事实迁入共享业务服务，Home VM 常驻与 Detail 导航在 4C 已实现，View 每次新建。
 
 完整目录、类型归属、模块接入及 qt-snake-lab 调整概要见 [模块与项目结构](docs/模块与项目结构.md)。该概要只规划游戏仓库的后续接入，尚未修改其结构设计。
 
@@ -123,7 +124,7 @@ Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名
 | 操作与输入 | QML 显式读取可用状态并直接调用方法；第一批演示无参数，第二批演示 int 参数和原生键盘事件。框架不规定方法名、返回值或自动守卫契约。 |
 | 视图映射 | 应用配置的类型到 View 映射，初始化阶段确定，不硬编码某个示例的页面数量。 |
 
-Home 显式接收非空 shared_ptr<CounterService>，计数唯一保存在服务中。Shell 继承 Conductor<ScreenViewModel>，只持有 HomeViewModelFactory；构造选择未初始化 Home，普通停用保留页面，关闭清空并延迟回收，再激活创建新 Home、保留计数。home 只投影 activeItem，ViewHost 绑定 activeItem。每次 buildShell 创建独立服务，工厂仅捕获服务，每次调用通过局部 DI 注入器创建 Home；页面由 Conductor 父树管理，服务由 shared_ptr 管理。Bootstrapper 只驱动根生命周期。详见 [IoC 与应用装配](docs/IoC与应用装配.md) 与 [4B 验收记录](docs/4B验收记录.md)。
+Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由服务保存。Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，注入两个页面工厂；进入 Detail 保留并停用 Home VM，返回关闭 Detail、自动选回 Home。home/detail 从集合查找，ViewHost 绑定 activeItem。Home View 离开即卸载、返回重新创建，计数和 VM 保留，文本及焦点按新页面初始化。Shell 关闭清空全部成员，再激活新建 Home 并保留服务。DI 仅在装配层，每个 buildShell 的服务独立。详见 [应用装配](docs/IoC与应用装配.md) 与 [4C 验收记录](docs/4C验收记录.md)。
 
 ## 阅读文档
 
@@ -135,7 +136,10 @@ Home 显式接收非空 shared_ptr<CounterService>，计数唯一保存在服务
 - [IoC 与应用装配：构造注入、父所有权与根生命周期](docs/IoC与应用装配.md)
 - [IoC 装配验收记录](docs/IoC装配验收记录.md)
 - [Bootstrapper：配置、根窗口启动与退出清理](docs/Bootstrapper.md)
-- [Conductor<T>：泛型单项导航](docs/Conductor.md)
+- [Conductor：单项与 Collection.OneActive](docs/Conductor.md)
+- [4B 验收记录](docs/4B验收记录.md)
+- [4C 验收记录](docs/4C验收记录.md)
+- [后续版本 ToDoList：集合导航的 View 保留机制](docs/后续版本ToDoList.md)
 - [Conductor 核心验收记录](docs/Conductor核心验收记录.md)
 - [ScreenViewModel：同步生命周期](docs/ScreenViewModel.md)
 - [ViewModelBase：类型基础、完整成员与通知辅助](docs/ViewModelBase.md)
@@ -208,7 +212,7 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 
 ## 当前状态与后续方向
 
-第一批已交付框架基础和 Shell 示例，第二批增加 add(int)、canAddTwo、“加 2”按钮和数字键 2 操作。文本框优先消费输入，页面过滤自动重复；Tab / Shift+Tab 显式切换焦点并跳过禁用按钮。第二批独立目录配置与构建、CTest、qmllint、Cocoa 测试和真实示例操作均通过。详情见 [第一批验收记录](docs/第一批验收记录.md) 与 [第二批验收记录](docs/第二批验收记录.md)。第三批已实现 ScreenViewModel、ViewRegistry 与 ViewHost，计数整体迁入 Home；自动检查及实际窗口验收通过，见 [第三批验收记录](docs/第三批验收记录.md)。第四批 4A 已实现泛型单项 Conductor 核心与测试；4B 已改造 Shell 与共享计数服务，关闭后重建 Home 保留计数，见 [4B 验收记录](docs/4B验收记录.md)；下一步 4C 完善 Collection.OneActive 和 Detail 导航；麒麟与外部消费工程待验证。
+第一批已交付框架基础和 Shell 示例，第二批增加 add(int)、canAddTwo、“加 2”按钮和数字键 2 操作。文本框优先消费输入，页面过滤自动重复；Tab / Shift+Tab 显式切换焦点并跳过禁用按钮。第二批独立目录配置与构建、CTest、qmllint、Cocoa 测试和真实示例操作均通过。详情见 [第一批验收记录](docs/第一批验收记录.md) 与 [第二批验收记录](docs/第二批验收记录.md)。第三批已实现 ScreenViewModel、ViewRegistry 与 ViewHost，计数整体迁入 Home；自动检查及实际窗口验收通过，见 [第三批验收记录](docs/第三批验收记录.md)。第四批 4A 已实现泛型单项 Conductor 核心与测试；4B 已改造 Shell 与共享计数服务，关闭后重建 Home 保留计数，见 [4B 验收记录](docs/4B验收记录.md)；4C 已完成 Collection.OneActive 和 Detail 导航，见 [4C 验收记录](docs/4C验收记录.md)；下一步第五批异步确认；麒麟与外部消费工程待验证。
 
 后续每批同时交付框架功能、example、必要测试和验收记录，验收通过后进入下一批：
 
@@ -217,19 +221,19 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 | 1．单页面绑定 | 基类与类型化通知辅助；Shell 单页面计数文字及按钮 enabled/onClicked 显式绑定。 | 已完成，macOS arm64 验收通过 |
 | 2．参数与键盘 | Shell 同页演示 int 参数按钮与原生键盘事件，直接调用 VM，不增加框架输入组件。 | 已完成，macOS arm64 验收通过 |
 | 3．生命周期与视图装配 | Screen、注册表与 ViewHost；Shell 根入口、Home 计数页面及 VM 替换。 | 已完成，macOS arm64 验收通过 |
-| 4．页面组合与导航 | 4A 单项核心、4B Shell 与共享计数服务已完成；4C 集合型与 Detail 待实施。 | 4A 核心与 4B 本机验收通过，整批进行中 |
+| 4．页面组合与导航 | 4A 单项核心、4B 共享服务、4C 集合型与 Detail 均已完成。 | 第四批本机验收完成；麒麟待验证 |
 | 5．异步确认 | Shell 根窗口承载 DialogHost；Home 重置/Detail 离开确认、取消失效与焦点。 | 未实施、未验证 |
 | 6．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
 
-第四批分为以下阶段，4B 源码与本机验收已完成，历史记录保持原样：
+第四批阶段与历史验收分别记录：
 
-| 阶段 | 内容 | 当前状态 |
+| 阶段 | 交付 | 当前状态 |
 | --- | --- | --- |
-| 4A | 泛型单项 Conductor 核心及自动测试。 | 已完成，见 [核心验收记录](docs/Conductor核心验收记录.md) |
-| 4B | Shell 接入单项 Conductor，ViewHost 改绑 activeItem；计数迁入共享服务，关闭后重建 Home 保留计数。 | 已实现，本机验收通过，见 [记录](docs/4B验收记录.md) |
-| 4C | Collection.OneActive、Home 常驻与 Detail 导航；Detail 按需创建及返回后释放。 | 后续完善设计与实现，未验证 |
+| 4A | 泛型单项 Conductor 核心。 | 已完成 |
+| 4B | 单项 Shell 接入、共享计数服务及关闭后重建。 | 已完成，见 [记录](docs/4B验收记录.md) |
+| 4C | Collection.OneActive、Home VM 常驻、只读 Detail 导航及返回后释放。 | 已完成，见 [记录](docs/4C验收记录.md) |
 
-4B 只展示 Home，普通停用与恢复保留页面身份，关闭后重新激活创建新 Home。Home 常驻是 4C 的导航目标，不改变 4B 所用单项 Conductor 的释放语义。4B 完成后第四批仍为进行中，4C 及实际示例验收完成后才标记整批完成。具体接口与验收要求见 [迭代实现计划](docs/迭代实现计划.md#阶段-4b已实现与验收) 和 [4B 装配设计](docs/IoC与应用装配.md#4b-构造接口与模块边界)。
+第四批本机验收完成，麒麟待验证。当前采用集合型，普通单项的切换关闭契约保持不变。View 每次新建，集合导航视图保留机制仅列入 [后续版本 ToDoList](docs/后续版本ToDoList.md)。接口与阶段安排见 [Conductor](docs/Conductor.md) 和 [迭代实现计划](docs/迭代实现计划.md#第四批阶段划分)。
 
 第一版只要求 ShellView 一个页面：初始文字为“已点击 0 次”，增加按钮的文字绑定 ShellViewModel 属性，按钮的 onClicked 直接调用 C++ VM；点击到 5 时禁用增加，重置后归零。第一批不引入生命周期、导航、快捷键、业务服务或弹窗。接口与验收细节见 [迭代实现计划](docs/迭代实现计划.md)。
 

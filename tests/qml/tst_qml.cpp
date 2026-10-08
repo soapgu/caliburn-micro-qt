@@ -23,6 +23,12 @@ static HomeViewModelFactory makeHomeFactory(
     return [service] { return std::make_unique<HomeViewModel>(service); };
 }
 
+static DetailViewModelFactory makeDetailFactory(
+        std::shared_ptr<CounterService> service = std::make_shared<CounterService>())
+{
+    return [service] { return std::make_unique<DetailViewModel>(service); };
+}
+
 class UnknownVm : public ViewModelBase { Q_OBJECT };
 class MissingResourceVm : public ViewModelBase { Q_OBJECT };
 class WrongTypeVm : public ViewModelBase { Q_OBJECT };
@@ -61,6 +67,7 @@ private slots:
     {
         QQuickStyle::setStyle(QStringLiteral("Basic"));
         QVERIFY(ViewRegistry::registerView<ShellViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))));
+        QVERIFY(ViewRegistry::registerView<DetailViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/DetailView.qml"))));
         QVERIFY(ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))));
         QVERIFY(ViewRegistry::registerView<MissingResourceVm>(QUrl(QStringLiteral("qrc:/tests/missing.qml"))));
         QVERIFY(ViewRegistry::registerView<WrongTypeVm>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))));
@@ -77,6 +84,8 @@ private slots:
         QTest::addColumn<QByteArray>("source");
         QTest::newRow("framework") << QByteArray("import Caliburn.Micro.Qt 1.0; ViewModelBase {}");
         QTest::newRow("example") << QByteArray("import CaliburnExample 1.0; ShellViewModel {}");
+        QTest::newRow("detail") << QByteArray("import CaliburnExample 1.0; DetailViewModel {}");
+        QTest::newRow("collection") << QByteArray("import Caliburn.Micro.Qt 1.0; ConductorCollectionOneActiveViewModelBase {}");
         QTest::newRow("conductor") << QByteArray("import Caliburn.Micro.Qt 1.0; ConductorViewModelBase {}");
         QTest::newRow("screen") << QByteArray("import Caliburn.Micro.Qt 1.0; ScreenViewModel {}");
         QTest::newRow("home") << QByteArray("import CaliburnExample 1.0; HomeViewModel {}");
@@ -332,15 +341,15 @@ private slots:
         QVERIFY(window);
         auto *label = window->findChild<QQuickItem *>(QStringLiteral("lifecycleLabel"));
         QVERIFY(label && homeItem(window));
-        QCOMPARE(label->property("text").toString(), QStringLiteral("Shell：未初始化 / 未激活\nHome：未初始化 / 未激活"));
+        QCOMPARE(label->property("text").toString(), QStringLiteral("Shell：未初始化 / 未激活\nHome：未初始化 / 未激活\nDetail：无页面"));
         shell.activate();
-        QTRY_COMPARE(label->property("text").toString(), QStringLiteral("Shell：已初始化 / 已激活\nHome：已初始化 / 已激活"));
+        QTRY_COMPARE(label->property("text").toString(), QStringLiteral("Shell：已初始化 / 已激活\nHome：已初始化 / 已激活\nDetail：无页面"));
         home->deactivate();
-        QTRY_COMPARE(label->property("text").toString(), QStringLiteral("Shell：已初始化 / 已激活\nHome：已初始化 / 未激活"));
+        QTRY_COMPARE(label->property("text").toString(), QStringLiteral("Shell：已初始化 / 已激活\nHome：已初始化 / 未激活\nDetail：无页面"));
         QVERIFY(homeItem(window)); // 停用不触发宿主卸载。
         delete home;
         QTRY_VERIFY(!homeItem(window));
-        QTRY_COMPARE(label->property("text").toString(), QStringLiteral("Shell：已初始化 / 已激活\nHome：无页面"));
+        QTRY_COMPARE(label->property("text").toString(), QStringLiteral("Shell：已初始化 / 已激活\nHome：无页面\nDetail：无页面"));
         shell.deactivate(true);
         QCOMPARE(warnings.count(), 0);
         window->close();
@@ -391,10 +400,115 @@ private slots:
         window->close();
     }
 
+    void collectionSnapshotBinding()
+    {
+        Conductor<>::Collection::OneActive conductor;
+        QQmlEngine engine;
+        useEmbeddedModules(engine);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQml
+            import Caliburn.Micro.Qt 1.0
+            QtObject {
+                required property ConductorCollectionOneActiveViewModelBase conductor
+                readonly property int itemCount: conductor.items.length
+                readonly property ViewModelBase first: itemCount > 0 ? conductor.items[0] : null
+                readonly property ViewModelBase current: conductor.activeItem
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> observer(component.createWithInitialProperties({
+            {"conductor", QVariant::fromValue(static_cast<ConductorCollectionOneActiveViewModelBase *>(&conductor))}
+        }));
+        QVERIFY2(observer, qPrintable(component.errorString()));
+        const auto property = conductor.metaObject()->property(conductor.metaObject()->indexOfProperty("items"));
+        QVERIFY(!property.isWritable());
+        QCOMPARE(observer->property("itemCount").toInt(), 0);
+        QVERIFY(conductor.activateItem(std::make_unique<ViewModelBase>()));
+        auto *first = conductor.activeItem();
+        QCOMPARE(observer->property("first").value<QObject *>(), first);
+        QVERIFY(conductor.activateItem(std::make_unique<ViewModelBase>()));
+        QCOMPARE(observer->property("itemCount").toInt(), 2);
+        QCOMPARE(observer->property("first").value<QObject *>(), first);
+        QCOMPARE(observer->property("current").value<QObject *>(), conductor.activeItem());
+        QVERIFY(conductor.closeItem(conductor.activeItem()));
+        QCOMPARE(observer->property("itemCount").toInt(), 1);
+        QCOMPARE(observer->property("current").value<QObject *>(), first);
+        delete first;
+        QCOMPARE(observer->property("itemCount").toInt(), 0);
+        QVERIFY(!observer->property("current").value<QObject *>());
+    }
+
+    void collectionNavigationRecreatesViews()
+    {
+        auto shell = buildShell();
+        shell->activate();
+        auto *home = shell->home();
+        home->add(3);
+        QQmlApplicationEngine engine;
+        useEmbeddedModules(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        engine.setInitialProperties({{"viewModel", QVariant::fromValue(shell.get())}});
+        engine.load(ViewRegistry::viewUrl(shell.get()));
+        QCOMPARE(engine.rootObjects().size(), 1);
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        QTRY_VERIFY(displaysHome(window, home));
+        QPointer<QQuickItem> firstHomeView = homeItem(window);
+        auto *input = firstHomeView->findChild<QQuickItem *>(QStringLiteral("focusInput"));
+        QVERIFY(input);
+        QVERIFY(input->setProperty("text", QStringLiteral("临时文本")));
+        auto *show = window->findChild<QQuickItem *>(QStringLiteral("showDetail"));
+        auto *back = window->findChild<QQuickItem *>(QStringLiteral("goHome"));
+        QVERIFY(show && back && show->isEnabled() && !back->isEnabled());
+        const auto click = [window](QQuickItem *button) {
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                              button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
+        };
+        click(show);
+        auto *detail = shell->detail();
+        QVERIFY(detail && shell->home() == home && !home->isActive());
+        QTRY_VERIFY(homeItem(window)
+                    && homeItem(window)->property("viewModel").value<QObject *>() == detail);
+        QTRY_VERIFY(!firstHomeView);
+        QPointer<QQuickItem> firstDetailView = homeItem(window);
+        QVERIFY(firstDetailView->hasActiveFocus());
+        auto *label = firstDetailView->findChild<QQuickItem *>(QStringLiteral("detailMessageLabel"));
+        QVERIFY(label);
+        QCOMPARE(label->property("text").toString(), QStringLiteral("共享计数：3"));
+        QVERIFY(!show->isEnabled() && back->isEnabled());
+        QPointer<DetailViewModel> oldDetail = detail;
+        QStringList destruction;
+        connect(firstDetailView.data(), &QObject::destroyed, &engine, [&] { destruction << "view"; });
+        connect(detail, &QObject::destroyed, &engine, [&] { destruction << "vm"; });
+        click(back);
+        QTRY_VERIFY(displaysHome(window, home));
+        QTRY_VERIFY(!firstDetailView && !oldDetail);
+        QCOMPARE(destruction, QStringList({"view", "vm"}));
+        QVERIFY(shell->home() == home && home->isActive());
+        QCOMPARE(home->count(), 3);
+        auto *secondHomeView = homeItem(window);
+        input = secondHomeView->findChild<QQuickItem *>(QStringLiteral("focusInput"));
+        QVERIFY(input);
+        QCOMPARE(input->property("text").toString(), QString());
+        auto *scope = secondHomeView->findChild<QQuickItem *>(QStringLiteral("inputScope"));
+        QTRY_VERIFY(scope && scope->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_2);
+        QTRY_COMPARE(home->count(), 5);
+        click(show);
+        QTRY_VERIFY(shell->detail() && homeItem(window)
+                    && homeItem(window)->property("viewModel").value<QObject *>() == shell->detail());
+        label = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("detailMessageLabel"));
+        QCOMPARE(label->property("text").toString(), QStringLiteral("共享计数：5"));
+        QCOMPARE(warnings.count(), 0);
+        shell->deactivate(true);
+        QTRY_VERIFY(!homeItem(window));
+        window->close();
+    }
+
     void hostFailurePaths()
     {
         HomeViewModel home(std::make_shared<CounterService>());
-        ShellViewModel shell(makeHomeFactory());
+        ShellViewModel shell(makeHomeFactory(), makeDetailFactory());
         UnknownVm unknown;
         MissingResourceVm missing;
         WrongTypeVm wrong;

@@ -10,8 +10,14 @@ std::unique_ptr<ShellViewModel> buildShell()
             boost::di::bind<CounterService>.to(counterService));
         return injector.create<std::unique_ptr<HomeViewModel>>();
     };
+    DetailViewModelFactory detailFactory = [counterService] {
+        auto injector = boost::di::make_injector(
+            boost::di::bind<CounterService>.to(counterService));
+        return injector.create<std::unique_ptr<DetailViewModel>>();
+    };
     auto injector = boost::di::make_injector(
-        boost::di::bind<HomeViewModelFactory>.to(homeFactory));
+        boost::di::bind<HomeViewModelFactory>.to(homeFactory),
+        boost::di::bind<DetailViewModelFactory>.to(detailFactory));
     auto shell = injector.create<std::unique_ptr<ShellViewModel>>();
     QQmlEngine::setObjectOwnership(shell.get(), QQmlEngine::CppOwnership);
     return shell;

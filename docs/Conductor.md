@@ -1,8 +1,8 @@
-# Conductor<T>：泛型单项导航
+# Conductor：单项与 Collection.OneActive
 
-第四批 4A 单项核心和 4B Shell 与共享计数服务均已实现并通过本机验收；4C 的 `Collection.OneActive`、Home 常驻及 Detail 导航待设计实施。阶段状态见 [实现计划](迭代实现计划.md#第四批阶段划分)。
+第四批 4A、4B、4C 均已实现并通过本机验收。当前 Shell 使用 Collection.OneActive，Home VM 常驻、Detail 按需创建，View 每次新建；麒麟待验证。阶段状态见 [实现计划](迭代实现计划.md#第四批阶段划分)。
 
-## 类型与使用
+## 单项类型与使用
 
 `ConductorViewModelBase : ScreenViewModel` 提供非模板实现、只读 `ViewModelBase *activeItem` 属性和 `activeItemChanged` 信号，在 `Caliburn.Micro.Qt 1.0` 注册为不可创建类型。`Conductor<T>` 无 Q_OBJECT，不单独注册 QML；默认 T 为 ViewModelBase，T 必须是非 const/volatile 的 ViewModelBase 派生类。
 
@@ -78,22 +78,42 @@ Screen 的停用条件与 CM 一致：`isActive || (isInitialized && close)`；�
 | 已初始化对象重复关闭 | 每次执行关闭钩子，不维护关闭标记。 | 相同；Conductor 当前项为空时不重复通知或删除。 |
 | 已初始化普通 Conductor 父关闭 | 向当前项传播 close=true，保留 ActiveItem 引用。 | 清空 activeItem、传播关闭并延迟删除当前项；再次激活父对象时无当前项。 |
 | 关闭守卫和异步 | CloseStrategy、异步生命周期。 | 暂不实现守卫，沿用同步 Screen。 |
-| Collection.OneActive | 保留多项，仅一个活动，切换不关闭旧项。 | 4C 后续目标，不与 4B 的单项 Conductor 混用。 |
+| Collection.OneActive | 保留多项，仅一个活动，切换不关闭旧项。 | 4C 已实现集合型；切换保留，关闭才移除并延迟回收。 |
 
-CM 可重复传入已有对象；本轮 Qt 接管入口使用 unique_ptr，不重复移交已经接管的对象。返回旧页面需要重新创建 VM；业务事实应保存在寿命更长的服务中。需要保持 Home 常驻或页面复用时，应使用后续集合型 Conductor。
+CM 可重复传入已有对象；Qt 新项通过 unique_ptr 接管，不能重复移交所有权。普通单项返回旧页需重建 VM；集合型允许使用成员借用指针再次选择。业务事实可由共享服务保持。
 
-## 4B 示例接入与 4C 边界
+## Collection.OneActive（4C 已实现）
 
-4B 已让 Shell 继承 `Conductor<ScreenViewModel>`，构造注入 HomeViewModelFactory；初始创建并接管 Home，但不初始化或激活。Shell.initialize() 只初始化自身，onActivate() 在当前项为空时创建 Home，再调用 Conductor 基类实现；不再手写子项的初始化、停用和关闭传播。home 属性仅是 activeItem 的类型化投影，ViewHost 绑定 activeItem。
+`ConductorCollectionOneActiveViewModelBase : ScreenViewModel` 提供独立集合实现、只读 activeItem 和 QVariantList items 属性，使用 activeItemChanged/itemsChanged，在 QML 注册为不可创建类型。模板 `ConductorCollectionOneActive<T>` 提供类型约束、T* activeItem 和 QList<T*> 快照；也可写作 `Conductor<T>::Collection::OneActive`。复制快照不改变集合，指针只借用对象。
 
-普通停用保留同一个 Home，已初始化 Shell 关闭则清空并延迟释放它；关闭后重新激活通过工厂创建新 Home。计数迁入工厂与页面共同持有的共享服务，页面重建不重置计数。当前项意外销毁时不自动导航，留待下一次 Shell 激活重建。构造接口、依赖边界及服务寿命见 [4B 装配设计](IoC与应用装配.md#4b-构造接口与模块边界)。
+| C++ 接口 | 行为 |
+| --- | --- |
+| addItem(unique_ptr<U>&&) | 接管并按顺序加入，不选择、不初始化或激活；空值失败。 |
+| activateItem(unique_ptr<U>&&) | 接管、加入并选择；空 unique_ptr 等同 nullptr。 |
+| activateItem(T*) | 选择已有成员，外部对象返回 false；不重复移交所有权。 |
+| activateItem(nullptr) | 清空选择并普通停用旧项，集合保留。 |
+| closeItem(T*) | 关闭、移除并延迟删除成员；空值、非成员返回 false。 |
 
-这一应用接入方式，不改变前文已实现的单项核心契约，也不加入缓存或 Items 集合。4C 再完善 Collection.OneActive 和 Detail 导航，调整 Shell 支持 Home 常驻、Detail 按需创建与返回后释放；接口与关闭策略在该阶段单独确定。4B 完成不表示第四批导航整批完成。
+新项校验与单项相同，拒绝不移动调用者的 unique_ptr，成功建立父关系并设置 CppOwnership。普通 ViewModelBase 不执行 Screen 生命周期。
 
-Shell 的模板基类没有独立元对象。Qt 6.8 的 QML 类型工具需要可识别的元对象继承链，因此头文件使用 `Q_MOC_RUN` 条件分支，让 moc 看见 `ConductorViewModelBase`，C++ 编译仍继承 `Conductor<ScreenViewModel>`；没有改变运行时继承或核心契约。此适配由元对象父类、继承关系及 qmllint 检查覆盖。宏约定见 [Qt moc 文档](https://doc.qt.io/qt-6.8/moc.html)。
+切换保留旧项：提交选择、发送 activeItemChanged，普通停用旧 Screen，父活动时激活新 Screen。加入并选择时先提交成员和选择，再依次通知 itemsChanged、activeItemChanged。同项选择不重复通知；父活动时调用其 activate，由 Screen 幂等处理。
+
+关闭当前项按加入顺序优先选前一项；关闭第一项时选后一项，唯一项关闭后留空。先移除旧成员、提交新选择，依次通知 itemsChanged、activeItemChanged，再关闭旧项，父活动时激活新项，最后安排旧项 deleteLater。关闭非当前项不改变选择。通知观察者看到已提交的集合与选择，生命周期转换在通知之后完成。
+
+父 initialize 不初始化成员；激活只激活当前项，普通停用只停用当前项。未初始化父关闭无操作；已初始化父关闭一次清空成员及选择并通知，然后关闭全部成员并延迟删除，不逐项导航。重复关闭空集合不重复通知或回收。析构断开成员连接，由父树兜底，不补生命周期。
+
+意外销毁移除成员；若是当前项则清空并通知，不自动选择其他页。显式 closeItem 才执行相邻自动选择。操作限定主线程同步执行，钩子应正常返回；转换期间回调不得重入修改集合或销毁参与对象，不提供异常恢复协议。
+
+## Shell 示例与元对象适配
+
+4B 历史版本使用单项 Conductor，见 [4B 验收记录](4B验收记录.md)。4C Shell 改为 Collection.OneActive，注入 Home/Detail 两个工厂；home/detail 从集合查找、以 itemsChanged 通知，ViewHost 绑定 activeItem。进入详情保留 Home VM，返回通过 closeItem(detail) 自动回到 Home；Home View 每次重建。完整接口见 [应用装配](IoC与应用装配.md#4c-构造接口与模块边界)。
+
+模板层没有独立元对象。Shell 以 Q_MOC_RUN 分支向 moc 提供 `ConductorCollectionOneActiveViewModelBase`，C++ 编译仍继承泛型集合型；继承关系、元对象父类与 qmllint 均有检查。宏约定见 [Qt moc 文档](https://doc.qt.io/qt-6.8/moc.html)。
+
+WPF CM 的 ViewAware/ViewLocator 可复用已关联且仍可用的 View。本轮只对齐集合型 VM 保留和选择行为，View 保留机制记录在 [后续版本 ToDoList](后续版本ToDoList.md)。
 
 ## 验证范围
 
 独立 conductor CTest 直接依赖框架与 Qt Test，不依赖示例模块。覆盖泛型、普通 VM、Screen、通知顺序、延迟回收、所有权拒绝、异线程对象接管拒绝和嵌套生命周期。现有 QML 测试增加不可创建类型及 activeItem → ViewHost 的绑定、替换、清空、意外销毁和释放顺序验证。
 
-4A 核心结果见 [Conductor 核心验收记录](Conductor核心验收记录.md)；4B 的 Shell、服务、宿主重建及实际窗口结果见 [4B 验收记录](4B验收记录.md)。尚未新增 Detail 导航，麒麟仍待验证。
+4A 核心结果见 [Conductor 核心验收记录](Conductor核心验收记录.md)；4B 的 Shell、服务、宿主重建及实际窗口结果见 [4B 验收记录](4B验收记录.md)。4C 的集合型、Detail 导航与真实窗口结果见 [4C 验收记录](4C验收记录.md)；麒麟仍待验证。
