@@ -49,13 +49,14 @@ flowchart LR
 | Conductor<T> | Conductor<T> + ConductorViewModelBase | 已实现泛型单项导航；切换关闭旧项并延迟释放。4B 已接入 Shell，4C 已实现 Collection.OneActive，切换保留旧项。 |
 | ViewLocator / ViewModelBinder | ViewRegistry、ViewHost | 按应用提供的 VM 类型映射定位 View，创建前注入 viewModel。 |
 | ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
-| WindowManager 的部分职责 | IDialogService、DialogService、DialogHost | 第五批加入单个模态确认弹窗和异步结果，不包含通用多窗口管理。 |
+| IWindowManager / WindowManager 的模态职责 | IWindowManager、WindowManager、DialogHost | 5A 规划接受自定义 VM 的通用模态弹窗，以 Home 重置确认为首个示例；普通窗口与 Popup 管理留待后续。 |
+| IGuardClose / 关闭策略 | Conductor 关闭守卫与回调式请求协调 | 5B 规划 Detail 退出确认，覆盖成员关闭、单项替换及普通停用、父级关闭许可；保留同步生命周期。 |
 | IoC / 构造注入 | 应用组合根 + Boost.Ext.DI v1.3.2 | 创建与长期持有分开，框架 VM 不依赖容器。 |
 | Bootstrapper | BootstrapperBase + AppBootstrapper | Configure 配置映射和根工厂，OnStartup 显示根窗口，Run 统一生命周期与清理。 |
 
 ## 类型清单与实现状态
 
-这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry、ViewHost、BootstrapperBase、Parent 统一协议以及单项与集合型 Conductor，弹窗类型待第五批实现，详见 [迭代实现计划](docs/迭代实现计划.md)。
+这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry、ViewHost、BootstrapperBase、Parent 统一协议以及单项与集合型 Conductor。5A 弹窗类型与 5B 关闭守卫均为规划中、未实施，详见 [第五批阶段划分](docs/迭代实现计划.md#第五批阶段划分)。
 
 | 类型 | 形态 | 职责 |
 | --- | --- | --- |
@@ -68,13 +69,14 @@ flowchart LR
 | ViewRegistry | C++，向 QML 提供单例入口 | 按应用登记的 VM 类型查询 QML View 地址，不拥有 VM。 |
 | ViewHost | QML 组件 | 使用 Loader 定位和加载 View，并注入唯一 viewModel 属性。 |
 | BootstrapperBase | C++ 应用启动基类 | 编排配置、根对象创建、窗口加载、生命周期及退出清理，不依赖 DI 库。 |
-| IDialogService | C++ QObject 接口 | 声明确认请求、当前弹窗、忙状态及按请求者取消的契约。 |
-| DialogService | C++ 服务 | 拥有临时确认 VM，管理单次结果、异步回调和请求失效。 |
-| DialogHost | QML 组件 | 显示当前弹窗，处理模态隔离、关闭和焦点恢复。 |
-| ConfirmActionViewModel | C++ Screen 子类 | 提供确认文案、accept / cancel 操作与一次完成结果。 |
-| ConfirmActionView | QML View | 展示确认 VM，通过手写事件处理器调用接受或取消方法。 |
+| IWindowManager | C++ 接口（5A 规划中、未实施） | 声明接受自定义 VM 的 showDialogAsync 通用模态弹窗入口，异步交付结果。 |
+| WindowManager | C++ 服务（5A 规划中、未实施） | 协调临时弹窗 VM 的生命周期、一次结果和请求失效；具体所有权待实施前设计。 |
+| DialogHost | QML 组件（5A 规划中、未实施） | 显示当前弹窗，处理模态隔离、关闭和焦点恢复。 |
+| ConfirmActionViewModel | C++ Screen 子类（5A 规划中、未实施） | 提供确认文案、accept / cancel 操作与一次完成结果。 |
+| ConfirmActionView | QML View（5A 规划中、未实施） | 展示确认 VM，通过手写事件处理器调用接受或取消方法。 |
+| IGuardClose / 关闭策略 | C++ 协议与协调机制（5B 规划中、未实施） | canClose(callback) 立即或延后交付许可；适用场景包括关闭及单项成员普通停用，拒绝时保留成员、选择和页面。 |
 
-配套值类型 **ConfirmationRequest** 保存 `title`、`message`、`confirmText`、`cancelText`，不保存业务操作枚举、控件或 VM 引用。
+5A 配套值类型 **ConfirmationRequest**（规划中、未实施）保存 `title`、`message`、`confirmText`、`cancelText`，不保存业务操作枚举、控件或 VM 引用；它是确认 VM 的文案参数，不限制 IWindowManager 只能展示确认框。
 
 ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected 模板辅助 `setAndNotify(field, value, &Owner::notifySignal)`。同值不通知，更新先赋值再同步通知；空信号或对象类型不兼容时诊断并拒绝修改。它没有 displayName、字符串通知入口或生命周期状态；QObject 的继承成员继续可用。完整接口、QML 注册与所有权约定见 [ViewModelBase](docs/ViewModelBase.md)。
 
@@ -82,9 +84,11 @@ ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected �
 
 单项 `deactivateItem(item, false)` 清空选择并普通停用，保留 VM、Parent 和恢复资格；`activateItem(item)` 恢复原对象。切换新项关闭旧当前项，其他留存项不受影响；`closeItem` 可关闭当前或留存项。已初始化父关闭清理全部持有项，未初始化父关闭无操作；父普通停用仍保留选择。`getChildren()` 在单项只返回当前项，集合型返回全部成员，均为借用快照。详见 [Conductor](docs/Conductor.md) 和 [Parent 体系验收记录](docs/Parent体系验收记录.md)。
 
-新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、Screen 活动状态及逻辑 Parent。拒绝不移动调用方所有权；成功设置父对象与 CppOwnership。裸指针入口只操作内部记录中的尚未关闭对象，等待删除对象不能恢复。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 已通过逻辑 Parent 委托 IConductor 关闭；根窗口请求、关闭守卫、Action 和 View 缓存仍待后续设计。
+新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、Screen 活动状态及逻辑 Parent。拒绝不移动调用方所有权；成功设置父对象与 CppOwnership。裸指针入口只操作内部记录中的尚未关闭对象，等待删除对象不能恢复。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 已通过逻辑 Parent 委托 IConductor 关闭。关闭守卫已纳入 5B 规划，尚未实施；根窗口请求、Action 和 View 缓存继续留待后续。
 
-第五批的弹窗初始实现只允许一个当前请求，忙时拒绝新请求。完成结果异步交付，请求者销毁或显式取消后旧回调失效；视觉关闭不能重复产生完成结果。
+5A、5B 均为**规划中、未实施、未验证**。5A 的 showDialogAsync 接受自定义 VM，以 QFuture / QPromise 交付一次结果；只允许一个当前弹窗，忙时拒绝新请求，请求者失效后旧结果不能继续执行业务操作。这是 Qt 适配差异：CM 3.2 WPF 使用同步 ShowDialog，本项目不为复刻阻塞返回引入嵌套事件循环。
+
+5B 未来按 CM 3.2 将 activateItem、deactivateItem、closeItem、tryClose 迁移为普通命名的 void 请求入口，通过回调或完成通知表达结果；当前代码的同步 bool 接口保持现状。守卫立即同意时可在当前调用栈完成，延后回调时请求先返回，再继续同步生命周期，因此方法返回不保证页面已切换。单项替换和成员普通停用/关闭均检查守卫；集合型仅成员关闭检查，普通停用及内部切换不检查；父级普通停用不因此增加守卫。父级关闭许可覆盖全部持有成员，含单项留存项。完整签名、回调类型、所有权和关闭完成通知尚待设计，范围集中维护在 [迭代计划](docs/迭代实现计划.md#第五批阶段划分)。
 
 ## 模块与项目结构
 
@@ -146,7 +150,7 @@ Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由�
 - [4C 验收记录](docs/4C验收记录.md)
 - [Parent 体系验收记录](docs/Parent体系验收记录.md)
 - [tryClose 验收记录](docs/tryClose验收记录.md)
-- [后续版本 ToDoList：View 保留、关闭守卫与 Action](docs/后续版本ToDoList.md)
+- [后续版本 ToDoList：View 保留、Action 与根窗口衔接](docs/后续版本ToDoList.md)
 - [Conductor 核心验收记录](docs/Conductor核心验收记录.md)
 - [ScreenViewModel：同步生命周期](docs/ScreenViewModel.md)
 - [ViewModelBase：类型基础、完整成员与通知辅助](docs/ViewModelBase.md)
@@ -229,7 +233,8 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 | 2．参数与键盘 | Shell 同页演示 int 参数按钮与原生键盘事件，直接调用 VM，不增加框架输入组件。 | 已完成，macOS arm64 验收通过 |
 | 3．生命周期与视图装配 | Screen、注册表与 ViewHost；Shell 根入口、Home 计数页面及 VM 替换。 | 已完成，macOS arm64 验收通过 |
 | 4．页面组合与导航 | 4A 单项核心、4B 共享服务、4C 集合型与 Detail 均已完成。 | 第四批本机验收完成；麒麟待验证 |
-| 5．异步确认 | Shell 根窗口承载 DialogHost；Home 重置/Detail 离开确认、取消失效与焦点。 | 未实施、未验证 |
+| 5A．重置确认 | IWindowManager / WindowManager 通用模态弹窗、确认 VM/View 与 DialogHost；Home 重置确认、请求失效及焦点。 | 规划中、未实施；未验证 |
+| 5B．Detail 退出确认与关闭守卫 | Detail 返回通过回调式守卫确认；覆盖成员关闭、单项替换及普通停用、父级关闭许可；未来迁移 void 请求入口。 | 规划中、未实施；未验证 |
 | 6．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
 
 第四批阶段与历史验收分别记录：

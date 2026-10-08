@@ -66,3 +66,11 @@ DetailView 的 goBack 按钮绑定页面活动状态与非空逻辑 Parent，直
 Shell 新增 deactivateItem(ViewModelBase*, bool) override。仅当 close=true 且目标为当前 Detail 时先 ensureHome，再通过 ConductorCollectionOneActiveViewModelBase::deactivateItem 完成关闭，避免递归。其他目标和普通停用直接委托基类。Home 工厂空返回、接管拒绝或抛异常时，Detail 尚未被关闭，其 Parent、选择和生命周期保留；恢复工厂后可以重试。
 
 正常返回保留 Home VM 身份和服务计数；Home 缺失时创建新 Home，仍读取原服务。buildShell、DI 捕获边界、页面所有权及 CounterService 寿命没有改变。本轮结果见 [tryClose 验收记录](tryClose验收记录.md)，第四批历史记录保持原样。
+
+## 第五批装配与确认规划
+
+**规划中、未实施、未验证。** 5A 由应用装配层创建 WindowManager、通过 IWindowManager 构造注入使用者，并登记确认 VM/View 映射；Shell 根窗口承载 DialogHost，Home 用 showDialogAsync 通用模态弹窗入口完成重置确认。ConfirmationRequest 只保存确认文案，实际重置仍由 Home 执行；入口同时支持自定义弹窗 VM，以 QFuture / QPromise 交付结果。
+
+5B 复用 5A 的窗口管理能力，由 Detail 的 canClose(callback) 守卫消费窗口 Future 并回传许可，再由 Conductor 决定是否关闭，不在返回按钮操作中单独提前确认。未来 tryClose 等入口按 CM 3.2 迁移为普通命名的 void 请求方法，goBack 不能再依赖同步 bool 或方法返回推断关闭完成；当前代码调用链保持现状，迁移与完成通知接续属于 5B。
+
+Shell 未来须在许可通过后、实际关闭提交前 ensureHome；用户取消时不能因提前补建 Home 改变集合，补建失败时保留 Detail。此调整不放入通用集合算法。具体构造签名、回调类型、工厂捕获、完成通知和所有权细节待实施前设计。本次只更新文档，不调整 DI、服务寿命或代码接口，完整范围见 [第五批阶段划分](迭代实现计划.md#第五批阶段划分)。

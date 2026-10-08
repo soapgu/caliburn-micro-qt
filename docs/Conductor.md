@@ -105,7 +105,7 @@ IChild、IParent、IConductor 对齐 CM 的逻辑角色；Parent 在 Qt 对外�
 
 Qt 新对象显式 unique_ptr 接管，QObject 父树持有，关闭后 deleteLater；CM 使用 .NET 引用和 GC。Qt 裸指针只能操作原 Conductor 持有的尚未关闭对象。单项普通停用留存可以恢复，已经关闭的对象不能恢复。Qt 已初始化父关闭清空全部持有项；不照搬 CM 保留 ActiveItem 引用的父关闭行为。
 
-本项目沿用既定的先通知选择、再传播生命周期顺序。CM 单项普通停用还会检查关闭策略；本轮同步接口不检查关闭守卫，也没有异步生命周期或根窗口请求；受管 Screen 的同步 tryClose 已接入统一协议。后续边界见 [ToDoList](后续版本ToDoList.md)。官方源码入口：[Conductor](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/master/src/Caliburn.Micro.Core/Conductor.cs)、[Collection.OneActive](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/master/src/Caliburn.Micro.Core/ConductorWithCollectionOneActive.cs)。
+本项目沿用既定的先通知选择、再传播生命周期顺序。当前同步 bool 接口不检查关闭守卫，也没有异步生命周期或根窗口请求；受管 Screen 的同步 tryClose 已接入统一协议。5B 未来按 CM 3.2 迁移为普通命名的 void 请求入口与回调式守卫：单项成员普通停用也检查许可，集合型普通停用及内部切换不检查，详见 [第五批阶段划分](迭代实现计划.md#第五批阶段划分)；根窗口请求等继续见 [ToDoList](后续版本ToDoList.md)。官方 3.2.0 源码：[Conductor](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/Conductor.cs)、[Collection.OneActive](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/ConductorWithCollectionOneActive.cs)。
 
 ## Shell 示例与元对象适配
 
@@ -126,3 +126,35 @@ Screen.tryClose 是 C++ 入口，通过逻辑 Parent 转换为 IConductor 并调
 Shell 重写公共 deactivateItem(ViewModelBase*, bool)，在关闭当前 Detail 前确保 Home 存在，再限定调用集合元对象基类。Detail 的自关闭因此仍能恢复意外缺失的 Home；其他目标、普通停用直接委托基类。该处理属于示例的返回目标策略，不加入通用集合算法。既有模板 closeItem 辅助入口保持原实现；Detail.tryClose 通过 IConductor 虚接口进入 Shell 的返回前置处理路径。
 
 没有 Parent、接口不匹配或管理者拒绝时 tryClose 返回 false；异常在 C++ 层传播。它不提供关闭守卫、根窗口请求或异步结果，不新增关闭信号和 canTryClose 属性。Detail.goBack 作为 QML 业务入口处理异常，见 [Screen](ScreenViewModel.md#tryclose受管页面请求关闭自己) 与 [独立验收记录](tryClose验收记录.md)。
+
+## 5B 关闭守卫与回调式请求规划
+
+**规划中、未实施、未验证。** 当前同步 bool 接口及上述行为保持现状；未来按 CM 3.2 将 activateItem、deactivateItem、closeItem、tryClose 迁移为普通命名的 void 请求入口，通过回调或完成通知表达结果，不另增 Async 请求入口。closeItem 只作为 deactivateItem(item, true) 的便利入口，不单列为必交付能力。完整阶段范围与版本固定的源码参考集中在 [迭代计划](迭代实现计划.md#第五批阶段划分)。
+
+### 立即回调与延后回调
+
+IGuardClose.canClose(callback) 和关闭策略兼容两种完成时机：
+
+- 立即回调：无需用户确认的守卫可以在 canClose 调用内回传许可；同意时，请求可在当前调用栈内完成同步生命周期和管理操作，拒绝则保持原状。
+- 延后回调：需要用户确认时，守卫先发起弹窗，请求方法先返回；待用户决定后回传许可，同意才继续同步执行，取消则保留页面。等待用户操作不意味着另开线程，也不需要把生命周期改为异步。
+
+以 Detail 为例，未来调用链为 tryClose → Parent.closeItem → deactivateItem → 关闭策略 → Detail.canClose(callback)。守卫内部调用 5A 的 IWindowManager.showDialogAsync，消费 QFuture 结果后回传许可；窗口服务用 QFuture / QPromise 交付结果是 Qt 适配差异，CM 3.2 WPF 的入口是同步 ShowDialog，本项目不为模拟阻塞返回引入嵌套事件循环。
+
+请求入口返回 void 不代表请求已完成。发起 activateItem 后不能直接假定目标已成为当前页，发起 tryClose 后也不能直接假定页面已关闭。激活结果可沿用 activationProcessed，但它不表示所有关闭结果；关闭完成通知及业务调用方如何接续处理须在实施前设计。初始化、激活、停用及关闭生命周期仍是同步执行层，直接调用生命周期不能替代受管成员的关闭请求。
+
+### 单项与集合型的许可边界
+
+| 场景 | 5B 规划行为 |
+| --- | --- |
+| 单项 activateItem 替换当前项 | 先检查旧当前项许可，通过后才关闭旧项并选择新项；拒绝保留旧项。 |
+| 单项 deactivateItem(item, true/false) | 两种请求均检查守卫，包含 close=false 的成员普通停用；同意后按关闭或留存路径执行。 |
+| 集合型成员关闭 | 检查目标守卫，同意后才移除、关闭及按需切换选择。 |
+| 集合型成员普通停用、集合内切换 | 不检查关闭守卫，仍按普通停用和保留成员路径执行。 |
+| 父级生命周期普通停用 | 仍同步传播停用，不因单项成员 deactivateItem(false) 的规则自动增加守卫检查。 |
+| 父级关闭许可 | 检查全部持有成员，包含本项目单项的当前项与留存项；不能因 getChildren 只枚举当前项而遗漏留存项。 |
+
+许可未通过前不改变成员、Parent、选择或 View，不提前安排删除。集合中部分成员拒绝时的策略须在实施前明确，不能边等待许可边提交成员移除。父级关闭许可与许可通过后的同步关闭生命周期分开；主窗口退出拦截、根 Shell.tryClose 与窗口退出衔接继续留待后续，当前 Bootstrapper 退出清理不因此获得守卫能力。
+
+Shell 当前在委托关闭前 ensureHome；5B 需将补齐缺失 Home 移到守卫通过后、实际关闭提交前。用户取消时不得提前补建 Home 改变集合，补建失败时也不能先关闭 Detail。该业务调整留在 Shell，不加入通用集合算法。
+
+Qt 继续采用显式所有权；等待期间需保护请求者、管理者、成员和候选对象失效，保证许可只处理一次、过期回调不提交操作、对象只回收一次。请求迁移不得保留绕过守卫的旧入口。完整函数签名、重载、回调类型、关闭完成通知、候选对象所有权与集合关闭策略留待实施前设计；本次没有修改代码接口。

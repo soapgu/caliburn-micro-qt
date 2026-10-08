@@ -27,7 +27,7 @@ bool tryClose();
 | deactivate(true)，已初始化 | 每次调用都执行关闭钩子，包括已停用、已关闭或初始化后从未激活的对象；活动状态实际改变才通知。 |
 | deactivate(true)，未初始化 | 无操作。 |
 
-初始化一生只执行一次。Screen 基类关闭不删除、不重置初始化或业务字段；关闭后可重新激活。初始化通知最多一次，活动通知只在 bool 改变时发送。停用条件与 [CM Screen](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/master/src/Caliburn.Micro.Core/Screen.cs) 一致：`isActive || (isInitialized && close)`；不维护额外关闭标记或待清理资源扩展。未初始化的 Conductor 同样跳过关闭生命周期，保留当前项及父树所有权；已初始化的 Conductor 在关闭钩子中清空选择与全部持有项并延迟回收。
+初始化一生只执行一次。Screen 基类关闭不删除、不重置初始化或业务字段；关闭后可重新激活。初始化通知最多一次，活动通知只在 bool 改变时发送。停用条件与 [CM 3.2 Screen](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/Screen.cs) 一致：`isActive || (isInitialized && close)`；不维护额外关闭标记或待清理资源扩展。未初始化的 Conductor 同样跳过关闭生命周期，保留当前项及父树所有权；已初始化的 Conductor 在关闭钩子中清空选择与全部持有项并延迟回收。
 
 例：activate → deactivate(false) → deactivate(true) → deactivate(true) → activate → deactivate(true)，钩子依次是初始化、激活、停用、关闭、关闭、激活、关闭；重复关闭仍执行钩子。
 
@@ -75,3 +75,11 @@ ScreenViewModel 实现 IChild 并声明 Q_INTERFACES(IChild)。C++ getter 为 `Q
 tryClose 不要求 Screen 已活动，单项留存项也可请求关闭；是否仍受管理由 Conductor 判断。true 表示关闭请求已处理，不表示对象已经同步销毁。关闭后 Parent 为空，再次调用返回 false。根 Shell 没有逻辑 Parent，因此返回 false，不关闭窗口；根请求继续待设计。
 
 Detail 对 QML 暴露自己的 goBack：非活动时返回 false，活动时调用 tryClose，在这个业务调用边界记录异常并返回 false。框架仍保持主线程同步、转换非重入和生命周期钩子正常返回约定；异常捕获不代表有部分转换回滚能力。完整调用链见 [应用装配](IoC与应用装配.md#detail-自关闭返回)，实际结果见 [tryClose 验收记录](tryClose验收记录.md)。
+
+## 第五批规划与当前接口边界
+
+5A 规划 IWindowManager / WindowManager 通用模态弹窗及 Home 重置确认；5B 规划 Detail 退出确认和 Conductor 关闭守卫，均为规划中、未实施、未验证，详见 [阶段划分](迭代实现计划.md#第五批阶段划分)。
+
+5B 未来按 CM 3.2 将 tryClose 等入口迁移为普通命名的 void 请求方法；当前同步 bool 接口保持现状。Detail 沿 tryClose → Parent.closeItem → deactivateItem → 关闭策略请求关闭，IGuardClose.canClose(callback) 立即或延后回传许可；守卫消费 5A showDialogAsync 的窗口 Future 后回调，这是窗口服务的 Qt 适配方案，不把 Future 作为 Conductor 请求接口。初始化、激活、停用及关闭生命周期仍同步执行，方法返回不保证关闭已经完成，调用方需按完成通知接续处理。activationProcessed 可用于激活结果，不能代表全部关闭结果。
+
+这些是规划职责，完整函数签名、回调类型、关闭完成通知、重载和所有权细节留待实施前设计，不能保留绕过守卫的旧请求路径。根 Shell.tryClose 与主窗口退出衔接继续留待后续，单项与集合型的守卫区别见 [Conductor 规划](Conductor.md#5b-关闭守卫与回调式请求规划)。
