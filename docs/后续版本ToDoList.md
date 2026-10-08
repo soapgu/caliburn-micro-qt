@@ -24,8 +24,10 @@
 
 当前继续使用手写 QML 属性绑定和事件处理器，不提前改变示例。Action 动作绑定与第五批 ConfirmActionViewModel 确认弹窗是不同能力，不绑定到第五批交付。本项尚未实现，不作为已支持接口或验收通过证据。
 
-## tryClose 与统一协议衔接（待设计、待实施）
+## 根窗口关闭请求与 tryClose 衔接（待设计、待实施）
 
-Parent 增量已提供只读 IChild、IParent 子项快照和 IConductor 管理接口。后续 tryClose 考虑通过逻辑 Parent 解析管理者并委托统一协议；根对象没有逻辑 Parent 时，如何转换为 Bootstrapper 窗口关闭请求仍须独立设计。本轮没有 tryClose 或根窗口请求实现。
+受管页面的 Screen.tryClose 已实现：普通 C++ 方法通过当前逻辑 Parent 转换为 IConductor，再请求 deactivateItem(this, true)。Detail.goBack 作为 QML 返回入口，当前接口见 [Screen](ScreenViewModel.md#tryclose受管页面请求关闭自己) 与 [应用装配](IoC与应用装配.md#detail-自关闭返回)，本轮结果见 [tryClose 验收记录](tryClose验收记录.md)。
 
-关闭守卫设计须覆盖单项当前项及留存项的父关闭清理，不能仅依赖单项 getChildren（它只枚举当前项）。CM 单项普通停用会检查关闭策略，而当前 Qt 同步普通停用不检查；后续是否对齐、同步或异步检查，以及取消和重复请求处理，留到该项设计确定。已有关闭守卫、Action、集合 View 保留三项仍待设计、待实施。
+根对象没有逻辑 Parent 时，tryClose 当前返回 false，不向窗口发请求。如何衔接 Bootstrapper、窗口关闭事件、关闭许可及重复请求处理，仍待独立设计；本轮没有根请求实现。
+
+关闭守卫设计须覆盖单项当前项及留存项的父关闭清理，不能仅依赖单项 getChildren（它只枚举当前项）。CM 单项普通停用会检查关闭策略，而当前 Qt 同步普通停用不检查；后续是否对齐、同步或异步检查，以及取消和重复请求处理，留到该项设计确定。关闭守卫、Action、集合 View 保留三项仍待设计、待实施。

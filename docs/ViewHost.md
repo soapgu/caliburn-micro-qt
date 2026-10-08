@@ -110,3 +110,9 @@ ShellView 的 model 继续绑定 activeItem，HomeView/DetailView 分别声明 r
 宿主仍只观察 model/activeItem，不根据逻辑 Parent 判定显示。单项 deactivateItem(current, false) 清空选择，ViewHost 卸载 View；VM 留存、Parent 和计数保留。activateItem(原指针) 恢复选择时创建新 View，文本按新 View 初始化。父普通停用不清空选择，不触发这次卸载。
 
 显式关闭先清空逻辑 Parent，再通知选择并卸载 View，关闭钩子之后延迟回收 VM，保持 View 先于 VM 销毁。集合 Home/Detail 导航继续沿用 View 每次新建规则；本轮未改宿主加载或缓存实现。结果见 [Parent 体系验收记录](Parent体系验收记录.md)。
+
+## Detail 内返回按钮与宿主卸载
+
+返回按钮现在位于 DetailView，objectName 为 goBack，调用 Detail.goBack → Screen.tryClose → Parent 的 IConductor。Shell 在关闭当前 Detail 前补齐缺失 Home，集合提交选择后 ViewHost 卸载 Detail View、创建 Home View，Detail VM 随后延迟回收。按钮及其旧 View 会一起销毁，测试每次进入页面重新获取按钮。
+
+关闭失败时仍显示原 Detail View，页面可重试；成功返回仍复用已有 Home VM、重置 Home 文本和页面焦点。本轮没有修改宿主加载、借用所有权或 View 缓存机制，结果见 [tryClose 验收记录](tryClose验收记录.md)。

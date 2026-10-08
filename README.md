@@ -2,7 +2,7 @@
 
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
-> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/4C验收记录.md)。Parent 与统一 Conductor 协议增量已实现并完成本机验收，见 [独立记录](docs/Parent体系验收记录.md)。第五、六批未实施，麒麟待验证。
+> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/4C验收记录.md)。Parent 与统一 Conductor 协议增量已实现并完成本机验收，见 [独立记录](docs/Parent体系验收记录.md)。受管页面 tryClose 与 Detail 内返回已实现并完成本机验收，见 [tryClose 记录](docs/tryClose验收记录.md)。第五、六批未实施，麒麟待验证。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
 
@@ -82,7 +82,7 @@ ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected �
 
 单项 `deactivateItem(item, false)` 清空选择并普通停用，保留 VM、Parent 和恢复资格；`activateItem(item)` 恢复原对象。切换新项关闭旧当前项，其他留存项不受影响；`closeItem` 可关闭当前或留存项。已初始化父关闭清理全部持有项，未初始化父关闭无操作；父普通停用仍保留选择。`getChildren()` 在单项只返回当前项，集合型返回全部成员，均为借用快照。详见 [Conductor](docs/Conductor.md) 和 [Parent 体系验收记录](docs/Parent体系验收记录.md)。
 
-新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、Screen 活动状态及逻辑 Parent。拒绝不移动调用方所有权；成功设置父对象与 CppOwnership。裸指针入口只操作内部记录中的尚未关闭对象，等待删除对象不能恢复。调用方保证主线程同步、转换不重入；关闭守卫、tryClose、Action 和 View 缓存仍待后续设计。
+新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、Screen 活动状态及逻辑 Parent。拒绝不移动调用方所有权；成功设置父对象与 CppOwnership。裸指针入口只操作内部记录中的尚未关闭对象，等待删除对象不能恢复。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 已通过逻辑 Parent 委托 IConductor 关闭；根窗口请求、关闭守卫、Action 和 View 缓存仍待后续设计。
 
 第五批的弹窗初始实现只允许一个当前请求，忙时拒绝新请求。完成结果异步交付，请求者销毁或显式取消后旧回调失效；视觉关闭不能重复产生完成结果。
 
@@ -129,7 +129,7 @@ Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名
 | 操作与输入 | QML 显式读取可用状态并直接调用方法；第一批演示无参数，第二批演示 int 参数和原生键盘事件。框架不规定方法名、返回值或自动守卫契约。 |
 | 视图映射 | 应用配置的类型到 View 映射，初始化阶段确定，不硬编码某个示例的页面数量。 |
 
-Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由服务保存。Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，注入两个页面工厂；进入 Detail 保留并停用 Home VM，返回关闭 Detail、自动选回 Home。home/detail 从集合查找，ViewHost 绑定 activeItem。Home View 离开即卸载、返回重新创建，计数和 VM 保留，文本及焦点按新页面初始化。Shell 关闭清空全部成员，再激活新建 Home 并保留服务。DI 仅在装配层，每个 buildShell 的服务独立。详见 [应用装配](docs/IoC与应用装配.md) 与 [4C 验收记录](docs/4C验收记录.md)。
+Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由服务保存。Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，注入两个页面工厂；进入 Detail 保留并停用 Home VM；Detail 内的返回按钮调用 goBack → tryClose，通过 Parent 委托 Shell 关闭自己，自动选回 Home。home/detail 从集合查找，ViewHost 绑定 activeItem。Home View 离开即卸载、返回重新创建，计数和 VM 保留，文本及焦点按新页面初始化。Shell 关闭清空全部成员，再激活新建 Home 并保留服务。DI 仅在装配层，每个 buildShell 的服务独立。详见 [应用装配](docs/IoC与应用装配.md)、[4C 历史记录](docs/4C验收记录.md) 与 [tryClose 验收记录](docs/tryClose验收记录.md)。
 
 ## 阅读文档
 
@@ -145,6 +145,7 @@ Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由�
 - [4B 验收记录](docs/4B验收记录.md)
 - [4C 验收记录](docs/4C验收记录.md)
 - [Parent 体系验收记录](docs/Parent体系验收记录.md)
+- [tryClose 验收记录](docs/tryClose验收记录.md)
 - [后续版本 ToDoList：View 保留、关闭守卫与 Action](docs/后续版本ToDoList.md)
 - [Conductor 核心验收记录](docs/Conductor核心验收记录.md)
 - [ScreenViewModel：同步生命周期](docs/ScreenViewModel.md)

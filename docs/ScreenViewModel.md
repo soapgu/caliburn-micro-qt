@@ -10,6 +10,7 @@ bool isActive() const;
 void initialize();
 void activate();
 void deactivate(bool close = false);
+bool tryClose();
 ```
 
 两个 bool 是只读 Q_PROPERTY，分别使用 isInitializedChanged、isActiveChanged 通知，初始 false。派生类通过 protected 虚函数 onInitialize()、onActivate()、onDeactivate(bool close) 扩展，默认空实现。完整声明见 [ScreenViewModel.h](../modules/Caliburn/Micro/Qt/include/CaliburnMicroQt/ScreenViewModel.h)。
@@ -36,7 +37,7 @@ void deactivate(bool close = false);
 
 钩子读取的是提交新状态前的值：首次 onInitialize 中两个状态 false；onActivate 中初始化 true、活动 false；活动对象的 onDeactivate 中活动仍为 true。钩子及同步信号观察者必须保持对象有效，不能在调用栈内销毁它。
 
-本批无异步钩子、关闭守卫、失败返回值或异常恢复协议，钩子应正常返回。析构不补关闭，Screen 基类不自动传播子对象生命周期。示例 Shell 通过 Conductor 基类管理 Home；所有权和业务生命周期分别安排。
+生命周期钩子没有失败返回值，当前没有异步钩子、关闭守卫或异常恢复协议，钩子应正常返回。析构不补关闭，Screen 基类不自动传播子对象生命周期。示例 Shell 通过 Conductor 基类管理 Home；所有权和业务生命周期分别安排。
 
 ## 4C 集合导航的生命周期
 
@@ -59,3 +60,18 @@ ScreenViewModel 实现 IChild 并声明 Q_INTERFACES(IChild)。C++ getter 为 `Q
 根 Shell 的逻辑 Parent 为空，Home/Detail 为 Shell，嵌套 Conductor 向上指向其管理者；CounterService 不属于该逻辑树。普通 ViewModelBase 默认不实现 IChild。
 
 单项 `deactivateItem(current, false)` 清空选择并留存 VM；父 `deactivate(false)` 保留选择。已初始化单项父关闭清理当前与所有留存项。集合型子项普通停用保留选择。这些 C++ 管理入口不向 QML 声明可调用接口。完整契约见 [Conductor](Conductor.md)，结果见 [Parent 体系验收记录](Parent体系验收记录.md)。
+
+## tryClose：受管页面请求关闭自己
+
+`bool tryClose()` 是普通 C++ 方法，不声明 Q_INVOKABLE。每次读取当前逻辑 parentViewModel，使用 qobject_cast<IConductor *> 获取管理者并调用 deactivateItem(this, true)。不缓存管理者、不使用 QObject 父对象兜底，不直接调用自身 deactivate 或 deleteLater。
+
+| 情况 | 结果 |
+| --- | --- |
+| 没有逻辑 Parent，或 Parent 不实现 IConductor | 返回 false，不改变生命周期、关系或对象寿命。 |
+| 管理者拒绝目标 | 返回管理者的 false，不另行关闭。 |
+| 管理者接受关闭 | 返回 true；已有 Conductor 移除记录、清空 Parent、执行关闭并安排延迟回收。 |
+| 管理者抛异常 | C++ 异常原样传播，不进行第二次关闭或生命周期回滚。 |
+
+tryClose 不要求 Screen 已活动，单项留存项也可请求关闭；是否仍受管理由 Conductor 判断。true 表示关闭请求已处理，不表示对象已经同步销毁。关闭后 Parent 为空，再次调用返回 false。根 Shell 没有逻辑 Parent，因此返回 false，不关闭窗口；根请求继续待设计。
+
+Detail 对 QML 暴露自己的 goBack：非活动时返回 false，活动时调用 tryClose，在这个业务调用边界记录异常并返回 false。框架仍保持主线程同步、转换非重入和生命周期钩子正常返回约定；异常捕获不代表有部分转换回滚能力。完整调用链见 [应用装配](IoC与应用装配.md#detail-自关闭返回)，实际结果见 [tryClose 验收记录](tryClose验收记录.md)。

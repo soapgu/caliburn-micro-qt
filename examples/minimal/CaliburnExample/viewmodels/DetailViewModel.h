@@ -14,6 +14,7 @@ class DetailViewModel : public ScreenViewModel
     Q_PROPERTY(QString message READ message NOTIFY countChanged)
 public:
     explicit DetailViewModel(std::shared_ptr<CounterService> counterService);
+    Q_INVOKABLE bool goBack();
     int count() const { return m_counterService->count(); }
     QString message() const { return QStringLiteral("共享计数：%1").arg(count()); }
 signals:

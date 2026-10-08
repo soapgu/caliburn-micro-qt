@@ -22,6 +22,8 @@ public:
     void initialize();
     void activate();
     void deactivate(bool close = false);
+    // 向逻辑 Parent 请求关闭；成功表示已处理请求，实际回收可以延迟。
+    bool tryClose();
 
 signals:
     void parentViewModelChanged();

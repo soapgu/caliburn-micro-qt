@@ -1,4 +1,5 @@
 #include <CaliburnMicroQt/ScreenViewModel.h>
+#include <CaliburnMicroQt/IConductor.h>
 
 ScreenViewModel::ScreenViewModel(QObject *parent) : ViewModelBase(parent) {}
 
@@ -34,4 +35,10 @@ void ScreenViewModel::deactivate(bool close)
         return;
     onDeactivate(close);
     setAndNotify(m_active, false, &ScreenViewModel::isActiveChanged);
+}
+
+bool ScreenViewModel::tryClose()
+{
+    auto *conductor = qobject_cast<IConductor *>(parentViewModel());
+    return conductor && conductor->deactivateItem(this, true);
 }

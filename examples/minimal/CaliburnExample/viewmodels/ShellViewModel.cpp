@@ -54,12 +54,12 @@ bool ShellViewModel::showDetail()
     return true;
 }
 
-bool ShellViewModel::goHome()
+bool ShellViewModel::deactivateItem(ViewModelBase *item, bool close)
 {
-    if (!canGoHome())
-        return false;
-    ensureHome();
-    return closeItem(detail());
+    // 先补齐返回目标；工厂失败时尚未移除或关闭 Detail。
+    if (close && item && item == detail() && item == activeItem())
+        ensureHome();
+    return ConductorCollectionOneActiveViewModelBase::deactivateItem(item, close);
 }
 
 void ShellViewModel::onActivate()

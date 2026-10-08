@@ -22,15 +22,13 @@ class ShellViewModel : public Conductor<ScreenViewModel>::Collection::OneActive
     Q_PROPERTY(HomeViewModel *home READ home NOTIFY itemsChanged)
     Q_PROPERTY(DetailViewModel *detail READ detail NOTIFY itemsChanged)
     Q_PROPERTY(bool canShowDetail READ canShowDetail NOTIFY navigationChanged)
-    Q_PROPERTY(bool canGoHome READ canGoHome NOTIFY navigationChanged)
 public:
     explicit ShellViewModel(HomeViewModelFactory homeFactory, DetailViewModelFactory detailFactory);
     HomeViewModel *home() const;
     DetailViewModel *detail() const;
     bool canShowDetail() const { return isActive() && home() && activeItem() == home(); }
-    bool canGoHome() const { return isActive() && detail() && activeItem() == detail(); }
     Q_INVOKABLE bool showDetail();
-    Q_INVOKABLE bool goHome();
+    bool deactivateItem(ViewModelBase *item, bool close) override;
 signals:
     void navigationChanged();
 protected:

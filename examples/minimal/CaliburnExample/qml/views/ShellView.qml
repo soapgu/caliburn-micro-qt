@@ -43,12 +43,6 @@ ApplicationWindow {
                 enabled: root.viewModel !== null && root.viewModel.canShowDetail
                 onClicked: { if (root.viewModel) root.viewModel.showDetail() }
             }
-            Button {
-                objectName: "goHome"
-                text: "返回首页"
-                enabled: root.viewModel !== null && root.viewModel.canGoHome
-                onClicked: { if (root.viewModel) root.viewModel.goHome() }
-            }
         }
 
         ViewHost {

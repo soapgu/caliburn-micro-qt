@@ -105,7 +105,7 @@ IChild、IParent、IConductor 对齐 CM 的逻辑角色；Parent 在 Qt 对外�
 
 Qt 新对象显式 unique_ptr 接管，QObject 父树持有，关闭后 deleteLater；CM 使用 .NET 引用和 GC。Qt 裸指针只能操作原 Conductor 持有的尚未关闭对象。单项普通停用留存可以恢复，已经关闭的对象不能恢复。Qt 已初始化父关闭清空全部持有项；不照搬 CM 保留 ActiveItem 引用的父关闭行为。
 
-本项目沿用既定的先通知选择、再传播生命周期顺序。CM 单项普通停用还会检查关闭策略；本轮同步接口不检查关闭守卫，也没有异步生命周期、tryClose 或根窗口请求。后续边界见 [ToDoList](后续版本ToDoList.md)。官方源码入口：[Conductor](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/master/src/Caliburn.Micro.Core/Conductor.cs)、[Collection.OneActive](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/master/src/Caliburn.Micro.Core/ConductorWithCollectionOneActive.cs)。
+本项目沿用既定的先通知选择、再传播生命周期顺序。CM 单项普通停用还会检查关闭策略；本轮同步接口不检查关闭守卫，也没有异步生命周期或根窗口请求；受管 Screen 的同步 tryClose 已接入统一协议。后续边界见 [ToDoList](后续版本ToDoList.md)。官方源码入口：[Conductor](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/master/src/Caliburn.Micro.Core/Conductor.cs)、[Collection.OneActive](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/master/src/Caliburn.Micro.Core/ConductorWithCollectionOneActive.cs)。
 
 ## Shell 示例与元对象适配
 
@@ -118,3 +118,11 @@ Qt 新对象显式 unique_ptr 接管，QObject 父树持有，关闭后 deleteLa
 独立 parent_protocol 测试覆盖接口转换、只读 Parent、自定义 IChild、单项留存恢复、Parent/通知/生命周期顺序、激活结果及嵌套 Conductor；QML 验证停用清空 View、恢复重建 View、关闭时 View 先于 VM 销毁。旧核心及示例导航、共享服务、Bootstrapper 继续回归。
 
 历史记录保持原样：[4A 核心](Conductor核心验收记录.md)、[4B](4B验收记录.md)、[4C](4C验收记录.md)。本轮实际结果见 [Parent 体系验收记录](Parent体系验收记录.md)，麒麟仍待验证。
+
+## Screen.tryClose 与公共协议
+
+Screen.tryClose 是 C++ 入口，通过逻辑 Parent 转换为 IConductor 并调用 deactivateItem(this, true)，没有新增 IConductor 接口，也不绕过具体管理算法。单项可关闭当前或留存项；集合型关闭当前项时沿用前一项优先策略。Parent、成员、选择通知及延迟删除顺序保持不变。
+
+Shell 重写公共 deactivateItem(ViewModelBase*, bool)，在关闭当前 Detail 前确保 Home 存在，再限定调用集合元对象基类。Detail 的自关闭因此仍能恢复意外缺失的 Home；其他目标、普通停用直接委托基类。该处理属于示例的返回目标策略，不加入通用集合算法。既有模板 closeItem 辅助入口保持原实现；Detail.tryClose 通过 IConductor 虚接口进入 Shell 的返回前置处理路径。
+
+没有 Parent、接口不匹配或管理者拒绝时 tryClose 返回 false；异常在 C++ 层传播。它不提供关闭守卫、根窗口请求或异步结果，不新增关闭信号和 canTryClose 属性。Detail.goBack 作为 QML 业务入口处理异常，见 [Screen](ScreenViewModel.md#tryclose受管页面请求关闭自己) 与 [独立验收记录](tryClose验收记录.md)。

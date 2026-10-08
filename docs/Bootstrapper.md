@@ -79,6 +79,6 @@ CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周�
 
 ## Parent 协议与根生命周期
 
-根 Shell 的逻辑 parentViewModel 为空；Bootstrapper 继续持有根 unique_ptr，不实现 IConductor，也不作为逻辑 Parent。退出仍先释放根 View/引擎，再清理根生命周期与 VM。已初始化单项 Conductor 关闭时清理当前和所有留存项，集合型清理全部成员；QObject 父树兜底回收未处理的延迟删除项。
+根 Shell 的逻辑 parentViewModel 为空；Bootstrapper 继续持有根 unique_ptr，不实现 IConductor，也不作为逻辑 Parent。退出先关闭根生命周期，再释放根 View/引擎，最后释放根 VM。已初始化单项 Conductor 关闭时清理当前和所有留存项，集合型清理全部成员；QObject 父树兜底回收未处理的延迟删除项。
 
-统一 IConductor 不包含 tryClose 或根窗口关闭请求，本轮没有关闭守卫。后续通过统一协议衔接关闭请求的目标见 [ToDoList](后续版本ToDoList.md)，本轮回归见 [Parent 体系验收记录](Parent体系验收记录.md)。
+Screen 已提供通过 IConductor 关闭受管页面的 C++ tryClose；IConductor 接口保持不变。根 Shell 没有逻辑 Parent，tryClose 返回 false，不发窗口关闭请求。Bootstrapper 退出行为没有变化，也没有关闭守卫。根窗口衔接继续见 [ToDoList](后续版本ToDoList.md)，本轮回归见 [tryClose 验收记录](tryClose验收记录.md)。

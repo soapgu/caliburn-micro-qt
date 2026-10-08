@@ -1,6 +1,7 @@
 #include <CaliburnMicroQt/Conductor.h>
 #include <QMetaProperty>
 #include <QtTest>
+#include <stdexcept>
 
 class ProtocolScreen : public ScreenViewModel
 {
@@ -46,6 +47,26 @@ private:
     QPointer<QObject> m_logicalParent;
 };
 
+// 只用于协议测试：可以设置逻辑关系、记录委托结果，不接管测试对象。
+class CloseRequestParent : public ConductorBase
+{
+public:
+    int calls = 0;
+    bool accepted = false;
+    bool throws = false;
+    bool requestedClose = false;
+    ViewModelBase *target = nullptr;
+    void attach(ViewModelBase *child, QObject *parent) { setLogicalParent(child, parent); }
+    QList<ViewModelBase *> getChildren() const override { return {}; }
+    bool activateItem(ViewModelBase *) override { return false; }
+    bool deactivateItem(ViewModelBase *item, bool close) override
+    {
+        ++calls; target = item; requestedClose = close;
+        if (throws) throw std::runtime_error("关闭请求失败");
+        return accepted;
+    }
+};
+
 template<class C, class U, class = void> struct CanSelect : std::false_type {};
 template<class C, class U>
 struct CanSelect<C, U, std::void_t<decltype(std::declval<C &>().activateItem(std::declval<U *>()))>> : std::true_type {};
@@ -85,6 +106,115 @@ private slots:
         QVERIFY(!screen.parentViewModel());
         QCOMPARE(ConductorViewModelBase::staticMetaObject.superClass(), &ConductorBase::staticMetaObject);
         QCOMPARE(ConductorCollectionOneActiveViewModelBase::staticMetaObject.superClass(), &ConductorBase::staticMetaObject);
+    }
+
+    void tryCloseDelegatesOnlyToLogicalParent()
+    {
+        CloseRequestParent manager;
+        QObject unrelated;
+        ProtocolScreen screen;
+        screen.activate();
+        screen.setParent(&manager);
+        QVERIFY(!screen.tryClose()); // QObject 所有权不能代替逻辑 Parent。
+        QCOMPARE(manager.calls, 0);
+        QVERIFY(screen.isActive());
+        manager.attach(&screen, &unrelated);
+        QVERIFY(!screen.tryClose());
+        QCOMPARE(manager.calls, 0);
+        manager.attach(&screen, &manager);
+        QVERIFY(!screen.tryClose());
+        QCOMPARE(manager.calls, 1);
+        QCOMPARE(manager.target, &screen);
+        QVERIFY(manager.requestedClose && screen.isActive());
+        QCOMPARE(screen.parentViewModel(), &manager);
+        manager.accepted = true;
+        QVERIFY(screen.tryClose());
+        QCOMPARE(manager.calls, 2);
+        manager.attach(&screen, &unrelated);
+        QVERIFY(!screen.tryClose()); // 每次重新读取 Parent。
+        QCOMPARE(manager.calls, 2);
+        manager.attach(&screen, &manager);
+        manager.throws = true;
+        QVERIFY_THROWS_EXCEPTION(std::runtime_error, screen.tryClose());
+        QCOMPARE(manager.calls, 3);
+        QCOMPARE(screen.closed, 0);
+        QVERIFY(screen.isActive());
+        QCOMPARE(screen.metaObject()->indexOfMethod("tryClose()"), -1);
+    }
+
+    void tryCloseSingleCurrentAndRetained_data()
+    {
+        QTest::addColumn<bool>("retained");
+        QTest::newRow("current") << false;
+        QTest::newRow("retained") << true;
+    }
+    void tryCloseSingleCurrentAndRetained()
+    {
+        QFETCH(bool, retained);
+        int destroyed = 0;
+        Conductor<ProtocolScreen> c;
+        c.activate();
+        auto owned = std::make_unique<ProtocolScreen>();
+        owned->destroyed = &destroyed;
+        QPointer<ProtocolScreen> page = owned.get();
+        QVERIFY(c.activateItem(std::move(owned)));
+        ProtocolScreen *other = nullptr;
+        if (retained) {
+            QVERIFY(c.deactivateItem(page.data(), false));
+            QVERIFY(c.activateItem(std::make_unique<ProtocolScreen>()));
+            other = c.activeItem();
+        }
+        QSignalSpy selected(&c, &ConductorViewModelBase::activeItemChanged);
+        QSignalSpy result(&c, &ConductorBase::activationProcessed);
+        QSignalSpy parent(page.data(), &ScreenViewModel::parentViewModelChanged);
+        QVERIFY(page->tryClose());
+        QVERIFY(page && !page->parentViewModel());
+        QCOMPARE(page->parent(), &c);
+        QCOMPARE(page->closed, 1);
+        QVERIFY(page->closeSawEmptyParent);
+        QCOMPARE(c.activeItem(), other);
+        QCOMPARE(selected.count(), retained ? 0 : 1);
+        QCOMPARE(parent.count(), 1);
+        QCOMPARE(result.count(), 0);
+        QVERIFY(!page->tryClose());
+        QCOMPARE(page->closed, 1);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!page);
+        QCOMPARE(destroyed, 1);
+    }
+
+    void tryCloseCollectionAndNestedConductor()
+    {
+        int destroyed = 0;
+        auto outer = std::make_unique<Conductor<ScreenViewModel>::Collection::OneActive>();
+        auto inner = std::make_unique<Conductor<ProtocolScreen>>();
+        auto *middle = inner.get();
+        auto leaf = std::make_unique<ProtocolScreen>();
+        leaf->destroyed = &destroyed;
+        QPointer<ProtocolScreen> page = leaf.get();
+        QVERIFY(middle->activateItem(std::move(leaf)));
+        QVERIFY(outer->activateItem(std::move(inner)));
+        QVERIFY(outer->activateItem(std::make_unique<ProtocolScreen>()));
+        auto *neighbor = outer->activeItem();
+        QVERIFY(outer->activateItem(middle));
+        outer->activate();
+        QSignalSpy processed(outer.get(), &ConductorBase::activationProcessed);
+        QPointer<ScreenViewModel> pending = middle;
+        QVERIFY(middle->tryClose());
+        QCOMPARE(outer->activeItem(), neighbor);
+        QCOMPARE(outer->getChildren(), QList<ViewModelBase *>{neighbor});
+        QVERIFY(neighbor->isActive());
+        QVERIFY(pending && !pending->parentViewModel());
+        QVERIFY(page && !page->parentViewModel() && page->closeSawEmptyParent);
+        QCOMPARE(page->closed, 1);
+        QCOMPARE(processed.count(), 1);
+        QCOMPARE(processed.first().at(0).value<ViewModelBase *>(), neighbor);
+        QVERIFY(!middle->tryClose());
+        outer.reset(); // 删除事件之前父树兜底，不能双重回收。
+        QVERIFY(!pending && !page);
+        QCOMPARE(destroyed, 1);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QCOMPARE(destroyed, 1);
     }
 
     void suspendAndRestoreSingle()

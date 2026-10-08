@@ -35,7 +35,7 @@ DI 仍为装配库私有依赖。工厂不捕获注入器或 Shell；局部注�
 | Shell 构造、initialize | 构造选择 Home；initialize 只初始化 Shell，不初始化页面。 |
 | 首次激活 | Home 初始化、激活，最后 Shell 提交活动状态；初始化通知为 Shell 先、Home 后。 |
 | showDetail | 仅活动且 Home 当前时可用；创建并选择 Detail，Home 普通停用且留在集合。 |
-| goHome | 仅活动且 Detail 当前时可用；确保 Home 存在，关闭 Detail，由相邻选择回到 Home。 |
+| Detail.goBack | Detail 内按钮调用 goBack，经 tryClose 和 IConductor 委托 Shell；Shell 先确保 Home 存在，再关闭 Detail、相邻选择回到 Home。 |
 | 普通停用和恢复 | 保留集合和选择；若 Detail 当前，恢复后仍展示 Detail。 |
 | 已初始化 Shell 关闭 | 清空整个集合及选择，关闭全部页面并延迟删除；未初始化关闭仍无操作。 |
 | 关闭后激活 | 创建新 Home，沿用服务及计数。 |
@@ -43,7 +43,7 @@ DI 仍为装配库私有依赖。工厂不捕获注入器或 Shell；局部注�
 | Home 缺失时返回 | 先补入 Home 再关闭 Detail；补入失败保留当前 Detail。 |
 | 工厂失败 | 创建失败不提前改变选择，已有页面与业务状态保留。 |
 
-Shell 只重写 onActivate：补齐缺失 Home，没有选择时选择 Home，然后调用集合型基类。初始化、普通停用和关闭由基类传播。操作在应用主线程同步执行；生命周期钩子应正常返回，转换回调不得重入修改集合或销毁参与对象。
+Shell 重写 onActivate：补齐缺失 Home，没有选择时选择 Home，然后调用集合型基类。初始化、普通停用和关闭由基类传播。操作在应用主线程同步执行；生命周期钩子应正常返回，转换回调不得重入修改集合或销毁参与对象。
 
 ## View 与后续边界
 
@@ -56,3 +56,13 @@ ViewHost 继续绑定 activeItem。Home VM 导航期间常驻，但离开即卸�
 Parent 增量没有改变 buildShell、两个工厂或 CounterService 寿命。根 Shell 由 Bootstrapper 的 unique_ptr 持有，逻辑 parentViewModel 为空；Home/Detail 被接管后 QObject 父对象和逻辑 Parent 均为 Shell。关闭页面先清空逻辑 Parent，QObject 父关系保留到实际回收。
 
 CounterService 无 QObject 父对象，由两个工厂及页面的 shared_ptr 持有，不属于逻辑 VM 树。Parent 不是 DI 容器或服务定位入口；业务和框架仍不依赖 DI。接口与验收见 [Conductor](Conductor.md) 和 [Parent 体系验收记录](Parent体系验收记录.md)。
+
+## Detail 自关闭返回
+
+Detail 新增 Q_INVOKABLE bool goBack()，不依赖 Shell、Home、页面工厂或 View。非活动时返回 false，活动时调用继承的 C++ tryClose。异常在 goBack 边界被捕获，输出“Detail 返回失败”并返回 false；不二次关闭或回滚生命周期。直接调用 C++ tryClose 时，异常仍向调用方传播。
+
+DetailView 的 goBack 按钮绑定页面活动状态与非空逻辑 Parent，直接调用该页面 VM。ShellView 顶部只保留查看详情按钮；homeHost 和生命周期文字保持原标识。按钮执行后不再访问已卸载的 Detail View。Detail 显式配置页面与返回按钮间的 Tab / Shift+Tab 导航，避免依赖平台默认按钮 Tab 策略。
+
+Shell 新增 deactivateItem(ViewModelBase*, bool) override。仅当 close=true 且目标为当前 Detail 时先 ensureHome，再通过 ConductorCollectionOneActiveViewModelBase::deactivateItem 完成关闭，避免递归。其他目标和普通停用直接委托基类。Home 工厂空返回、接管拒绝或抛异常时，Detail 尚未被关闭，其 Parent、选择和生命周期保留；恢复工厂后可以重试。
+
+正常返回保留 Home VM 身份和服务计数；Home 缺失时创建新 Home，仍读取原服务。buildShell、DI 捕获边界、页面所有权及 CounterService 寿命没有改变。本轮结果见 [tryClose 验收记录](tryClose验收记录.md)，第四批历史记录保持原样。

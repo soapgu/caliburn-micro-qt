@@ -11,6 +11,8 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QtTest>
+#include <QRegularExpression>
+#include <stdexcept>
 #include <memory>
 
 Q_IMPORT_QML_PLUGIN(CaliburnMicroQtPlugin)
@@ -517,8 +519,10 @@ private slots:
         QVERIFY(input);
         QVERIFY(input->setProperty("text", QStringLiteral("临时文本")));
         auto *show = window->findChild<QQuickItem *>(QStringLiteral("showDetail"));
-        auto *back = window->findChild<QQuickItem *>(QStringLiteral("goHome"));
-        QVERIFY(show && back && show->isEnabled() && !back->isEnabled());
+        QVERIFY(show && show->isEnabled());
+        QVERIFY(!window->findChild<QQuickItem *>(QStringLiteral("goHome")));
+        QVERIFY(!window->findChild<QQuickItem *>(QStringLiteral("goBack")));
+        QVERIFY(!shell->tryClose() && window->isVisible());
         const auto click = [window](QQuickItem *button) {
             QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
                               button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
@@ -536,14 +540,15 @@ private slots:
         auto *label = firstDetailView->findChild<QQuickItem *>(QStringLiteral("detailMessageLabel"));
         QVERIFY(label);
         QCOMPARE(label->property("text").toString(), QStringLiteral("共享计数：3"));
-        QVERIFY(!show->isEnabled() && back->isEnabled());
+        QPointer<QQuickItem> back = firstDetailView->findChild<QQuickItem *>(QStringLiteral("goBack"));
+        QVERIFY(back && !show->isEnabled() && back->isEnabled());
         QPointer<DetailViewModel> oldDetail = detail;
         QStringList destruction;
         connect(firstDetailView.data(), &QObject::destroyed, &engine, [&] { destruction << "view"; });
         connect(detail, &QObject::destroyed, &engine, [&] { destruction << "vm"; });
-        click(back);
+        click(back.data());
         QTRY_VERIFY(displaysHome(window, home));
-        QTRY_VERIFY(!firstDetailView && !oldDetail);
+        QTRY_VERIFY(!firstDetailView && !oldDetail && !back);
         QCOMPARE(destruction, QStringList({"view", "vm"}));
         QVERIFY(shell->home() == home && home->isActive());
         QCOMPARE(home->count(), 3);
@@ -560,9 +565,65 @@ private slots:
                     && homeItem(window)->property("viewModel").value<QObject *>() == shell->detail());
         label = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("detailMessageLabel"));
         QCOMPARE(label->property("text").toString(), QStringLiteral("共享计数：5"));
+        back = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("goBack"));
+        QVERIFY(back && back->isEnabled());
+        QTest::keyClick(window, Qt::Key_Tab);
+        QTRY_VERIFY(back->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Space);
+        QTRY_VERIFY(displaysHome(window, home));
+        QTRY_VERIFY(!back);
+        QCOMPARE(home->count(), 5);
+        click(show);
+        QTRY_VERIFY(shell->detail());
         QCOMPARE(warnings.count(), 0);
         shell->deactivate(true);
         QTRY_VERIFY(!homeItem(window));
+        window->close();
+    }
+
+    void detailReturnButtonHandlesFactoryFailure()
+    {
+        auto service = std::make_shared<CounterService>();
+        bool fail = false;
+        auto shell = std::make_unique<ShellViewModel>([&] {
+            if (fail) throw std::runtime_error("Home 工厂失败");
+            return std::make_unique<HomeViewModel>(service);
+        }, [service] { return std::make_unique<DetailViewModel>(service); });
+        shell->activate();
+        shell->home()->add(2);
+        QQmlApplicationEngine engine;
+        useEmbeddedModules(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        engine.setInitialProperties({{"viewModel", QVariant::fromValue(shell.get())}});
+        engine.load(ViewRegistry::viewUrl(shell.get()));
+        QVERIFY(engine.rootObjects().size() == 1);
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        QVERIFY(shell->showDetail());
+        auto *detail = shell->detail();
+        QTRY_VERIFY(homeItem(window) && homeItem(window)->property("viewModel").value<QObject *>() == detail);
+        QPointer<QQuickItem> view = homeItem(window);
+        QPointer<QQuickItem> back = view->findChild<QQuickItem *>(QStringLiteral("goBack"));
+        QVERIFY(back);
+        delete shell->home();
+        fail = true;
+        const auto click = [&] {
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                back->mapToScene(QPointF(back->width() / 2, back->height() / 2)).toPoint());
+        };
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Detail 返回失败：.*Home 工厂失败"));
+        click();
+        QCOMPARE(shell->activeItem(), detail);
+        QCOMPARE(detail->parentViewModel(), shell.get());
+        QVERIFY(detail->isActive() && back && back->isEnabled());
+        QCOMPARE(homeItem(window), view.data());
+        QCOMPARE(detail->count(), 2);
+        fail = false;
+        click();
+        QTRY_VERIFY(displaysHome(window, shell->home()));
+        QTRY_VERIFY(!back && !view);
+        QCOMPARE(shell->home()->count(), 2);
+        QCOMPARE(warnings.count(), 0);
         window->close();
     }
 
@@ -817,6 +878,8 @@ private slots:
         auto *reset = window->findChild<QQuickItem *>(QStringLiteral("reset"));
         QVERIFY(page && input && increase && label && addTwo && reset);
         QVERIFY(QTest::qWaitForWindowExposed(window));
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
         QTRY_COMPARE(window->activeFocusItem(), page);
         const auto press = [window](int key, Qt::KeyboardModifiers modifiers = Qt::NoModifier,
                                     bool repeat = false) {
