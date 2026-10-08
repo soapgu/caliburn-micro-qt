@@ -87,7 +87,7 @@ ViewHostState 是 `Caliburn.Micro.Qt 1.0` 模块公开、可创建的 QML 辅助
 
 ViewHostState 用 QPointer 保存模型，替换时断开旧 destroyed 连接。销毁通知到达时指针可能已清空，因此回调无条件发送 modelChanged，触发 ViewHost 卸载。QML 可创建性由契约测试覆盖。
 
-C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，卸载不删除 VM，也不调用生命周期。Shell 通过集合型 Conductor 接管页面，建立父关系并设置 CppOwnership；home/detail 从集合查找，通过 itemsChanged 通知，实际宿主仍绑定 activeItem。计数服务由工厂与 Home 的 shared_ptr 管理，无 QObject 父对象。关闭清空当前项时，宿主先卸载 View，Conductor 再关闭并延迟回收 VM；根引擎与 View 在根 VM 之前销毁。详见 [IoC 与应用装配](IoC与应用装配.md)。
+C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，卸载不删除 VM，也不调用生命周期。Shell 通过集合型 Conductor 接管页面，建立父关系并设置 CppOwnership；home/detail 从集合查找，通过 itemsChanged 通知，实际宿主仍绑定 activeItem。计数服务由两个工厂及 Home/Detail 的 shared_ptr 管理，无 QObject 父对象。关闭清空当前项时，宿主先卸载 View，Conductor 再关闭并延迟回收 VM；根引擎与 View 在根 VM 之前销毁。详见 [IoC 与应用装配](IoC与应用装配.md)。
 
 ## 5. 焦点与后续边界
 
@@ -104,3 +104,9 @@ ShellView 的 model 继续绑定 activeItem，HomeView/DetailView 分别声明 r
 返回时 Shell 关闭 Detail，集合先公布 Home 为当前项；宿主卸载 Detail View、创建 Home View，Detail VM 随后延迟删除。Shell 关闭时清空集合与选择，宿主清空。意外销毁当前项同样清空界面，不自动导航。
 
 本轮没有修改 ViewHost/Loader 契约。Home VM 身份保留、View 重建、文本重置、焦点与 View 先于 VM 销毁均已验证，见 [4C 验收记录](4C验收记录.md)。集合导航视图保留机制已列入 [后续版本 ToDoList](后续版本ToDoList.md)，尚未实现。
+
+## 单项普通停用与恢复
+
+宿主仍只观察 model/activeItem，不根据逻辑 Parent 判定显示。单项 deactivateItem(current, false) 清空选择，ViewHost 卸载 View；VM 留存、Parent 和计数保留。activateItem(原指针) 恢复选择时创建新 View，文本按新 View 初始化。父普通停用不清空选择，不触发这次卸载。
+
+显式关闭先清空逻辑 Parent，再通知选择并卸载 View，关闭钩子之后延迟回收 VM，保持 View 先于 VM 销毁。集合 Home/Detail 导航继续沿用 View 每次新建规则；本轮未改宿主加载或缓存实现。结果见 [Parent 体系验收记录](Parent体系验收记录.md)。

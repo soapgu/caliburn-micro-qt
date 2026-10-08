@@ -1,3 +1,8 @@
+qt_add_executable(CaliburnParentProtocolTests cpp/tst_parent_protocol.cpp)
+target_link_libraries(CaliburnParentProtocolTests PRIVATE Caliburn::MicroQt Qt6::Test)
+add_test(NAME parent_protocol COMMAND CaliburnParentProtocolTests)
+set_tests_properties(parent_protocol PROPERTIES TIMEOUT 30)
+
 qt_add_executable(CaliburnCollectionTests cpp/tst_collection.cpp)
 target_link_libraries(CaliburnCollectionTests PRIVATE Caliburn::MicroQt Qt6::Test)
 add_test(NAME collection COMMAND CaliburnCollectionTests)

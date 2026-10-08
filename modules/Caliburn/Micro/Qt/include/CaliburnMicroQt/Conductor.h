@@ -27,8 +27,10 @@ public:
     [[nodiscard]] bool activateItem(std::unique_ptr<U> &&item)
     {
         // 校验前不转换 unique_ptr，拒绝时调用方仍持有原来的具体类型对象。
-        if (!validateItemChange(item.get()))
+        if (!validateItemChange(item.get())) {
+            onActivationProcessed(item.get(), false);
             return false;
+        }
         changeActiveItem(std::unique_ptr<ViewModelBase>(std::move(item)));
         return true;
     }
@@ -39,5 +41,7 @@ public:
         return true;
     }
 
-    [[nodiscard]] bool closeItem(T *item) { return closeCurrentItem(item); }
+    [[nodiscard]] bool activateItem(T *item) { return ConductorViewModelBase::activateItem(item); }
+    [[nodiscard]] bool deactivateItem(T *item, bool close) { return ConductorViewModelBase::deactivateItem(item, close); }
+    [[nodiscard]] bool closeItem(T *item) { return deactivateItem(item, true); }
 };

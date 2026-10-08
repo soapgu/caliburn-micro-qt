@@ -1,12 +1,32 @@
 #include <CaliburnMicroQt/ConductorViewModelBase.h>
 #include <QQmlEngine>
+#include <utility>
 
-ConductorViewModelBase::ConductorViewModelBase(QObject *parent) : ScreenViewModel(parent) {}
+namespace {
+void activateScreen(ViewModelBase *item)
+{
+    if (auto *screen = qobject_cast<ScreenViewModel *>(item))
+        screen->activate();
+}
+void deactivateScreen(ViewModelBase *item, bool close)
+{
+    if (auto *screen = qobject_cast<ScreenViewModel *>(item))
+        screen->deactivate(close);
+}
+}
+
+ConductorViewModelBase::ConductorViewModelBase(QObject *parent) : ConductorBase(parent) {}
 
 ConductorViewModelBase::~ConductorViewModelBase()
 {
-    // QObject 父树随后回收子项；此时派生成员即将销毁，不再发送活动项通知。
-    QObject::disconnect(m_destroyed);
+    // 父树随后回收当前、留存及等待删除的对象；析构不发送关系通知。
+    for (const auto &connection : std::as_const(m_destroyed))
+        QObject::disconnect(connection);
+}
+
+QList<ViewModelBase *> ConductorViewModelBase::getChildren() const
+{
+    return m_activeItem ? QList<ViewModelBase *>{m_activeItem.data()} : QList<ViewModelBase *>{};
 }
 
 bool ConductorViewModelBase::validateItemChange(ViewModelBase *item) const
@@ -28,6 +48,10 @@ bool ConductorViewModelBase::validateItemChange(ViewModelBase *item) const
         qWarning("Conductor：不能接管已经激活的 Screen");
         return false;
     }
+    if (hasLogicalParent(item)) {
+        qWarning("Conductor：不能接管已有逻辑 Parent 的对象");
+        return false;
+    }
     return true;
 }
 
@@ -38,52 +62,123 @@ void ConductorViewModelBase::changeActiveItem(std::unique_ptr<ViewModelBase> ite
         next->setParent(this);
         QQmlEngine::setObjectOwnership(next, QQmlEngine::CppOwnership);
         item.release();
+        m_ownedItems.append(next);
+        m_destroyed.insert(next, connect(next, &QObject::destroyed, this, [this, next] {
+            memberDestroyed(next);
+        }));
     }
-    auto *previous = m_activeItem.data();
-    if (previous == next)
-        return;
-
-    QObject::disconnect(m_destroyed);
-    m_destroyed = {};
-    m_activeItem = next;
-    if (next) {
-        m_destroyed = connect(next, &QObject::destroyed, this, [this] {
-            // destroyed 发出时 QPointer 已清空，仍需要通知 View 卸载。
-            m_activeItem.clear();
-            emit activeItemChanged();
-        });
-    }
-    // 与 CM 一致：先公布新项，再关闭旧项，最后按父状态激活新项。
-    emit activeItemChanged();
-    if (auto *screen = qobject_cast<ScreenViewModel *>(previous))
-        screen->deactivate(true);
-    if (isActive()) {
-        if (auto *screen = qobject_cast<ScreenViewModel *>(next))
-            screen->activate();
-    }
-    if (previous)
-        previous->deleteLater();
+    selectOwnedItem(next);
 }
 
-bool ConductorViewModelBase::closeCurrentItem(ViewModelBase *item)
+bool ConductorViewModelBase::activateItem(ViewModelBase *item)
 {
-    if (!item || item != m_activeItem.data())
+    if (item && !m_ownedItems.contains(item)) {
+        onActivationProcessed(item, false);
         return false;
-    changeActiveItem(nullptr);
+    }
+    selectOwnedItem(item);
     return true;
+}
+
+void ConductorViewModelBase::forgetItem(ViewModelBase *item)
+{
+    QObject::disconnect(m_destroyed.take(item));
+    m_ownedItems.removeOne(item);
+}
+
+void ConductorViewModelBase::selectOwnedItem(ViewModelBase *item)
+{
+    auto *previous = m_activeItem.data();
+    if (previous == item) {
+        if (isActive()) {
+            activateScreen(item);
+            onActivationProcessed(item, true);
+        }
+        return;
+    }
+    m_activeItem = item;
+    m_activeIdentity = item;
+    if (previous)
+        forgetItem(previous);
+    setLogicalParent(previous, nullptr);
+    setLogicalParent(item, this);
+    emit activeItemChanged();
+    deactivateScreen(previous, true);
+    if (isActive())
+        activateScreen(item);
+    if (previous)
+        previous->deleteLater();
+    onActivationProcessed(item, true);
+}
+
+bool ConductorViewModelBase::deactivateItem(ViewModelBase *item, bool close)
+{
+    if (!item || !m_ownedItems.contains(item))
+        return false;
+    if (close) {
+        closeOwnedItem(item);
+        return true;
+    }
+    if (m_activeIdentity == item) {
+        m_activeItem.clear();
+        m_activeIdentity = nullptr;
+        emit activeItemChanged();
+    }
+    deactivateScreen(item, false);
+    return true;
+}
+
+void ConductorViewModelBase::closeOwnedItem(ViewModelBase *item)
+{
+    const bool selected = m_activeIdentity == item;
+    forgetItem(item);
+    if (selected) {
+        m_activeItem.clear();
+        m_activeIdentity = nullptr;
+    }
+    setLogicalParent(item, nullptr);
+    if (selected)
+        emit activeItemChanged();
+    deactivateScreen(item, true);
+    item->deleteLater();
+}
+
+void ConductorViewModelBase::memberDestroyed(ViewModelBase *identity)
+{
+    m_destroyed.remove(identity);
+    m_ownedItems.removeOne(identity);
+    if (m_activeIdentity == identity) {
+        m_activeItem.clear();
+        m_activeIdentity = nullptr;
+        emit activeItemChanged();
+    }
 }
 
 void ConductorViewModelBase::onActivate()
 {
-    if (auto *screen = qobject_cast<ScreenViewModel *>(m_activeItem.data()))
-        screen->activate();
+    activateScreen(m_activeItem.data());
 }
 
 void ConductorViewModelBase::onDeactivate(bool close)
 {
-    if (close) {
-        changeActiveItem(nullptr);
-    } else if (auto *screen = qobject_cast<ScreenViewModel *>(m_activeItem.data())) {
-        screen->deactivate(false);
+    if (!close) {
+        deactivateScreen(m_activeItem.data(), false);
+        return;
+    }
+    const auto previous = m_ownedItems;
+    const bool hadSelection = m_activeIdentity != nullptr;
+    for (const auto &connection : std::as_const(m_destroyed))
+        QObject::disconnect(connection);
+    m_destroyed.clear();
+    m_ownedItems.clear();
+    m_activeItem.clear();
+    m_activeIdentity = nullptr;
+    for (auto *item : previous)
+        setLogicalParent(item, nullptr);
+    if (hadSelection)
+        emit activeItemChanged();
+    for (auto *item : previous) {
+        deactivateScreen(item, true);
+        item->deleteLater();
     }
 }

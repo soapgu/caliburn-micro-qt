@@ -2,7 +2,7 @@
 
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
-> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/4C验收记录.md)。第五、六批未实施，麒麟待验证。
+> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/4C验收记录.md)。Parent 与统一 Conductor 协议增量已实现并完成本机验收，见 [独立记录](docs/Parent体系验收记录.md)。第五、六批未实施，麒麟待验证。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
 
@@ -44,6 +44,7 @@ flowchart LR
 | Caliburn.Micro 概念 | Qt 目标类型或方案 | 初始约定 |
 | --- | --- | --- |
 | PropertyChangedBase | ViewModelBase + QObject 属性系统 | 派生 VM 声明 Q_PROPERTY / NOTIFY，基类提供类型化 setAndNotify；不提供字符串通知入口。 |
+| IChild / IParent / IConductor | 纯 C++ 协议与 ConductorBase | Screen 提供只读逻辑 Parent；统一子项快照和已接管对象的激活、停用接口。 |
 | Screen | ScreenViewModel | 初始化一次，激活与普通停用幂等；已初始化对象每次关闭都执行钩子，生命周期接口由 C++ 管理。 |
 | Conductor<T> | Conductor<T> + ConductorViewModelBase | 已实现泛型单项导航；切换关闭旧项并延迟释放。4B 已接入 Shell，4C 已实现 Collection.OneActive，切换保留旧项。 |
 | ViewLocator / ViewModelBinder | ViewRegistry、ViewHost | 按应用提供的 VM 类型映射定位 View，创建前注入 viewModel。 |
@@ -54,13 +55,15 @@ flowchart LR
 
 ## 类型清单与实现状态
 
-这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry、ViewHost、BootstrapperBase 和泛型单项 Conductor；集合型 Conductor 已实现，弹窗类型待第五批实现，详见 [迭代实现计划](docs/迭代实现计划.md)。
+这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry、ViewHost、BootstrapperBase、Parent 统一协议以及单项与集合型 Conductor，弹窗类型待第五批实现，详见 [迭代实现计划](docs/迭代实现计划.md)。
 
 | 类型 | 形态 | 职责 |
 | --- | --- | --- |
 | ViewModelBase | C++ QObject 基类 | 提供共同类型及 protected setAndNotify，不新增业务属性、状态或信号；完整成员见专题。 |
-| ScreenViewModel | C++ VM 基类 | 管理初始化、激活、停用及 isInitialized / isActive 通知。 |
-| ConductorViewModelBase / Conductor<T> | C++ Screen 子类与模板层 | 接管唯一当前 VM，Screen 子类执行生命周期；切换关闭旧项并 deleteLater。 |
+| ScreenViewModel | C++ VM 基类、IChild | 同步生命周期及只读逻辑 parentViewModel。 |
+| IChild / IParent / IConductor | 纯 C++ 接口 | 逻辑父级、借用子项快照与统一管理接口。 |
+| ConductorBase | 抽象元对象基类 | 实现统一接口的元对象声明，提供 Parent 辅助逻辑和 activationProcessed 信号。 |
+| ConductorViewModelBase / Conductor<T> | C++ Screen 子类与模板层 | 一个当前项；子项普通停用清空选择并留存 VM，切换关闭旧当前项。 |
 | ConductorCollectionOneActiveViewModelBase / ConductorCollectionOneActive<T> | C++ Screen 子类与模板层 | 保留多个 VM，仅当前项激活；关闭当前项按前一项优先选择剩余成员。 |
 | ViewRegistry | C++，向 QML 提供单例入口 | 按应用登记的 VM 类型查询 QML View 地址，不拥有 VM。 |
 | ViewHost | QML 组件 | 使用 Loader 定位和加载 View，并注入唯一 viewModel 属性。 |
@@ -75,15 +78,17 @@ flowchart LR
 
 ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected 模板辅助 `setAndNotify(field, value, &Owner::notifySignal)`。同值不通知，更新先赋值再同步通知；空信号或对象类型不兼容时诊断并拒绝修改。它没有 displayName、字符串通知入口或生命周期状态；QObject 的继承成员继续可用。完整接口、QML 注册与所有权约定见 [ViewModelBase](docs/ViewModelBase.md)。
 
-已实现的 Screen 生命周期见 [ScreenViewModel](docs/ScreenViewModel.md)：关闭后可重激活，初始化仍只执行一次；关闭条件与 CM 一致，未初始化时跳过关闭，已初始化时重复关闭仍执行钩子。Screen 与 Conductor 不维护转换标记或拒绝重入，由调用方保证在应用主线程操作。单项 `Conductor<T>` 沿用此生命周期接口，通过 `activateItem(std::unique_ptr<U>&&)` 接管当前项。切换先更新 activeItem 并通知，再关闭旧 Screen、按父状态激活新项，最后对旧项安排 deleteLater；`closeItem(T*)` 只关闭当前项。已初始化的父 Conductor 关闭时也清空选择、关闭当前子项并延迟删除；未初始化时关闭无操作，保留当前项及所有权。普通停用保留选择，父对象关闭后重新激活需要创建新页面。本轮没有关闭守卫或 Items 集合；详情与 CM 差异见 [Conductor](docs/Conductor.md)。
+已实现的 [Screen](docs/ScreenViewModel.md) 初始化一次、同步执行生命周期，提供只读逻辑 Parent。普通 ViewModelBase 默认不实现 IChild；自行声明该接口的 VM 也能接入。QObject 父树负责所有权，逻辑 Parent 由 Conductor 独立维护。
 
-接管子 VM 时验证非空、没有既有 QObject 父对象、处于同一 GUI 线程；设置父对象成功后释放临时 unique_ptr。借用指针用于访问，不能再与 QObject 父树同时负责删除。
+单项 `deactivateItem(item, false)` 清空选择并普通停用，保留 VM、Parent 和恢复资格；`activateItem(item)` 恢复原对象。切换新项关闭旧当前项，其他留存项不受影响；`closeItem` 可关闭当前或留存项。已初始化父关闭清理全部持有项，未初始化父关闭无操作；父普通停用仍保留选择。`getChildren()` 在单项只返回当前项，集合型返回全部成员，均为借用快照。详见 [Conductor](docs/Conductor.md) 和 [Parent 体系验收记录](docs/Parent体系验收记录.md)。
+
+新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、Screen 活动状态及逻辑 Parent。拒绝不移动调用方所有权；成功设置父对象与 CppOwnership。裸指针入口只操作内部记录中的尚未关闭对象，等待删除对象不能恢复。调用方保证主线程同步、转换不重入；关闭守卫、tryClose、Action 和 View 缓存仍待后续设计。
 
 第五批的弹窗初始实现只允许一个当前请求，忙时拒绝新请求。完成结果异步交付，请求者销毁或显式取消后旧回调失效；视觉关闭不能重复产生完成结果。
 
 ## 模块与项目结构
 
-当前已建立两个静态模块和独立启动程序，包含前三批与 4A/4B 需要的类型、服务与页面。下表同时说明后续扩展方向。
+当前已建立两个静态模块和独立启动程序，包含前四批及 Parent 协议增量需要的类型、服务与页面。下表同时说明后续扩展方向。
 
 | 单元 | CMake 目标 | QML URI / 版本 | 内容及进度 |
 | --- | --- | --- | --- |
@@ -97,7 +102,7 @@ ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected �
 ```text
 caliburn-micro-qt/
 ├── docs/                          # 设计文档与各批验收记录
-├── modules/Caliburn/Micro/Qt/      # 已实现前三批与 4A 单项 Conductor
+├── modules/Caliburn/Micro/Qt/      # 框架、两种 Conductor 与 Parent 协议
 ├── examples/minimal/              # 已实现 Shell 根窗口与 Home 计数页面
 │   ├── app/                      # 示例启动与组合根
 │   └── CaliburnExample/           # 用户代码模块
@@ -139,7 +144,8 @@ Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由�
 - [Conductor：单项与 Collection.OneActive](docs/Conductor.md)
 - [4B 验收记录](docs/4B验收记录.md)
 - [4C 验收记录](docs/4C验收记录.md)
-- [后续版本 ToDoList：集合导航的 View 保留机制](docs/后续版本ToDoList.md)
+- [Parent 体系验收记录](docs/Parent体系验收记录.md)
+- [后续版本 ToDoList：View 保留、关闭守卫与 Action](docs/后续版本ToDoList.md)
 - [Conductor 核心验收记录](docs/Conductor核心验收记录.md)
 - [ScreenViewModel：同步生命周期](docs/ScreenViewModel.md)
 - [ViewModelBase：类型基础、完整成员与通知辅助](docs/ViewModelBase.md)

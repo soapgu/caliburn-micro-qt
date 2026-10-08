@@ -50,3 +50,9 @@ Shell 只重写 onActivate：补齐缺失 Home，没有选择时选择 Home，�
 ViewHost 继续绑定 activeItem。Home VM 导航期间常驻，但离开即卸载 Home View；返回创建新 View，文本和焦点按新 View 初始化，计数保留。Detail View 在 Detail VM 删除前卸载。Bootstrapper 登记 Shell/Home/Detail 映射，启动接口不变。
 
 本轮验收见 [4C 验收记录](4C验收记录.md)，第四批本机验收完成，麒麟待验证。集合导航的 View 保留机制列入 [后续版本 ToDoList](后续版本ToDoList.md)，本轮没有实现缓存、异步确认或关闭守卫。
+
+## 逻辑 Parent 与对象所有权
+
+Parent 增量没有改变 buildShell、两个工厂或 CounterService 寿命。根 Shell 由 Bootstrapper 的 unique_ptr 持有，逻辑 parentViewModel 为空；Home/Detail 被接管后 QObject 父对象和逻辑 Parent 均为 Shell。关闭页面先清空逻辑 Parent，QObject 父关系保留到实际回收。
+
+CounterService 无 QObject 父对象，由两个工厂及页面的 shared_ptr 持有，不属于逻辑 VM 树。Parent 不是 DI 容器或服务定位入口；业务和框架仍不依赖 DI。接口与验收见 [Conductor](Conductor.md) 和 [Parent 体系验收记录](Parent体系验收记录.md)。

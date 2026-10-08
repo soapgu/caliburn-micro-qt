@@ -2,6 +2,14 @@
 
 ScreenViewModel::ScreenViewModel(QObject *parent) : ViewModelBase(parent) {}
 
+void ScreenViewModel::setParentViewModel(QObject *parent)
+{
+    if (m_parentViewModel == parent)
+        return;
+    m_parentViewModel = parent;
+    emit parentViewModelChanged();
+}
+
 void ScreenViewModel::initialize()
 {
     if (m_initialized)

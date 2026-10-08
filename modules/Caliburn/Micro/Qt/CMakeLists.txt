@@ -10,6 +10,11 @@ qt_add_qml_module(CaliburnMicroQt
         src/BootstrapperBase.cpp
         include/CaliburnMicroQt/ViewModelBase.h
         src/ViewModelBase.cpp
+        include/CaliburnMicroQt/IChild.h
+        include/CaliburnMicroQt/IParent.h
+        include/CaliburnMicroQt/IConductor.h
+        include/CaliburnMicroQt/ConductorBase.h
+        src/ConductorBase.cpp
         include/CaliburnMicroQt/ScreenViewModel.h
         src/ScreenViewModel.cpp
         include/CaliburnMicroQt/ConductorViewModelBase.h

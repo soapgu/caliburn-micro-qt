@@ -86,6 +86,7 @@ private slots:
         QTest::newRow("example") << QByteArray("import CaliburnExample 1.0; ShellViewModel {}");
         QTest::newRow("detail") << QByteArray("import CaliburnExample 1.0; DetailViewModel {}");
         QTest::newRow("collection") << QByteArray("import Caliburn.Micro.Qt 1.0; ConductorCollectionOneActiveViewModelBase {}");
+        QTest::newRow("conductorBase") << QByteArray("import Caliburn.Micro.Qt 1.0; ConductorBase {}");
         QTest::newRow("conductor") << QByteArray("import Caliburn.Micro.Qt 1.0; ConductorViewModelBase {}");
         QTest::newRow("screen") << QByteArray("import Caliburn.Micro.Qt 1.0; ScreenViewModel {}");
         QTest::newRow("home") << QByteArray("import CaliburnExample 1.0; HomeViewModel {}");
@@ -302,6 +303,63 @@ private slots:
         QCOMPARE(warnings.count(), 0);
     }
 
+    void singleSuspensionRecreatesViewAndKeepsParent()
+    {
+        HomeConductor conductor;
+        conductor.activate();
+        QVERIFY(conductor.activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>())));
+        auto *home = conductor.activeItem();
+        home->add(3);
+        QQmlEngine engine;
+        useEmbeddedModules(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import Caliburn.Micro.Qt 1.0
+            ViewHost {
+                required property ConductorViewModelBase conductor
+                required property ScreenViewModel page
+                readonly property QtObject logicalParent: page ? page.parentViewModel : null
+                width: 400
+                height: 340
+                model: conductor.activeItem
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> host(component.createWithInitialProperties({
+            {"conductor", QVariant::fromValue(static_cast<ConductorViewModelBase *>(&conductor))},
+            {"page", QVariant::fromValue(static_cast<ScreenViewModel *>(home))}
+        }));
+        QVERIFY2(host, qPrintable(component.errorString()));
+        const auto item = [&] { return host->property("item").value<QQuickItem *>(); };
+        QVERIFY(item());
+        auto *input = item()->findChild<QQuickItem *>("focusInput");
+        QVERIFY(input && input->setProperty("text", QStringLiteral("临时文本")));
+        QPointer<QQuickItem> firstView = item();
+        QPointer<HomeViewModel> vm = home;
+        QCOMPARE(host->property("logicalParent").value<QObject *>(), &conductor);
+        QVERIFY(!home->setProperty("parentViewModel", QVariant::fromValue(static_cast<QObject *>(nullptr))));
+        IConductor *api = qobject_cast<IConductor *>(&conductor);
+        QVERIFY(api && api->deactivateItem(home, false));
+        QVERIFY(!item() && vm && !home->isActive());
+        QCOMPARE(host->property("logicalParent").value<QObject *>(), &conductor);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!firstView && vm);
+        QVERIFY(api->activateItem(home));
+        QVERIFY(item() && home->isActive());
+        QCOMPARE(item()->property("viewModel").value<QObject *>(), home);
+        QCOMPARE(home->count(), 3);
+        QCOMPARE(item()->findChild<QQuickItem *>("focusInput")->property("text").toString(), QString());
+        QPointer<QQuickItem> lastView = item();
+        bool viewGoneBeforeVm = false;
+        connect(home, &QObject::destroyed, &engine, [&] { viewGoneBeforeVm = lastView.isNull(); });
+        QVERIFY(api->deactivateItem(home, true));
+        QVERIFY(!item() && !host->property("logicalParent").value<QObject *>());
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!vm && !lastView && viewGoneBeforeVm);
+        QCOMPARE(warnings.count(), 0);
+    }
+
     void hostWaitsForCompletion()
     {
         HomeViewModel home(std::make_shared<CounterService>());
@@ -444,6 +502,7 @@ private slots:
         shell->activate();
         auto *home = shell->home();
         home->add(3);
+        QCOMPARE(home->parentViewModel(), shell.get());
         QQmlApplicationEngine engine;
         useEmbeddedModules(engine);
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
@@ -467,6 +526,8 @@ private slots:
         click(show);
         auto *detail = shell->detail();
         QVERIFY(detail && shell->home() == home && !home->isActive());
+        QCOMPARE(home->parentViewModel(), shell.get());
+        QCOMPARE(detail->parentViewModel(), shell.get());
         QTRY_VERIFY(homeItem(window)
                     && homeItem(window)->property("viewModel").value<QObject *>() == detail);
         QTRY_VERIFY(!firstHomeView);

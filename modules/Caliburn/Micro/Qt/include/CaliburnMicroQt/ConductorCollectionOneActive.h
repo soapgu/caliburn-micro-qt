@@ -38,13 +38,16 @@ public:
     [[nodiscard]] bool activateItem(std::unique_ptr<U> &&item)
     {
         if (!item)
-            return selectItem(nullptr);
-        if (!validateItemChange(item.get()))
+            return ConductorCollectionOneActiveViewModelBase::activateItem(nullptr);
+        if (!validateItemChange(item.get())) {
+            onActivationProcessed(item.get(), false);
             return false;
+        }
         adoptItem(std::unique_ptr<ViewModelBase>(std::move(item)), true);
         return true;
     }
-    [[nodiscard]] bool activateItem(T *item) { return selectItem(item); }
-    [[nodiscard]] bool activateItem(std::nullptr_t) { return selectItem(nullptr); }
-    [[nodiscard]] bool closeItem(T *item) { return closeMember(item); }
+    [[nodiscard]] bool activateItem(T *item) { return ConductorCollectionOneActiveViewModelBase::activateItem(item); }
+    [[nodiscard]] bool activateItem(std::nullptr_t) { return ConductorCollectionOneActiveViewModelBase::activateItem(nullptr); }
+    [[nodiscard]] bool deactivateItem(T *item, bool close) { return ConductorCollectionOneActiveViewModelBase::deactivateItem(item, close); }
+    [[nodiscard]] bool closeItem(T *item) { return deactivateItem(item, true); }
 };

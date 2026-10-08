@@ -16,7 +16,7 @@ void deactivateScreen(ViewModelBase *item, bool close)
 }
 
 ConductorCollectionOneActiveViewModelBase::ConductorCollectionOneActiveViewModelBase(QObject *parent)
-    : ScreenViewModel(parent) {}
+    : ConductorBase(parent) {}
 
 ConductorCollectionOneActiveViewModelBase::~ConductorCollectionOneActiveViewModelBase()
 {
@@ -48,6 +48,10 @@ bool ConductorCollectionOneActiveViewModelBase::validateItemChange(ViewModelBase
         qWarning("Collection.OneActive：不能接管已经激活的 Screen");
         return false;
     }
+    if (hasLogicalParent(item)) {
+        qWarning("Collection.OneActive：不能接管已有逻辑 Parent 的对象");
+        return false;
+    }
     return true;
 }
 
@@ -70,23 +74,29 @@ void ConductorCollectionOneActiveViewModelBase::adoptItem(std::unique_ptr<ViewMo
     auto *previous = m_activeItem.data();
     if (select)
         setSelection(next);
+    setLogicalParent(next, this);
     emit itemsChanged();
     if (select) {
         emit activeItemChanged();
         deactivateScreen(previous, false);
         if (isActive())
             activateScreen(next);
+        onActivationProcessed(next, true);
     }
 }
 
-bool ConductorCollectionOneActiveViewModelBase::selectItem(ViewModelBase *item)
+bool ConductorCollectionOneActiveViewModelBase::activateItem(ViewModelBase *item)
 {
-    if (item && !m_items.contains(item))
+    if (item && !m_items.contains(item)) {
+        onActivationProcessed(item, false);
         return false;
+    }
     auto *previous = m_activeItem.data();
     if (previous == item) {
-        if (isActive())
+        if (isActive()) {
             activateScreen(item);
+            onActivationProcessed(item, true);
+        }
         return true;
     }
     setSelection(item);
@@ -94,6 +104,17 @@ bool ConductorCollectionOneActiveViewModelBase::selectItem(ViewModelBase *item)
     deactivateScreen(previous, false);
     if (isActive())
         activateScreen(item);
+    onActivationProcessed(item, true);
+    return true;
+}
+
+bool ConductorCollectionOneActiveViewModelBase::deactivateItem(ViewModelBase *item, bool close)
+{
+    if (!item || !m_items.contains(item))
+        return false;
+    if (close)
+        return closeMember(item);
+    deactivateScreen(item, false);
     return true;
 }
 
@@ -114,6 +135,7 @@ bool ConductorCollectionOneActiveViewModelBase::closeMember(ViewModelBase *item)
     m_items.removeAt(index);
     if (selected)
         setSelection(next);
+    setLogicalParent(item, nullptr);
     emit itemsChanged();
     if (selected)
         emit activeItemChanged();
@@ -121,6 +143,8 @@ bool ConductorCollectionOneActiveViewModelBase::closeMember(ViewModelBase *item)
     if (selected && isActive())
         activateScreen(next);
     item->deleteLater();
+    if (selected)
+        onActivationProcessed(next, true);
     return true;
 }
 
@@ -154,6 +178,8 @@ void ConductorCollectionOneActiveViewModelBase::onDeactivate(bool close)
     m_destroyed.clear();
     m_items.clear();
     setSelection(nullptr);
+    for (auto *item : previous)
+        setLogicalParent(item, nullptr);
     if (!previous.isEmpty())
         emit itemsChanged();
     if (hadSelection)

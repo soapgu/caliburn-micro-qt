@@ -1,6 +1,6 @@
 #pragma once
 
-#include <CaliburnMicroQt/ScreenViewModel.h>
+#include <CaliburnMicroQt/ConductorBase.h>
 #include <QHash>
 #include <QList>
 #include <QPointer>
@@ -8,7 +8,7 @@
 #include <memory>
 
 // 集合只读；所有权变更通过 C++ 接口完成。
-class ConductorCollectionOneActiveViewModelBase : public ScreenViewModel
+class ConductorCollectionOneActiveViewModelBase : public ConductorBase
 {
     Q_OBJECT
     QML_ELEMENT
@@ -21,6 +21,9 @@ public:
     ~ConductorCollectionOneActiveViewModelBase() override;
     ViewModelBase *activeItem() const { return m_activeItem.data(); }
     QVariantList items() const;
+    QList<ViewModelBase *> getChildren() const override { return m_items; }
+    bool activateItem(ViewModelBase *item) override;
+    bool deactivateItem(ViewModelBase *item, bool close) override;
 
 signals:
     void itemsChanged();
@@ -30,7 +33,6 @@ protected:
     const QList<ViewModelBase *> &itemPointers() const { return m_items; }
     bool validateItemChange(ViewModelBase *item) const;
     void adoptItem(std::unique_ptr<ViewModelBase> item, bool select);
-    bool selectItem(ViewModelBase *item);
     bool closeMember(ViewModelBase *item);
     void onActivate() override;
     void onDeactivate(bool close) override;

@@ -76,3 +76,9 @@ CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周�
 | 仅框架构建及 qmllint | 关闭示例和测试后通过，不加入 Boost DI 或应用装配目标。 |
 
 新增测试使用 offscreen/software 与 Basic 样式；当时未进行人工窗口操作或麒麟验证；4B 已另行完成本机实际窗口回归，麒麟仍待验证。构建与测试在沙箱外执行，避免沙箱内 Qt 工具无法识别 NEON 指令的问题。故意非法的既有 QML 夹具与静态插件重复链接继续产生预期诊断，不影响验收结果。
+
+## Parent 协议与根生命周期
+
+根 Shell 的逻辑 parentViewModel 为空；Bootstrapper 继续持有根 unique_ptr，不实现 IConductor，也不作为逻辑 Parent。退出仍先释放根 View/引擎，再清理根生命周期与 VM。已初始化单项 Conductor 关闭时清理当前和所有留存项，集合型清理全部成员；QObject 父树兜底回收未处理的延迟删除项。
+
+统一 IConductor 不包含 tryClose 或根窗口关闭请求，本轮没有关闭守卫。后续通过统一协议衔接关闭请求的目标见 [ToDoList](后续版本ToDoList.md)，本轮回归见 [Parent 体系验收记录](Parent体系验收记录.md)。
