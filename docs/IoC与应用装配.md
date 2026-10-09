@@ -4,7 +4,7 @@
 
 ## 4C 构造接口与模块边界
 
-以下为加入 5A 窗口服务后的当前签名；4C 原始签名保留在历史验收记录中。
+以下为窗口服务与宿主归入框架后的当前签名；4C 原始签名保留在历史验收记录中。
 
 ```cpp
 explicit HomeViewModel(std::shared_ptr<CounterService> counterService,
@@ -13,20 +13,20 @@ explicit DetailViewModel(std::shared_ptr<CounterService> counterService);
 using HomeViewModelFactory = std::function<std::unique_ptr<HomeViewModel>()>;
 using DetailViewModelFactory = std::function<std::unique_ptr<DetailViewModel>()>;
 explicit ShellViewModel(HomeViewModelFactory homeFactory,
-                        DetailViewModelFactory detailFactory,
-                        std::shared_ptr<IWindowManager> windowManager);
+                        DetailViewModelFactory detailFactory);
 std::unique_ptr<ShellViewModel> buildShell();
+std::unique_ptr<ShellViewModel> buildShell(std::shared_ptr<IWindowManager> windowManager);
 ```
 
 CounterService 位于示例用户模块 services/，不注册为 QML 类型，没有 QObject 父对象。它唯一保存初始 0、范围 0～5 的计数，提供 count、canAdd、add、reset 和 countChanged；先比较剩余额度再相加，非法输入与无变化操作不通知。
 
 Home 保留原计数属性、文案和操作，计数直接读取服务，缓存上次可用条件并维护重置请求的 pending/代次状态。构造按已有服务状态初始化缓存，不发初始通知；服务变化时先更新缓存，再通知 count 和实际变化的守卫。Detail 只读展示 count/message，使用同一服务并转发 countChanged。两者必须显式接收非空服务，空服务抛出 invalid_argument，没有隐式服务或无参构造。
 
-Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，保存两个工厂及 shared_ptr<IWindowManager>。home/detail 从集合查找，使用 itemsChanged 通知；activeItem 是实际选择，没有额外页面所有权。构造检查两个工厂及窗口服务非空，创建并选择未初始化 Home。空页面或接管失败抛出 invalid_argument，工厂自身异常原样传播。业务 VM 和框架不包含 DI 容器接口。
+Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，保存两个页面工厂。home/detail 从集合查找，使用 itemsChanged 通知；activeItem 是实际选择，没有额外页面所有权。构造检查两个工厂非空，创建并选择未初始化 Home。空页面或接管失败抛出 invalid_argument，工厂自身异常原样传播。业务 VM 和框架不包含 DI 容器接口。
 
 ## 创建与所有权
 
-[ViewModelComposition.cpp](../examples/minimal/app/ViewModelComposition.cpp) 每次 buildShell 创建独立 CounterService 和 WindowManager，以 shared_ptr 持有并装配 Home/Detail 工厂。Home 工厂按值捕获计数和窗口服务，Detail 工厂仅捕获计数服务，每次调用局部 Boost.Ext.DI 注入器，绑定同一服务并创建对应 unique_ptr 页面。根注入器绑定两个工厂及窗口服务、创建 Shell，返回根 unique_ptr。
+[ViewModelComposition.cpp](../examples/minimal/app/ViewModelComposition.cpp) 在应用启动时接收 Bootstrapper 创建的 WindowManager，每次 buildShell 创建独立 CounterService，以 shared_ptr 持有并装配 Home/Detail 工厂。无参 buildShell 供独立装配使用，自行创建窗口服务；调用方若需要弹窗，应使用接收服务的重载，显式保留服务并调用其挂载接口。Home 工厂按值捕获计数和窗口服务，Detail 工厂仅捕获计数服务，每次调用局部 Boost.Ext.DI 注入器，绑定同一服务并创建对应 unique_ptr 页面。根注入器只绑定两个页面工厂、创建 Shell，返回根 unique_ptr。
 
 DI 仍为装配库私有依赖。工厂不捕获注入器或 Shell；局部注入器离开作用域后，工厂和页面的 shared_ptr 保持服务寿命。Conductor 接管页面时设置 QObject 父关系和 CppOwnership，释放临时 unique_ptr。根 Shell 由 unique_ptr 管理，服务没有 QObject 父对象。不同 buildShell 的计数相互隔离。
 
@@ -75,7 +75,7 @@ Shell 新增 deactivateItem(ViewModelBase*, bool) override。仅当 close=true �
 
 ## 第五批装配与确认
 
-**5A 已实现并完成本机验收；5B 规划中、未实施、未验证。** 5A 由应用装配层创建 WindowManager、通过 IWindowManager 构造注入使用者，并登记确认 VM/View 映射；Shell 根窗口承载 DialogHost，Home 用 showDialogAsync 通用模态弹窗入口完成重置确认。ConfirmationRequest 只保存确认文案，实际重置仍由 Home 执行；入口同时支持自定义弹窗 VM，以 QFuture / QPromise 交付结果。
+**5A 已实现并完成本机验收；5B 规划中、未实施、未验证。** 窗口服务及宿主现由框架统一创建管理，装配层将框架提供的 IWindowManager 注入 Home，确认 VM/View 使用框架默认映射；Shell 不声明 DialogHost 或服务接线属性。Home 用 showDialogAsync 通用模态弹窗入口完成重置确认。ConfirmationRequest 只保存确认文案，实际重置仍由 Home 执行；入口同时支持自定义弹窗 VM，以 QFuture / QPromise 交付结果。
 
 5B 复用 5A 的窗口管理能力，由 Detail 的 canClose(callback) 守卫消费窗口 Future 并回传许可，再由 Conductor 决定是否关闭，不在返回按钮操作中单独提前确认。未来 tryClose 等入口按 CM 3.2 迁移为普通命名的 void 请求方法，goBack 不能再依赖同步 bool 或方法返回推断关闭完成；当前代码调用链保持现状，迁移与完成通知接续属于 5B。
 

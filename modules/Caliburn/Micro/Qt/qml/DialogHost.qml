@@ -4,6 +4,7 @@ import Caliburn.Micro.Qt 1.0
 
 Item {
     id: root
+    anchors.fill: parent
     property alias windowManager: state.manager
     property Item fallbackFocusItem: null
     readonly property bool opened: popup.opened

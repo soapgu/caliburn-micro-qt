@@ -16,11 +16,26 @@ IWindowManager 是抽象 QObject 服务，WindowManager 提供具体实现，两
 
 true 表示接受，false 表示明确取消，空值表示 Escape、显式取消、请求者失效或宿主卸载等未作决定的关闭。无效参数通过 Future 交付 std::invalid_argument；忙、宿主不可用、缺少映射或 View 加载失败交付 std::runtime_error。生命周期异常同样交付至 Future，不跨越 Qt 信号边界。调用方应使用带 QObject 上下文的 then/onFailed，不在 UI 线程阻塞等待；QFuture.cancel 不作为关闭 UI 的协议。
 
+## 窗口挂载
+
+具体 `WindowManager` 提供以下 C++ 接口，Bootstrapper 在根窗口加载成功后自动调用，独立 QML 窗口也可使用：
+
+```cpp
+bool attachToWindow(QQuickWindow *window, QQuickItem *fallbackFocusItem = nullptr);
+void detachFromWindow();
+```
+
+挂载通过窗口自己的 QML 引擎创建标准 DialogHost，设置 CppOwnership、QObject 父对象及视觉父项为窗口场景根 contentItem。宿主填满场景区域，与业务布局并列，不参与页面布局；实际 Popup 使用 Overlay 展示。默认恢复有效的原焦点，无效时使用指定的后备焦点或窗口内容项。
+
+同服务重复挂到同一窗口幂等成功；服务或目标窗口已有其他宿主、尚未完成的旧请求、非法线程、空窗口或窗口无 QML 引擎时返回 false 并诊断。后备焦点须属于同一窗口。切换窗口先 detachFromWindow；新挂载不替换现有手动宿主。两个独立服务可分别挂到两个独立窗口，但 Bootstrapper 仍只管理一个根窗口。
+
+解除挂载会删除框架创建的宿主，先释放弹窗 View，再结束请求。窗口或引擎销毁时也清理宿主；服务析构完成剩余请求，不能留下未完成 Future。detachFromWindow 不删除调用方手动创建的宿主；独立窗口中自行创建宿主时，由调用方管理其寿命。Bootstrapper 始终自动挂载标准宿主。
+
 ## 所有权与完成顺序
 
 showDialogAsync 按值消费候选 unique_ptr，拒绝也会回收候选，不影响正在展示的请求。只接纳无 QObject 父对象、无逻辑 Parent、未激活且与服务同线程的 Screen；请求者必须非空且同线程。错误线程的候选通过 deleteLater 在其所属线程回收，调用方负责该线程的事件循环和寿命。所有服务调用均由应用保证在主线程执行。
 
-接纳后设置 QObject 父对象为 WindowManager 和 CppOwnership，保持逻辑 Parent 为空，同步初始化和激活，再装配 View。管理者以 QObject 父树持有弹窗 VM；确认 VM 通过 QPointer 借用服务，不形成 shared_ptr 环。应用每次 buildShell 创建独立窗口服务，由 Shell、Home 工厂和 Home 的 shared_ptr 持有，服务本身不设置 QObject 父对象。
+接纳后设置 QObject 父对象为 WindowManager 和 CppOwnership，保持逻辑 Parent 为空，同步初始化和激活，再装配 View。管理者以 QObject 父树持有弹窗 VM；确认 VM 通过 QPointer 借用服务，不形成 shared_ptr 环。Bootstrapper 在 Configure 前创建独立窗口服务，通过根工厂传给装配层；框架、Home 工厂和 Home 的 shared_ptr 持有同一实例，服务本身不设置 QObject 父对象，Shell 不保存或暴露该服务。独立使用无参 buildShell 时仍创建独立服务。
 
 同一管理者只登记一个 DialogHost，且只允许一个当前请求。关闭中仍 busy，currentDialog 已为空；先关闭 Popup 并卸载 View，再同步关闭 VM、安排 deleteLater、清空请求，最后完成 QPromise。请求标识保护加载、失败和释放通知；旧通知、重复关闭或重复按钮操作不提交第二次完成。VM 意外销毁时不再调用其生命周期。
 
@@ -60,6 +75,6 @@ DialogHostState 是 `Caliburn.Micro.Qt 1.0` 公开、可创建的 QML 弹窗宿�
 
 Home.reset 设置 resetPending 后发起确认；canReset 要求计数大于零且没有待处理重置。仅接受结果且 Home 仍活动时执行 CounterService.reset；取消、无决定关闭或异常保留计数。普通停用和关闭取消该 Home 的请求，代次标识防止旧结果修改恢复后的页面。reset 仍是 QML 业务入口，没有另留同步绕过确认的 Home 方法。
 
-AppBootstrapper 在 ViewRegistry 冻结前登记确认映射，Shell 根窗口承载 DialogHost。框架现在需要 Core/Qml/Quick/QuickControls2；不依赖业务模块或 Boost.Ext.DI。
+ViewRegistry 自动提供确认视图的默认映射，应用可在冻结前显式注册替换视图；显式映射加载失败不会回退。Bootstrapper 在根窗口加载后自动挂载 DialogHost，Shell 不参与宿主装配。框架现在需要 Core/Qml/Quick/QuickControls2；不依赖业务模块或 Boost.Ext.DI。
 
 CM 3.2 WPF 使用同步 [WindowManager.ShowDialog](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro.Platform/net40/WindowManager.cs)，本项目保留 QFuture/QPromise 是明确的 Qt 适配差异，不通过嵌套事件循环复刻阻塞返回。Screen 和 Conductor 的同步生命周期与 bool 请求接口未改动；5B 仍按 [迭代计划](迭代实现计划.md#第五批阶段划分) 另行实施。

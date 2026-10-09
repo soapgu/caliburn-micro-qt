@@ -10,6 +10,11 @@
 
 class QGuiApplication;
 class QQmlApplicationEngine;
+class IWindowManager;
+class WindowManager;
+
+// 根窗口设置的扩展位置，目前不影响显示行为。
+struct RootViewOptions {};
 
 // 运行单个根窗口；应用在 Configure 中提供映射和对象工厂。
 class BootstrapperBase : public QObject
@@ -27,8 +32,9 @@ protected:
     // 启动中途失败也会调用，须允许应用资源尚未创建。
     virtual void OnExit() {}
 
-    template<class T, class Factory>
-    [[nodiscard]] bool RegisterRootFactory(Factory factory)
+    template<class T>
+    [[nodiscard]] bool RegisterRootFactory(
+            std::function<std::unique_ptr<T>(std::shared_ptr<IWindowManager>)> factory)
     {
         static_assert(std::is_base_of_v<ScreenViewModel, T>, "根 VM 必须继承 ScreenViewModel");
         if (m_state != State::Configuring)
@@ -37,42 +43,31 @@ protected:
         if (m_factories.contains(type))
             return Fail(QStringLiteral("根工厂重复登记"));
 
-        std::function<std::unique_ptr<T>()> typedFactory = std::move(factory);
-        if (!typedFactory)
+        if (!factory)
             return Fail(QStringLiteral("根工厂不能为空"));
 
-        auto wrappedFactory = [factory = std::move(typedFactory)]() -> RootInstance {
-            auto model = factory();
-            if (!model)
-                return {};
-            RootInstance result;
-            // 普通指针保留 T* 类型供 QML 访问，不接管对象。
-            result.viewModel = QVariant::fromValue(model.get());
-            // 智能指针交接删除责任，统一通过 Screen 管理生命周期。
-            result.model = std::move(model);
-            return result;
-        };
-        m_factories.insert(type, std::move(wrappedFactory));
+        m_factories.insert(type, std::move(factory));
         return true;
     }
 
     template<class T>
-    [[nodiscard]] bool DisplayRootViewFor()
+    [[nodiscard]] bool DisplayRootViewFor(RootViewOptions options = {})
     {
         static_assert(std::is_base_of_v<ScreenViewModel, T>, "根 VM 必须继承 ScreenViewModel");
-        return DisplayRootView(&T::staticMetaObject);
+        Q_UNUSED(options);
+        if (!CreateRootViewModel(&T::staticMetaObject))
+            return false;
+        // 保留具体 T* 类型供 QML 注入；对象仍由 m_root 持有。
+        return DisplayRootView(QVariant::fromValue(static_cast<T *>(m_root.get())));
     }
 
 private:
     enum class State { Ready, Configuring, Starting, Running, Stopping, Stopped };
-    struct RootInstance {
-        std::unique_ptr<ScreenViewModel> model;
-        QVariant viewModel;
-    };
-    using RootFactory = std::function<RootInstance()>;
+    using RootFactory = std::function<std::unique_ptr<ScreenViewModel>(std::shared_ptr<IWindowManager>)>;
 
     bool Initialize();
-    bool DisplayRootView(const QMetaObject *type);
+    bool CreateRootViewModel(const QMetaObject *type);
+    bool DisplayRootView(const QVariant &viewModel);
     bool Fail(const QString &message) const;
     void CloseRoot() noexcept;
     void Shutdown(bool invokeExit) noexcept;
@@ -82,6 +77,7 @@ private:
     QHash<const QMetaObject *, RootFactory> m_factories;
     std::unique_ptr<ScreenViewModel> m_root;
     std::unique_ptr<QQmlApplicationEngine> m_engine;
+    std::shared_ptr<WindowManager> m_windowManager;
     bool m_displayAttempted = false;
     bool m_rootDisplayed = false;
     bool m_closeAttempted = false;

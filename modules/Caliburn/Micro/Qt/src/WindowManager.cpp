@@ -2,6 +2,10 @@
 #include <CaliburnMicroQt/ViewRegistry.h>
 #include "DialogHostState.h"
 #include <QQmlEngine>
+#include <QQmlComponent>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QThread>
 #include <stdexcept>
 
 struct WindowManager::Request
@@ -22,10 +26,82 @@ WindowManager::WindowManager(QObject *parent) : IWindowManager(parent) {}
 WindowManager::~WindowManager()
 {
     m_destroying = true;
+    detachFromWindow();
     if (m_request) {
         complete(std::nullopt);
         finish();
     }
+}
+
+bool WindowManager::attachToWindow(QQuickWindow *window, QQuickItem *fallbackFocusItem)
+{
+    if (QThread::currentThread() != thread() || !window || window->thread() != thread()
+            || (fallbackFocusItem && fallbackFocusItem->thread() != thread()) || m_destroying) {
+        qWarning("WindowManager：宿主窗口或线程无效");
+        return false;
+    }
+    if (m_ownedHost && m_window == window)
+        return true;
+    if (m_host || m_ownedHost || m_finishing || m_request) {
+        qWarning("WindowManager：已有宿主或尚未完成的请求，须先解除挂载");
+        return false;
+    }
+    auto *engine = qmlEngine(window);
+    if (!engine || engine->thread() != thread()) {
+        qWarning("WindowManager：窗口没有可用的 QML 引擎");
+        return false;
+    }
+    if (fallbackFocusItem && fallbackFocusItem->window() != window) {
+        qWarning("WindowManager：后备焦点必须属于宿主窗口");
+        return false;
+    }
+    for (auto *state : window->findChildren<DialogHostState *>()) {
+        if (state->manager() && state->available()) {
+            qWarning("WindowManager：目标窗口已有弹窗宿主");
+            return false;
+        }
+    }
+    QQmlComponent component(engine, QUrl(QStringLiteral("qrc:/qt/qml/Caliburn/Micro/Qt/DialogHost.qml")));
+    std::unique_ptr<QObject> object(component.createWithInitialProperties({
+        {QStringLiteral("parent"), QVariant::fromValue(window->contentItem())},
+        {QStringLiteral("windowManager"), QVariant::fromValue(static_cast<IWindowManager *>(this))},
+        {QStringLiteral("fallbackFocusItem"), QVariant::fromValue(
+            fallbackFocusItem ? fallbackFocusItem : window->contentItem())}
+    }));
+    auto *item = qobject_cast<QQuickItem *>(object.get());
+    if (!item || !m_host || !m_host->available()) {
+        qWarning().noquote() << "WindowManager：DialogHost 创建失败" << component.errorString();
+        return false;
+    }
+    QQmlEngine::setObjectOwnership(item, QQmlEngine::CppOwnership);
+    item->setParent(window->contentItem());
+    item->setObjectName(QStringLiteral("dialogHost"));
+    m_ownedHost = item;
+    m_window = window;
+    // 普通 QQmlEngine 不负责删除外部创建的窗口；引擎销毁也必须解除宿主。
+    m_engineDestroyed = connect(engine, &QObject::destroyed, this, [this] { detachFromWindow(); });
+    connect(item, &QObject::destroyed, this, [this] {
+        m_ownedHost = nullptr;
+        m_window = nullptr;
+        disconnect(m_engineDestroyed);
+    });
+    object.release();
+    return true;
+}
+
+void WindowManager::detachFromWindow()
+{
+    if (QThread::currentThread() != thread()) {
+        qWarning("WindowManager：解除挂载必须位于服务线程");
+        return;
+    }
+    disconnect(m_engineDestroyed);
+    // 删除标准宿主会先释放 View，再解除 State 关联；随后可安全结束请求。
+    delete m_ownedHost.data();
+    m_ownedHost = nullptr;
+    m_window = nullptr;
+    if (m_request && !m_host && !m_starting)
+        finish();
 }
 
 bool WindowManager::busy() const { return bool(m_request) || m_finishing; }

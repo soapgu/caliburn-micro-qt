@@ -1,5 +1,6 @@
 #include <CaliburnMicroQt/BootstrapperBase.h>
 #include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/WindowManager.h>
 #include <QDebug>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -65,6 +66,8 @@ int BootstrapperBase::Run()
 bool BootstrapperBase::Initialize()
 {
     m_state = State::Configuring;
+    m_windowManager = std::make_shared<WindowManager>();
+    QQmlEngine::setObjectOwnership(m_windowManager.get(), QQmlEngine::CppOwnership);
     if (!Configure())
         return Fail(QStringLiteral("Configure 失败"));
     if (!ViewRegistry::freeze())
@@ -77,7 +80,7 @@ bool BootstrapperBase::Initialize()
     return true;
 }
 
-bool BootstrapperBase::DisplayRootView(const QMetaObject *type)
+bool BootstrapperBase::CreateRootViewModel(const QMetaObject *type)
 {
     if (m_state != State::Starting)
         return Fail(QStringLiteral("只能在 OnStartup 中显示根窗口"));
@@ -88,14 +91,19 @@ bool BootstrapperBase::DisplayRootView(const QMetaObject *type)
     const auto found = m_factories.constFind(type);
     if (found == m_factories.cend())
         return Fail(QStringLiteral("未登记对应的根工厂"));
-    auto instance = (*found)();
-    if (!instance.model)
+    auto model = (*found)(m_windowManager);
+    if (!model)
         return Fail(QStringLiteral("根工厂返回了空对象"));
-    if (instance.model->parent() || instance.model->thread() != m_app.thread())
+    if (model->parent() || model->thread() != m_app.thread())
         return Fail(QStringLiteral("根 VM 必须无父对象且位于应用主线程"));
 
-    m_root = std::move(instance.model);
+    m_root = std::move(model);
     QQmlEngine::setObjectOwnership(m_root.get(), QQmlEngine::CppOwnership);
+    return true;
+}
+
+bool BootstrapperBase::DisplayRootView(const QVariant &viewModel)
+{
     const QUrl url = ViewRegistry::viewUrl(m_root.get());
     if (url.isEmpty())
         return Fail(QStringLiteral("未找到根 View 映射"));
@@ -104,11 +112,13 @@ bool BootstrapperBase::DisplayRootView(const QMetaObject *type)
 
     m_root->activate();
     m_engine = std::make_unique<QQmlApplicationEngine>();
-    m_engine->setInitialProperties({{QStringLiteral("viewModel"), instance.viewModel}});
+    m_engine->setInitialProperties({{QStringLiteral("viewModel"), viewModel}});
     m_engine->load(url);
     const auto roots = m_engine->rootObjects();
     if (roots.size() != 1 || !qobject_cast<QQuickWindow *>(roots.first()))
         return Fail(QStringLiteral("根 View 加载失败或根对象不是窗口"));
+    if (!m_windowManager->attachToWindow(qobject_cast<QQuickWindow *>(roots.first())))
+        return Fail(QStringLiteral("根窗口弹窗宿主挂载失败"));
     m_rootDisplayed = true;
     return true;
 }
@@ -134,6 +144,7 @@ void BootstrapperBase::Shutdown(bool invokeExit) noexcept
     m_engine.reset();
     m_root.reset();
     m_factories.clear();
+    m_windowManager.reset();
     m_state = State::Stopped;
 }
 

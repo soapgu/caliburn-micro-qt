@@ -2,12 +2,10 @@
 #include <stdexcept>
 #include <utility>
 
-ShellViewModel::ShellViewModel(HomeViewModelFactory homeFactory, DetailViewModelFactory detailFactory,
-                               std::shared_ptr<IWindowManager> windowManager)
-    : m_windowManager(std::move(windowManager)),
-      m_homeFactory(std::move(homeFactory)), m_detailFactory(std::move(detailFactory))
+ShellViewModel::ShellViewModel(HomeViewModelFactory homeFactory, DetailViewModelFactory detailFactory)
+    : m_homeFactory(std::move(homeFactory)), m_detailFactory(std::move(detailFactory))
 {
-    if (!m_homeFactory || !m_detailFactory || !m_windowManager)
+    if (!m_homeFactory || !m_detailFactory)
         throw std::invalid_argument("Shell 要求非空的 Home 与 Detail 工厂");
     auto *initial = ensureHome();
     if (!activateItem(initial))

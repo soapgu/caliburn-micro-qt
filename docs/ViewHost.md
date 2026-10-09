@@ -4,7 +4,7 @@
 
 ## 1. 登记与查询
 
-应用在配置阶段登记全部映射，完成后显式冻结。使用 BootstrapperBase 时，它在 Configure 成功后自动调用 freeze()；独立使用注册表与宿主时，由应用在创建界面前调用：
+应用在配置阶段登记业务映射，完成后显式冻结。使用 BootstrapperBase 时，它在 Configure 成功后自动调用 freeze()；独立使用注册表与宿主时，由应用在创建界面前调用：
 
 ```cpp
 const bool registered = ViewRegistry::registerView<HomeViewModel>(
@@ -19,14 +19,17 @@ const QUrl url = ViewRegistry::viewUrl(home);
 | --- | --- |
 | 有效、非空、绝对 URL | 登记成功；不提前检查资源存在性。 |
 | 相同类型与 URL 再次登记 | 冻结前返回 true。 |
-| 相同类型、不同 URL | 返回 false 并诊断，保留原映射。 |
+| 已显式登记的相同类型、不同 URL | 返回 false 并诊断，保留原映射。 |
 | 空、非法、相对 URL | 返回 false 并诊断，不修改表。 |
 | freeze() | 在应用主线程返回 true 并冻结；重复调用返回 true，随后任何登记均拒绝。非法线程调用返回 false，不改变配置。 |
 | 空对象查询 | 返回空 URL，不改变冻结状态。 |
 | 非空对象查询 | 冻结前后均可查询，不改变冻结状态；配置阶段查询后仍可继续登记。 |
-| 未登记的实际类型 | 诊断并返回空 URL，不使用基类映射。 |
+| 无应用映射但有框架默认映射 | 返回默认 URL，目前包含 ConfirmActionViewModel。 |
+| 无应用或默认映射的实际类型 | 诊断并返回空 URL，不使用基类映射。 |
 
 C++ 静态 `viewUrl(const ViewModelBase*)` 与 QML 单例 `resolve(ViewModelBase*)` 共用进程级表。freeze() 是 C++ 配置入口，不向 QML 暴露。每个引擎拥有自己的查询单例，销毁或重建引擎不丢失映射或冻结状态。表只保存元对象和 URL，不保存 VM。登记、冻结和查询均限定在应用主线程，非法线程调用诊断并拒绝；展示 VM 的生命周期由调用方保证在应用主线程执行。未知类型及非法查询也不冻结注册表；运行期不提供解冻或清空接口。
+
+框架默认映射与应用映射分开保存，优先查询应用映射。ConfirmActionViewModel 无须由应用登记，独立使用 ViewRegistry 时也能取得默认确认视图。冻结前可用普通 registerView 显式覆盖默认映射，不算冲突；查询不会冻结配置。覆盖指向无效资源时正常报告加载失败，不退回默认视图。
 
 ## 2. 宿主接口与用法
 

@@ -277,7 +277,7 @@ private slots:
     void registryContract()
     {
         HomeViewModel home(std::make_shared<CounterService>(), testWindows());
-        ShellViewModel shell(makeHomeFactory(), makeDetailFactory(), testWindows());
+        ShellViewModel shell(makeHomeFactory(), makeDetailFactory());
         ViewRegistry registry;
         const QUrl homeUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"));
         QCOMPARE(ViewRegistry::viewUrl(&home), homeUrl);
@@ -313,7 +313,7 @@ private slots:
     void shellOwnsHomeAfterHandoff()
     {
         auto service = std::make_shared<CounterService>();
-        auto shell = std::make_unique<ShellViewModel>(makeHomeFactory(service), makeDetailFactory(service), testWindows());
+        auto shell = std::make_unique<ShellViewModel>(makeHomeFactory(service), makeDetailFactory(service));
         QPointer<HomeViewModel> weak = shell->home();
         QVERIFY(weak);
         QCOMPARE(weak->parent(), shell.get());
@@ -334,7 +334,7 @@ private slots:
         QVERIFY(!weak);
         QCOMPARE(service->count(), 2);
 
-        ShellViewModel owner(makeHomeFactory(), makeDetailFactory(), testWindows());
+        ShellViewModel owner(makeHomeFactory(), makeDetailFactory());
         owner.activate();
         QSignalSpy changed(&owner, &ConductorCollectionOneActiveViewModelBase::activeItemChanged);
         delete owner.home();
@@ -353,9 +353,9 @@ private slots:
     void shellRejectsInvalidHandoff()
     {
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, HomeViewModel(nullptr, testWindows()));
-        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel(HomeViewModelFactory{}, makeDetailFactory(), testWindows()));
+        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel(HomeViewModelFactory{}, makeDetailFactory()));
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument,
-                                ShellViewModel([] { return std::unique_ptr<HomeViewModel>{}; }, makeDetailFactory(), testWindows()));
+                                ShellViewModel([] { return std::unique_ptr<HomeViewModel>{}; }, makeDetailFactory()));
         QObject parent;
         QPointer<HomeViewModel> weak;
         auto invalid = [&] {
@@ -365,7 +365,7 @@ private slots:
             return home;
         };
         QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：接管对象必须无父对象且位于同一线程");
-        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel{invalid, makeDetailFactory(), testWindows()});
+        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel{invalid, makeDetailFactory()});
         QVERIFY(!weak);
         QVERIFY(parent.children().isEmpty());
         QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的 Screen");
@@ -373,10 +373,10 @@ private slots:
             auto home = std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows());
             home->activate();
             return home;
-        }, makeDetailFactory(), testWindows()));
+        }, makeDetailFactory()));
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, ShellViewModel([]() -> std::unique_ptr<HomeViewModel> {
             throw std::runtime_error("工厂异常");
-        }, makeDetailFactory(), testWindows()));
+        }, makeDetailFactory()));
     }
 
     void shellPropagatesHomeHooks()
@@ -386,7 +386,7 @@ private slots:
         ShellViewModel shell([&] {
             ++calls;
             return std::make_unique<LifecycleHome>(service, testWindows());
-        }, makeDetailFactory(service), testWindows());
+        }, makeDetailFactory(service));
         auto *home = static_cast<LifecycleHome *>(shell.home());
         shell.deactivate(true); // 未初始化父对象关闭不影响候选页。
         QVERIFY(home->events.isEmpty());

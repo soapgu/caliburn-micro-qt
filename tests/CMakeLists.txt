@@ -56,7 +56,7 @@ target_link_libraries(CaliburnBootstrapperTests PRIVATE
 )
 # 注册表映射与冻结状态均为进程级；各场景需要不同映射或空表，独立进程验收。
 foreach(scenario IN ITEMS
-    success configureQuery lateRegistration exitCode configureFailure missingFactory factoryException nullRoot
+    success injectedService explicitOptions emptyFactory hostFailure configureQuery lateRegistration exitCode configureFailure missingFactory factoryException nullRoot
     missingMapping remoteView missingResource nonWindow noRoot ignoredLoadFailure
     duplicateRoot exitException closeException
 )
@@ -95,3 +95,19 @@ set_tests_properties(dialog PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
     TIMEOUT 60
 )
+
+# 框架默认映射、应用覆盖和无效覆盖使用独立进程，避免静态注册表互相影响。
+qt_add_executable(CaliburnFrameworkDialogTests qml/tst_framework_dialog.cpp)
+qt_add_resources(CaliburnFrameworkDialogTests framework_dialog_fixtures
+    PREFIX /tests FILES fixtures/OverrideConfirm.qml)
+target_link_libraries(CaliburnFrameworkDialogTests PRIVATE
+    Caliburn::MicroQt CaliburnMicroQtplugin Qt6::Test Qt6::Quick Qt6::QuickControls2)
+add_test(NAME framework_dialog COMMAND CaliburnFrameworkDialogTests)
+set_tests_properties(framework_dialog PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 30)
+foreach(mapping IN ITEMS override missing)
+    add_test(NAME framework_dialog_${mapping} COMMAND CaliburnFrameworkDialogTests registryMapping)
+    set_tests_properties(framework_dialog_${mapping} PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;CMQT_CONFIRM_MAPPING=${mapping}"
+        TIMEOUT 15)
+endforeach()

@@ -1,4 +1,5 @@
 #include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/ConfirmActionViewModel.h>
 #include <QCoreApplication>
 #include <QHash>
 #include <QThread>
@@ -6,6 +7,10 @@
 namespace {
 struct RegistryData {
     QHash<const QMetaObject *, QUrl> views;
+    const QHash<const QMetaObject *, QUrl> defaults {
+        {&ConfirmActionViewModel::staticMetaObject,
+         QUrl(QStringLiteral("qrc:/qt/qml/Caliburn/Micro/Qt/ConfirmActionView.qml"))}
+    };
     bool frozen = false;
 };
 
@@ -71,6 +76,9 @@ QUrl ViewRegistry::viewUrl(const ViewModelBase *model)
     const auto found = data.views.constFind(model->metaObject());
     if (found != data.views.cend())
         return *found;
+    const auto defaultView = data.defaults.constFind(model->metaObject());
+    if (defaultView != data.defaults.cend())
+        return *defaultView;
     qWarning().noquote() << "ViewRegistry：未登记类型" << model->metaObject()->className();
     return {};
 }

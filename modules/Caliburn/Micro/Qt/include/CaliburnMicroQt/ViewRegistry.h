@@ -21,6 +21,7 @@ public:
 
     // 在应用主线程显式结束映射登记；重复冻结返回 true。
     [[nodiscard]] static bool freeze();
+    // 精确类型匹配：应用显式映射优先，框架内置映射兜底。
     static QUrl viewUrl(const ViewModelBase *model);
     Q_INVOKABLE QUrl resolve(ViewModelBase *model) const { return viewUrl(model); }
 

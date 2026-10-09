@@ -2,6 +2,8 @@
 #include <AppBootstrapper.h>
 #include <ViewModelComposition.h>
 #include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/WindowManager.h>
+#include <QQmlComponent>
 #include <QGuiApplication>
 #include <QQmlEngine>
 #include <QQmlExtensionPlugin>
@@ -36,6 +38,9 @@ struct Observation {
     bool homeLoaded = false;
     bool aliveAtExit = false;
     bool activeAtExit = false;
+    bool serviceInjected = false;
+    bool dialogOpened = false;
+    QPointer<IWindowManager> windows;
 };
 
 static DetailViewModelFactory makeDetailFactory(
@@ -48,7 +53,7 @@ class FailingCloseShell : public ShellViewModel
 {
 public:
     explicit FailingCloseShell(Observation &observation)
-        : ShellViewModel(makeHomeFactory(), makeDetailFactory(), testWindows()), m_observation(observation)
+        : ShellViewModel(makeHomeFactory(), makeDetailFactory()), m_observation(observation)
     {
         QQmlEngine::setObjectOwnership(home(), QQmlEngine::CppOwnership);
     }
@@ -76,30 +81,29 @@ protected:
         m_observation.order << "configure";
         if (m_scenario == "configureFailure")
             return false;
+        if (m_scenario == "emptyFactory")
+            return RegisterRootFactory<ShellViewModel>({});
         if (m_scenario != "missingFactory") {
-            if (!RegisterRootFactory<ShellViewModel>([this] { return CreateShell(); }))
+            if (!RegisterRootFactory<ShellViewModel>([this](std::shared_ptr<IWindowManager> windows) {
+                m_observation.serviceInjected = bool(windows);
+                m_observation.windows = windows.get();
+                m_windows = qobject_cast<WindowManager *>(windows.get());
+                if (m_scenario == "hostFailure") {
+                    m_hostEngine = std::make_unique<QQmlEngine>();
+                    QQmlComponent component(m_hostEngine.get());
+                    component.setData("import Caliburn.Micro.Qt 1.0; DialogHostState {}", QUrl());
+                    m_conflictingHost.reset(component.create());
+                    if (!m_conflictingHost || !m_conflictingHost->setProperty("manager", QVariant::fromValue(windows.get())))
+                        return std::unique_ptr<ShellViewModel>{};
+                }
+                return CreateShell(std::move(windows));
+            }))
                 return false;
         }
         if (m_scenario == "missingMapping")
             return true;
 
-        QUrl url(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"));
-        if (m_scenario == "missingResource" || m_scenario == "ignoredLoadFailure")
-            url = QUrl(QStringLiteral("qrc:/tests/missing.qml"));
-        if (m_scenario == "nonWindow")
-            url = QUrl(QStringLiteral("qrc:/tests/fixtures/NonVisual.qml"));
-        if (m_scenario == "remoteView")
-            url = QUrl(QStringLiteral("https://example.invalid/ShellView.qml"));
-
-        if (!ViewRegistry::registerView<ShellViewModel>(url))
-            return false;
-        if (m_scenario == "configureQuery") {
-            ShellViewModel probe(makeHomeFactory(), makeDetailFactory(), testWindows());
-            if (ViewRegistry::viewUrl(&probe) != url)
-                return false;
-        }
-        return ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")))
-            && ViewRegistry::registerView<DetailViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/DetailView.qml")));
+        return RegisterMappings();
     }
 
     bool OnStartup() override
@@ -112,7 +116,9 @@ protected:
         }
         if (m_scenario == "noRoot")
             return true;
-        const bool displayed = DisplayRootViewFor<ShellViewModel>();
+        const bool displayed = m_scenario == "explicitOptions"
+            ? DisplayRootViewFor<ShellViewModel>(RootViewOptions{})
+            : DisplayRootViewFor<ShellViewModel>();
         if (m_scenario == "ignoredLoadFailure")
             return true;
         if (!displayed)
@@ -127,6 +133,13 @@ protected:
                 if (!root || root->property("viewModel").value<ShellViewModel *>() != m_observation.shell)
                     continue;
                 m_observation.window = root;
+                if (m_scenario == "injectedService" || m_scenario == "explicitOptions") {
+                    m_observation.home->add(2);
+                    m_observation.home->reset();
+                    m_observation.dialogOpened = m_windows->currentDialog()
+                        && root->findChild<QQuickItem *>(QStringLiteral("dialogAccept"));
+                    m_windows->cancelDialogsFor(m_observation.home);
+                }
                 m_observation.typedInjection = root->property("viewModel").metaType()
                     == QMetaType::fromType<ShellViewModel *>();
                 auto *host = root->findChild<QQuickItem *>(QStringLiteral("homeHost"));
@@ -153,7 +166,27 @@ protected:
     }
 
 private:
-    std::unique_ptr<ShellViewModel> CreateShell()
+    bool RegisterMappings()
+    {
+        QUrl url(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"));
+        if (m_scenario == "missingResource" || m_scenario == "ignoredLoadFailure")
+            url = QUrl(QStringLiteral("qrc:/tests/missing.qml"));
+        if (m_scenario == "nonWindow")
+            url = QUrl(QStringLiteral("qrc:/tests/fixtures/NonVisual.qml"));
+        if (m_scenario == "remoteView")
+            url = QUrl(QStringLiteral("https://example.invalid/ShellView.qml"));
+
+        if (!ViewRegistry::registerView<ShellViewModel>(url))
+            return false;
+        if (m_scenario == "configureQuery") {
+            ShellViewModel probe(makeHomeFactory(), makeDetailFactory());
+            if (ViewRegistry::viewUrl(&probe) != url)
+                return false;
+        }
+        return ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")))
+            && ViewRegistry::registerView<DetailViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/DetailView.qml")));
+    }
+    std::unique_ptr<ShellViewModel> CreateShell(std::shared_ptr<IWindowManager> windows)
     {
         ++m_observation.factoryCalls;
         m_observation.order << "factory";
@@ -165,7 +198,7 @@ private:
         if (m_scenario == "closeException")
             shell = std::make_unique<FailingCloseShell>(m_observation);
         else
-            shell = buildShell();
+            shell = buildShell(std::move(windows));
         m_observation.shell = shell.get();
         m_observation.home = shell->home();
         connect(shell.get(), &QObject::destroyed, this, [this] { m_observation.order << "shell.destroy"; });
@@ -179,6 +212,9 @@ private:
         return shell;
     }
 
+    QPointer<WindowManager> m_windows;
+    std::unique_ptr<QQmlEngine> m_hostEngine;
+    std::unique_ptr<QObject> m_conflictingHost;
     QString m_scenario;
     Observation &m_observation;
 };
@@ -201,6 +237,10 @@ private slots:
         QTest::addColumn<int>("factoryCalls");
         QTest::addColumn<int>("closeCalls");
         QTest::addColumn<bool>("aliveAtExit");
+        QTest::newRow("injectedService") << QString("injectedService") << 0 << true << 1 << 1 << true;
+        QTest::newRow("explicitOptions") << QString("explicitOptions") << 0 << true << 1 << 1 << true;
+        QTest::newRow("emptyFactory") << QString("emptyFactory") << 1 << false << 0 << 0 << false;
+        QTest::newRow("hostFailure") << QString("hostFailure") << 1 << false << 1 << 1 << true;
         QTest::newRow("success") << QString("success") << 0 << true << 1 << 1 << true;
         QTest::newRow("configureQuery") << QString("configureQuery") << 0 << true << 1 << 1 << true;
         QTest::newRow("lateRegistration") << QString("lateRegistration") << 0 << true << 1 << 1 << true;
@@ -240,8 +280,14 @@ private slots:
             QCOMPARE(observation.aliveAtExit, aliveAtExit);
             QVERIFY(!observation.activeAtExit);
             QCOMPARE(observation.exitCalls, 1);
+            if (factoryCalls > 0) {
+                QVERIFY(observation.serviceInjected);
+                QVERIFY(!observation.windows);
+                if (scenario == "injectedService" || scenario == "explicitOptions")
+                    QVERIFY(observation.dialogOpened);
+            }
             QVERIFY(!observation.shell && !observation.home && !observation.window);
-            if (scenario == "configureFailure")
+            if (scenario == "configureFailure" || scenario == "emptyFactory")
                 QVERIFY(ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))));
             if (entersLoop) {
                 QVERIFY(observation.typedInjection);

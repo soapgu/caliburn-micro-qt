@@ -1,6 +1,7 @@
 #include "../support/TestWindowManager.h"
 #include <CaliburnMicroQt/Conductor.h>
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
+#include <CaliburnMicroQt/WindowManager.h>
 #include <ShellViewModel.h>
 #include <ViewModelComposition.h>
 #include <CaliburnMicroQt/ViewRegistry.h>
@@ -88,7 +89,6 @@ private slots:
         QVERIFY(ViewRegistry::registerView<NonVisualVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/NonVisual.qml"))));
         QVERIFY(ViewRegistry::registerView<SyntaxVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/SyntaxError.qml"))));
         QVERIFY(ViewRegistry::registerView<MismatchVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/Mismatch.qml"))));
-        QVERIFY(ViewRegistry::registerView<ConfirmActionViewModel>(QUrl("qrc:/qt/qml/Caliburn/Micro/Qt/ConfirmActionView.qml")));
         QVERIFY(ViewRegistry::freeze());
     }
 
@@ -630,7 +630,7 @@ private slots:
         auto shell = std::make_unique<ShellViewModel>([&] {
             if (fail) throw std::runtime_error("Home 工厂失败");
             return std::make_unique<HomeViewModel>(service, testWindows());
-        }, [service] { return std::make_unique<DetailViewModel>(service); }, testWindows());
+        }, [service] { return std::make_unique<DetailViewModel>(service); });
         shell->activate();
         shell->home()->add(2);
         QQmlApplicationEngine engine;
@@ -672,7 +672,7 @@ private slots:
     void hostFailurePaths()
     {
         HomeViewModel home(std::make_shared<CounterService>(), testWindows());
-        ShellViewModel shell(makeHomeFactory(), makeDetailFactory(), testWindows());
+        ShellViewModel shell(makeHomeFactory(), makeDetailFactory());
         UnknownVm unknown;
         MissingResourceVm missing;
         WrongTypeVm wrong;
@@ -710,7 +710,8 @@ private slots:
 
     void shellButtonClicks()
     {
-        auto shell = buildShell();
+        auto windows = std::make_shared<WindowManager>();
+        auto shell = buildShell(windows);
         auto *vm = shell->home();
         shell->initialize();
         shell->activate();
@@ -725,6 +726,7 @@ private slots:
             QCOMPARE(engine.rootObjects().size(), 1);
             auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().front());
             QVERIFY(window);
+            QVERIFY(windows->attachToWindow(window));
             QCOMPARE(window->property("viewModel").value<QObject *>(), shell.get());
             auto *label = window->findChild<QQuickItem *>(QStringLiteral("messageLabel"));
             auto *increase = window->findChild<QQuickItem *>(QStringLiteral("increment"));
@@ -749,7 +751,7 @@ private slots:
             QCOMPARE(vm->count(), 5);
             QVERIFY(reset->isEnabled());
             click(reset);
-            QTRY_VERIFY(shell->windowManager()->currentDialog());
+            QTRY_VERIFY(windows->currentDialog());
             auto *accept = window->findChild<QQuickItem *>(QStringLiteral("dialogAccept"));
             QVERIFY(accept);
             click(accept);
@@ -770,8 +772,10 @@ private slots:
 
     void shellBindingsFollowReplacement()
     {
-        auto originalTree = buildShell();
-        auto replacementTree = buildShell();
+        auto windows = std::make_shared<WindowManager>();
+        auto replacementWindows = std::make_shared<WindowManager>();
+        auto originalTree = buildShell(windows);
+        auto replacementTree = buildShell(replacementWindows);
         auto &shell = *originalTree;
         auto &replacementShell = *replacementTree;
         shell.activate();
@@ -793,6 +797,7 @@ private slots:
         QCOMPARE(engine.rootObjects().size(), 1);
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().front());
         QVERIFY(window);
+        QVERIFY(windows->attachToWindow(window));
         auto *label = window->findChild<QQuickItem *>(QStringLiteral("messageLabel"));
         auto *increase = window->findChild<QQuickItem *>(QStringLiteral("increment"));
         auto *reset = window->findChild<QQuickItem *>(QStringLiteral("reset"));
@@ -800,7 +805,9 @@ private slots:
         QVERIFY(QTest::qWaitForWindowExposed(window));
         QVERIFY(increase->isEnabled());
         QVERIFY(!reset->isEnabled());
+        windows->detachFromWindow();
         QVERIFY(window->setProperty("viewModel", QVariant::fromValue(&replacementShell)));
+        QVERIFY(replacementWindows->attachToWindow(window));
         QTRY_VERIFY(displaysHome(window, &replacement));
         label = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("messageLabel"));
         increase = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("increment"));
@@ -819,7 +826,7 @@ private slots:
             QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, position);
         };
         click(reset);
-        QTRY_VERIFY(replacementShell.windowManager()->currentDialog());
+        QTRY_VERIFY(replacementWindows->currentDialog());
         auto *accept = window->findChild<QQuickItem *>(QStringLiteral("dialogAccept"));
         QVERIFY(accept);
         click(accept);
@@ -839,8 +846,10 @@ private slots:
 
     void shellParameterButton()
     {
-        auto originalTree = buildShell();
-        auto replacementTree = buildShell();
+        auto windows = std::make_shared<WindowManager>();
+        auto replacementWindows = std::make_shared<WindowManager>();
+        auto originalTree = buildShell(windows);
+        auto replacementTree = buildShell(replacementWindows);
         auto &shell = *originalTree;
         auto &replacementShell = *replacementTree;
         shell.activate();
@@ -859,6 +868,7 @@ private slots:
         QCOMPARE(engine.rootObjects().size(), 1);
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().front());
         QVERIFY(window);
+        QVERIFY(windows->attachToWindow(window));
         auto *button = window->findChild<QQuickItem *>(QStringLiteral("addTwo"));
         auto *label = window->findChild<QQuickItem *>(QStringLiteral("messageLabel"));
         QVERIFY(button && label);
@@ -880,7 +890,9 @@ private slots:
         QCOMPARE(original.count(), 4);
         QCOMPARE(originalCount.count(), 2);
 
+        windows->detachFromWindow();
         QVERIFY(window->setProperty("viewModel", QVariant::fromValue(&replacementShell)));
+        QVERIFY(replacementWindows->attachToWindow(window));
         QTRY_VERIFY(displaysHome(window, &replacement));
         button = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("addTwo"));
         label = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("messageLabel"));
@@ -907,8 +919,10 @@ private slots:
 
     void shellKeyboardAndFocus()
     {
-        auto originalTree = buildShell();
-        auto replacementTree = buildShell();
+        auto windows = std::make_shared<WindowManager>();
+        auto replacementWindows = std::make_shared<WindowManager>();
+        auto originalTree = buildShell(windows);
+        auto replacementTree = buildShell(replacementWindows);
         auto &shell = *originalTree;
         auto &replacementShell = *replacementTree;
         shell.activate();
@@ -927,6 +941,7 @@ private slots:
         QCOMPARE(engine.rootObjects().size(), 1);
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().front());
         QVERIFY(window);
+        QVERIFY(windows->attachToWindow(window));
         auto *page = window->findChild<QQuickItem *>(QStringLiteral("inputScope"));
         auto *input = window->findChild<QQuickItem *>(QStringLiteral("focusInput"));
         auto *increase = window->findChild<QQuickItem *>(QStringLiteral("increment"));
@@ -1002,7 +1017,9 @@ private slots:
         QTRY_VERIFY(reset->hasActiveFocus());
         increase->forceActiveFocus();
 
+        windows->detachFromWindow();
         QVERIFY(window->setProperty("viewModel", QVariant::fromValue(&replacementShell)));
+        QVERIFY(replacementWindows->attachToWindow(window));
         QTRY_VERIFY(displaysHome(window, &replacement));
         page = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("inputScope"));
         label = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("messageLabel"));
