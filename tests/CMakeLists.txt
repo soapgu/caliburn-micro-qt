@@ -1,9 +1,10 @@
-qt_add_executable(CaliburnParentProtocolTests cpp/tst_parent_protocol.cpp)
+# 这三个纯 C++ 测试不加载 QML；普通目标避免 Qt 的导入扫描额外链接插件及框架库。
+add_executable(CaliburnParentProtocolTests cpp/tst_parent_protocol.cpp)
 target_link_libraries(CaliburnParentProtocolTests PRIVATE Caliburn::MicroQt Qt6::Test)
 add_test(NAME parent_protocol COMMAND CaliburnParentProtocolTests)
 set_tests_properties(parent_protocol PROPERTIES TIMEOUT 30)
 
-qt_add_executable(CaliburnCollectionTests cpp/tst_collection.cpp)
+add_executable(CaliburnCollectionTests cpp/tst_collection.cpp)
 target_link_libraries(CaliburnCollectionTests PRIVATE Caliburn::MicroQt Qt6::Test)
 add_test(NAME collection COMMAND CaliburnCollectionTests)
 set_tests_properties(collection PROPERTIES TIMEOUT 30)
@@ -12,7 +13,7 @@ qt_add_executable(CaliburnCounterServiceTests cpp/tst_counterservice.cpp)
 target_link_libraries(CaliburnCounterServiceTests PRIVATE CaliburnExampleModule Qt6::Test)
 add_test(NAME counterservice COMMAND CaliburnCounterServiceTests)
 
-qt_add_executable(CaliburnConductorTests cpp/tst_conductor.cpp)
+add_executable(CaliburnConductorTests cpp/tst_conductor.cpp)
 target_link_libraries(CaliburnConductorTests PRIVATE Caliburn::MicroQt Qt6::Test)
 add_test(NAME conductor COMMAND CaliburnConductorTests)
 set_tests_properties(conductor PROPERTIES TIMEOUT 30)
@@ -32,8 +33,9 @@ qt_add_resources(CaliburnQmlTests host_fixtures
     FILES fixtures/MissingProperty.qml fixtures/MissingRequired.qml
           fixtures/NonVisual.qml fixtures/SyntaxError.qml fixtures/Mismatch.qml
 )
+# 示例由动态 URL 加载，保留其插件；框架插件由 Qt 导入扫描加入。
 target_link_libraries(CaliburnQmlTests PRIVATE
-    CaliburnExampleComposition CaliburnMicroQtplugin CaliburnExampleModuleplugin
+    CaliburnExampleComposition CaliburnExampleModuleplugin
     Qt6::Test Qt6::Quick Qt6::QuickControls2
 )
 add_test(NAME qml COMMAND CaliburnQmlTests)
@@ -49,7 +51,7 @@ qt_add_resources(CaliburnBootstrapperTests bootstrapper_fixtures
     FILES fixtures/NonVisual.qml
 )
 target_link_libraries(CaliburnBootstrapperTests PRIVATE
-    CaliburnExampleComposition CaliburnMicroQtplugin CaliburnExampleModuleplugin
+    CaliburnExampleComposition CaliburnExampleModuleplugin
     Qt6::Test Qt6::Quick Qt6::QuickControls2
 )
 # 注册表映射与冻结状态均为进程级；各场景需要不同映射或空表，独立进程验收。
@@ -85,7 +87,7 @@ qt_add_resources(CaliburnDialogTests dialog_fixtures
           fixtures/SyntaxError.qml fixtures/MissingProperty.qml
 )
 target_link_libraries(CaliburnDialogTests PRIVATE
-    CaliburnExampleComposition CaliburnMicroQtplugin CaliburnExampleModuleplugin
+    CaliburnExampleComposition CaliburnExampleModuleplugin
     Qt6::Test Qt6::Quick Qt6::QuickControls2
 )
 add_test(NAME dialog COMMAND CaliburnDialogTests)

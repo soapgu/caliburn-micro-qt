@@ -53,7 +53,13 @@ jobs:
         run: cmake --preset debug -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR"
 
       - name: 编译框架、示例与测试
-        run: cmake --build --preset debug
+        run: |
+          set -o pipefail
+          cmake --build --preset debug 2>&1 | tee build/debug/build.log
+          if grep -F 'ignoring duplicate libraries' build/debug/build.log; then
+            echo '检测到链接器重复库警告，请检查显式链接与 Qt 自动插件依赖。' >&2
+            exit 1
+          fi
 
       - name: 检查 QML
         run: cmake --build --preset debug --target all_qmllint
@@ -80,6 +86,7 @@ jobs:
           name: ci-reports-${{ matrix.os }}
           path: |
             reports/ctest.xml
+            build/debug/build.log
             build/debug/Testing/Temporary/LastTest.log
             build/debug/CMakeFiles/CMakeConfigureLog.yaml
             build/framework-only/CMakeFiles/CMakeConfigureLog.yaml

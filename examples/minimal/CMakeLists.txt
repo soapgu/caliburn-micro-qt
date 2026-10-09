@@ -15,10 +15,9 @@ if(CALIBURN_BUILD_EXAMPLE)
         app/AppBootstrapper.h
         app/AppBootstrapper.cpp
     )
+    # Qt 导入扫描已加入两个静态 QML 插件，无需重复显式链接。
     target_link_libraries(CaliburnExampleApp PRIVATE
         CaliburnExampleComposition
-        CaliburnMicroQtplugin
-        CaliburnExampleModuleplugin
         Qt6::QuickControls2
     )
     set_target_properties(CaliburnExampleApp PROPERTIES
