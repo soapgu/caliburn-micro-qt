@@ -549,6 +549,9 @@ private slots:
         QCOMPARE(engine.rootObjects().size(), 1);
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        // 窗口显示不代表已激活；无头平台需要处理激活事件后才能验证键盘焦点。
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
         QTRY_VERIFY(displaysHome(window, home));
         QPointer<QQuickItem> firstHomeView = homeItem(window);
         auto *input = firstHomeView->findChild<QQuickItem *>(QStringLiteral("focusInput"));
@@ -572,7 +575,7 @@ private slots:
                     && homeItem(window)->property("viewModel").value<QObject *>() == detail);
         QTRY_VERIFY(!firstHomeView);
         QPointer<QQuickItem> firstDetailView = homeItem(window);
-        QVERIFY(firstDetailView->hasActiveFocus());
+        QTRY_VERIFY(firstDetailView && firstDetailView->hasActiveFocus());
         auto *label = firstDetailView->findChild<QQuickItem *>(QStringLiteral("detailMessageLabel"));
         QVERIFY(label);
         QCOMPARE(label->property("text").toString(), QStringLiteral("共享计数：3"));
