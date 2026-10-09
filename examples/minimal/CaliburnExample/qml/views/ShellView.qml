@@ -50,6 +50,11 @@ ApplicationWindow {
             objectName: "homeHost"
             model: root.viewModel ? root.viewModel.activeItem : null
             focus: true
+            // 导航按钮可能持有焦点；新页面就绪后建立完整的页面焦点链。
+            onItemChanged: {
+                if (item)
+                    item.forceActiveFocus()
+            }
             Layout.fillWidth: true
             Layout.fillHeight: true
         }

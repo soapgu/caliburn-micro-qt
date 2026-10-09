@@ -566,6 +566,9 @@ private slots:
             QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
                               button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
         };
+        // 显式模拟导航按钮已获焦点，避免依赖平台是否默认让鼠标点击聚焦按钮。
+        show->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_VERIFY(show->hasActiveFocus());
         click(show);
         auto *detail = shell->detail();
         QVERIFY(detail && shell->home() == home && !home->isActive());
