@@ -19,6 +19,7 @@ public:
     QObject *parentViewModel() const override { return m_parentViewModel.data(); }
     bool isInitialized() const { return m_initialized; }
     bool isActive() const { return m_active; }
+    // 先提交状态并通知，再执行钩子；异常不回滚，回调不得重入生命周期。
     void initialize();
     void activate();
     void deactivate(bool close = false);

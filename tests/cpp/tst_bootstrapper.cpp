@@ -29,7 +29,8 @@ struct Observation {
     QPointer<QQuickWindow> window;
     int factoryCalls = 0;
     int exitCalls = 0;
-    int closeCalls = 0;
+    int closeCalls = 0; // 非活动状态通知次数，与钩子次数分别统计。
+    int closeHookCalls = 0;
     bool loopEntered = false;
     bool typedInjection = false;
     bool homeLoaded = false;
@@ -54,8 +55,8 @@ public:
 protected:
     void onDeactivate(bool close) override
     {
-        ++m_observation.closeCalls;
-        m_observation.order << "close";
+        ++m_observation.closeHookCalls;
+        m_observation.order << "close.hook";
         ShellViewModel::onDeactivate(close);
         throw std::runtime_error("测试关闭异常");
     }
@@ -235,8 +236,9 @@ private slots:
             QCOMPARE(observation.loopEntered, entersLoop);
             QCOMPARE(observation.factoryCalls, factoryCalls);
             QCOMPARE(observation.closeCalls, closeCalls);
+            QCOMPARE(observation.closeHookCalls, int(scenario == "closeException"));
             QCOMPARE(observation.aliveAtExit, aliveAtExit);
-            QCOMPARE(observation.activeAtExit, scenario == "closeException");
+            QVERIFY(!observation.activeAtExit);
             QCOMPARE(observation.exitCalls, 1);
             QVERIFY(!observation.shell && !observation.home && !observation.window);
             if (scenario == "configureFailure")

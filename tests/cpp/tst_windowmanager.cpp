@@ -40,8 +40,27 @@ class WindowManagerTests : public QObject
 private slots:
     void initTestCase() {
         QVERIFY(ViewRegistry::registerView<DialogProbe>(QUrl("qrc:/tests/Probe.qml")));
+        QVERIFY(ViewRegistry::registerView<ScreenViewModel>(QUrl("qrc:/tests/Probe.qml")));
         QVERIFY(ViewRegistry::registerView<ConfirmActionViewModel>(QUrl("qrc:/tests/Confirm.qml")));
         QVERIFY(ViewRegistry::freeze());
+    }
+    void automaticallyActivatesPlainScreen() {
+        WindowManager manager; DialogHostState host; connectHost(host, manager);
+        QObject requester;
+        auto vm = std::make_unique<ScreenViewModel>();
+        QPointer<ScreenViewModel> weak = vm.get();
+        QSignalSpy initialized(vm.get(), &ScreenViewModel::isInitializedChanged);
+        QSignalSpy active(vm.get(), &ScreenViewModel::isActiveChanged);
+        auto future = manager.showDialogAsync(std::move(vm), &requester);
+        QVERIFY(weak && weak->isInitialized() && weak->isActive());
+        QCOMPARE(initialized.count(), 1);
+        QCOMPARE(active.count(), 1);
+        manager.closeDialog(weak, false);
+        QCOMPARE(future.result(), DialogResult(false));
+        QVERIFY(weak && weak->isInitialized() && !weak->isActive());
+        QCOMPARE(active.count(), 2);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!weak);
     }
     void results_data() {
         QTest::addColumn<int>("decision");
@@ -163,14 +182,25 @@ private slots:
         WindowManager manager; DialogHostState host; connectHost(host, manager);
         QObject requester;
         auto vm = std::make_unique<DialogProbe>(); vm->failActivate = true;
+        QPointer<DialogProbe> failedActivation = vm.get();
+        QStringList events;
+        vm->events = &events;
         auto first = manager.showDialogAsync(std::move(vm), &requester);
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, first.result());
         QVERIFY(!manager.busy());
+        QVERIFY(failedActivation && failedActivation->isInitialized() && !failedActivation->isActive());
+        QCOMPARE(events, QStringList({"activate", "close"}));
         vm = std::make_unique<DialogProbe>(); vm->failClose = true;
+        QPointer<DialogProbe> failedClose = vm.get();
+        events.clear(); vm->events = &events;
         auto second = manager.showDialogAsync(std::move(vm), &requester);
         manager.closeDialog(manager.currentDialog(), true);
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, second.result());
         QVERIFY(!manager.busy());
+        QVERIFY(failedClose && failedClose->isInitialized() && !failedClose->isActive());
+        QCOMPARE(events, QStringList({"activate", "close"}));
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!failedActivation && !failedClose);
     }
     void invalidCandidatesAreConsumed() {
         WindowManager manager; DialogHostState host; connectHost(host, manager);

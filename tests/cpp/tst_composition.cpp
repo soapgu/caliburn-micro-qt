@@ -61,10 +61,11 @@ private slots:
         QVERIFY(!home->isInitialized());
         shell->activate();
         shell->activate();
-        QCOMPARE(order, QStringList({"shell.initialize", "home.initialize", "home.activate", "shell.activate"}));
+        QCOMPARE(order, QStringList({"shell.initialize", "shell.activate", "home.initialize", "home.activate"}));
         home->add(2);
         shell->deactivate();
         shell->deactivate();
+        QCOMPARE(order.mid(4), QStringList({"shell.deactivate", "home.deactivate"}));
         shell->activate();
         QCOMPARE(shell->home(), home);
         QCOMPARE(home->count(), 2);
@@ -443,10 +444,11 @@ private slots:
     {
         int calls = 0;
         bool throwFromFactory = false;
+        bool recovered = false;
         auto service = std::make_shared<CounterService>();
         ShellViewModel shell([&]() -> std::unique_ptr<HomeViewModel> {
             ++calls;
-            if (calls == 1)
+            if (calls == 1 || recovered)
                 return std::make_unique<HomeViewModel>(service, testWindows());
             if (throwFromFactory)
                 throw std::runtime_error("重建工厂异常");
@@ -456,11 +458,21 @@ private slots:
         shell.home()->add(2);
         shell.deactivate(true);
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, shell.activate());
-        QVERIFY(!shell.activeItem() && !shell.isActive());
+        QVERIFY(!shell.activeItem() && shell.isActive());
+        shell.activate(); // 已提交活动状态，再次激活不会自动重试失败钩子。
+        QCOMPARE(calls, 2);
+        shell.deactivate();
         throwFromFactory = true;
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, shell.activate());
-        QVERIFY(!shell.activeItem() && !shell.isActive());
+        QVERIFY(!shell.activeItem() && shell.isActive());
+        QCOMPARE(calls, 3);
+        recovered = true;
+        shell.deactivate();
+        shell.activate();
+        QCOMPARE(calls, 4);
+        QVERIFY(shell.home() && shell.home()->isInitialized() && shell.home()->isActive());
         QCOMPARE(service->count(), 2);
+        QCOMPARE(shell.home()->count(), 2);
     }
 };
 

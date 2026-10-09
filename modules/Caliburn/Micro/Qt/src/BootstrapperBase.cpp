@@ -102,7 +102,6 @@ bool BootstrapperBase::DisplayRootView(const QMetaObject *type)
     if (url.scheme() != QStringLiteral("qrc") && !url.isLocalFile())
         return Fail(QStringLiteral("根 View 必须使用本地或 qrc 地址"));
 
-    m_root->initialize();
     m_root->activate();
     m_engine = std::make_unique<QQmlApplicationEngine>();
     m_engine->setInitialProperties({{QStringLiteral("viewModel"), instance.viewModel}});

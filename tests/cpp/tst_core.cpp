@@ -83,6 +83,35 @@ protected:
     }
 };
 
+class FailingScreen : public ProbeScreen
+{
+public:
+    enum class Hook { None, Initialize, Activate, Deactivate };
+    Hook failingHook = Hook::None;
+protected:
+    void onInitialize() override
+    {
+        ProbeScreen::onInitialize();
+        fail(Hook::Initialize);
+    }
+    void onActivate() override
+    {
+        ProbeScreen::onActivate();
+        fail(Hook::Activate);
+    }
+    void onDeactivate(bool close) override
+    {
+        ProbeScreen::onDeactivate(close);
+        fail(Hook::Deactivate);
+    }
+private:
+    void fail(Hook hook)
+    {
+        if (failingHook == hook)
+            throw std::runtime_error("生命周期钩子异常");
+    }
+};
+
 // 通知辅助只接受无参数 void 成员指针，QObject 基类不可复制或移动。
 using NotifyHelper = bool (ViewModelBase::*)(int &, const int &, void (NotifyVm::*)());
 static_assert(std::is_same_v<NotifyVm::SetAndNotifyType, NotifyHelper>);
@@ -131,7 +160,7 @@ private slots:
         screen.deactivate(true);
         QVERIFY(screen.events.isEmpty());
         screen.activate();
-        QCOMPARE(screen.events, QStringList({"initialize:0:0", "initialized:1", "activate:1:0", "active:1"}));
+        QCOMPARE(screen.events, QStringList({"initialized:1", "initialize:1:0", "active:1", "activate:1:1"}));
         screen.initialize();
         screen.activate();
         QCOMPARE(initialized.count(), 1);
@@ -140,14 +169,14 @@ private slots:
         screen.deactivate();
         screen.deactivate(true);
         screen.deactivate(true);
-        QCOMPARE(screen.events.mid(4), QStringList({"deactivate:0:1", "active:0", "deactivate:1:0", "deactivate:1:0"}));
+        QCOMPARE(screen.events.mid(4), QStringList({"active:0", "deactivate:0:0", "deactivate:1:0", "deactivate:1:0"}));
         QCOMPARE(active.count(), 2);
         QVERIFY(weak);
         QVERIFY(screen.isInitialized());
         screen.activate();
         screen.deactivate(true);
         screen.deactivate(true);
-        QCOMPARE(screen.events.mid(8), QStringList({"activate:1:0", "active:1", "deactivate:1:1", "active:0", "deactivate:1:0"}));
+        QCOMPARE(screen.events.mid(8), QStringList({"active:1", "activate:1:1", "active:0", "deactivate:1:0", "deactivate:1:0"}));
         QCOMPARE(initialized.count(), 1);
         QCOMPARE(active.count(), 4);
         QVERIFY(!screen.isActive());
@@ -157,11 +186,92 @@ private slots:
         neverActive.initialize();
         neverActive.deactivate(true);
         neverActive.deactivate(true);
-        QCOMPARE(neverActive.events, QStringList({"initialize:0:0", "deactivate:1:0", "deactivate:1:0"}));
+        QCOMPARE(neverActive.events, QStringList({"initialize:1:0", "deactivate:1:0", "deactivate:1:0"}));
         neverActive.activate();
         QVERIFY(neverActive.isActive());
         QVERIFY(screen.metaObject()->indexOfMethod("activate()") < 0);
         QVERIFY(screen.metaObject()->indexOfMethod("initialize()") < 0);
+    }
+
+    void conductorAutomaticallyActivatesPlainScreen()
+    {
+        Conductor<ScreenViewModel> parent;
+        auto child = std::make_unique<ScreenViewModel>();
+        auto *screen = child.get();
+        QVERIFY(parent.activateItem(std::move(child)));
+        QVERIFY(!screen->isInitialized() && !screen->isActive());
+        QSignalSpy initialized(screen, &ScreenViewModel::isInitializedChanged);
+        QSignalSpy active(screen, &ScreenViewModel::isActiveChanged);
+        parent.activate();
+        parent.activate();
+        QVERIFY(parent.isInitialized() && parent.isActive());
+        QVERIFY(screen->isInitialized() && screen->isActive());
+        QCOMPARE(initialized.count(), 1);
+        QCOMPARE(active.count(), 1);
+        QVERIFY(!screen->metaObject()->property(screen->metaObject()->indexOfProperty("isActive")).isWritable());
+        parent.deactivate();
+        QVERIFY(!screen->isActive());
+        parent.activate();
+        QVERIFY(screen->isActive());
+        QCOMPARE(initialized.count(), 1);
+        QCOMPARE(active.count(), 3);
+    }
+
+    void screenExceptionsDoNotRollBack_data()
+    {
+        QTest::addColumn<QString>("operation");
+        for (const char *operation : {"initialize", "activate", "deactivate", "close"})
+            QTest::newRow(operation) << QString::fromLatin1(operation);
+    }
+
+    void screenExceptionsDoNotRollBack()
+    {
+        QFETCH(QString, operation);
+        FailingScreen screen;
+        if (operation == "deactivate")
+            screen.activate();
+        else if (operation == "close")
+            screen.initialize();
+        screen.events.clear();
+        QSignalSpy initialized(&screen, &ScreenViewModel::isInitializedChanged);
+        QSignalSpy active(&screen, &ScreenViewModel::isActiveChanged);
+        if (operation == "initialize")
+            screen.failingHook = FailingScreen::Hook::Initialize;
+        else if (operation == "activate")
+            screen.failingHook = FailingScreen::Hook::Activate;
+        else
+            screen.failingHook = FailingScreen::Hook::Deactivate;
+        auto invoke = [&] {
+            if (operation == "initialize")
+                screen.initialize();
+            else if (operation == "activate")
+                screen.activate();
+            else
+                screen.deactivate(operation == "close");
+        };
+        QVERIFY_THROWS_EXCEPTION(std::runtime_error, invoke());
+        QVERIFY(screen.isInitialized());
+        QCOMPARE(screen.isActive(), operation == "activate");
+        QCOMPARE(initialized.count(), int(operation == "initialize" || operation == "activate"));
+        QCOMPARE(active.count(), int(operation == "activate" || operation == "deactivate"));
+        if (operation == "initialize")
+            QCOMPARE(screen.events, QStringList({"initialize:1:0"}));
+        else if (operation == "activate")
+            QCOMPARE(screen.events, QStringList({"initialize:1:0", "activate:1:1"}));
+        else
+            QCOMPARE(screen.events, QStringList({operation == "close" ? "deactivate:1:0" : "deactivate:0:0"}));
+
+        const auto events = screen.events;
+        screen.failingHook = FailingScreen::Hook::None;
+        invoke();
+        if (operation == "close")
+            QCOMPARE(screen.events, events + QStringList({"deactivate:1:0"}));
+        else
+            QCOMPARE(screen.events, events); // 已提交状态，不重复执行失败钩子。
+        screen.deactivate();
+        screen.activate();
+        QVERIFY(screen.isInitialized() && screen.isActive());
+        QCOMPARE(initialized.count(), int(operation == "initialize" || operation == "activate"));
     }
 
     void registryContract()
@@ -297,6 +407,7 @@ private slots:
         shell.activate();
         QCOMPARE(calls, 2);
         QVERIFY(shell.home() != home);
+        QCOMPARE(static_cast<LifecycleHome *>(shell.home())->events, QStringList({"initialize", "activate"}));
         shell.deactivate(true);
     }
 

@@ -1,5 +1,7 @@
 # IoC 装配验收记录
 
+2026-10-09 生命周期顺序对齐 CM 3.2.0，改为先提交状态并通知、再执行钩子；下文“通知先子后父”保留为历史验收结果。当前父通知先于子项转换，异常不回滚，启动仅由根 activate 自动完成初始化，见 [ScreenViewModel](ScreenViewModel.md) 和 [IoC 与应用装配](IoC与应用装配.md)。
+
 2026-10-06 完成第三批之后的 IoC 装配调整。macOS arm64 自动检查、Cocoa 集成测试和真实窗口操作全部通过；麒麟待验证。未暂存、提交或推送。
 
 2026-10-07 Conductor 核心调整后，已初始化的 Shell/Home 重复关闭仍执行钩子，未改变的活动状态不重复通知；下文幂等描述保留初次验收语义。当前契约及回归结果见 [ScreenViewModel](ScreenViewModel.md) 和 [Conductor 核心验收记录](Conductor核心验收记录.md)。

@@ -37,7 +37,7 @@ DI 仍为装配库私有依赖。工厂不捕获注入器或 Shell；局部注�
 | 操作 | 当前行为 |
 | --- | --- |
 | Shell 构造、initialize | 构造选择 Home；initialize 只初始化 Shell，不初始化页面。 |
-| 首次激活 | Home 初始化、激活，最后 Shell 提交活动状态；初始化通知为 Shell 先、Home 后。 |
+| 首次激活 | 框架先提交 Shell 初始化和活动状态，再通过 Conductor 完成 Home 初始化与激活；两种状态通知均为父先、子后。 |
 | showDetail | 仅活动且 Home 当前时可用；创建并选择 Detail，Home 普通停用且留在集合。 |
 | Detail.goBack | Detail 内按钮调用 goBack，经 tryClose 和 IConductor 委托 Shell；Shell 先确保 Home 存在，再关闭 Detail、相邻选择回到 Home。 |
 | 普通停用和恢复 | 保留集合和选择；若 Detail 当前，恢复后仍展示 Detail。 |
@@ -45,9 +45,11 @@ DI 仍为装配库私有依赖。工厂不捕获注入器或 Shell；局部注�
 | 关闭后激活 | 创建新 Home，沿用服务及计数。 |
 | 页面意外销毁 | 移除成员；当前项失效则清空，不自动导航。下次 Shell 停用后激活补 Home、在空选择时选 Home。 |
 | Home 缺失时返回 | 先补入 Home 再关闭 Detail；补入失败保留当前 Detail。 |
-| 工厂失败 | 创建失败不提前改变选择，已有页面与业务状态保留。 |
+| 工厂失败 | 创建失败不提前改变选择，已有页面与计数保留；Shell 激活钩子重建失败时活动状态已提交，不回滚，恢复工厂后需先停用再激活。 |
 
-Shell 重写 onActivate：补齐缺失 Home，没有选择时选择 Home，然后调用集合型基类。初始化、普通停用和关闭由基类传播。操作在应用主线程同步执行；生命周期钩子应正常返回，转换回调不得重入修改集合或销毁参与对象。
+Shell 重写 onActivate：补齐缺失 Home，已有选择时调用集合型基类激活当前项；没有选择时通过 activateItem 选择 Home 并由集合入口完成激活，随后直接返回，不再重复调用基类激活同一项。这是页面选择与重建逻辑，不操作 Shell 自身生命周期。初始化、普通停用和关闭由框架管理。操作在应用主线程同步执行；生命周期钩子应正常返回，转换回调不得重入修改生命周期、集合或销毁参与对象。
+
+Bootstrapper 在根 QML 加载前只调用 Shell.activate()，不额外调用 initialize；首次初始化由 Screen 自动完成。Home/Detail 不在钩子中自行激活或关闭。状态通知先于钩子执行，不表示整个父子转换完成；钩子抛异常时已提交状态不回滚。
 
 ## View 与后续边界
 

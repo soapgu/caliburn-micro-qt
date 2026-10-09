@@ -70,6 +70,8 @@ void ShellViewModel::onActivate()
     if (!activeItem()) {
         if (!activateItem(availableHome))
             throw std::invalid_argument("Shell 无法选择 Home");
+        // Shell 已活动，集合选择入口已经完成子项激活。
+        return;
     }
     Conductor<ScreenViewModel>::Collection::OneActive::onActivate();
 }

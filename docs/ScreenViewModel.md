@@ -17,31 +17,39 @@ bool tryClose();
 
 | 调用及状态 | 同步行为 |
 | --- | --- |
-| initialize，尚未初始化 | 初始化钩子返回后设置状态并通知一次。 |
+| initialize，尚未初始化 | 先设置初始化状态并通知一次，再执行初始化钩子。 |
 | initialize，已初始化 | 无钩子、无通知。 |
-| activate，尚未初始化 | 先完成初始化及通知，再激活；激活钩子返回后设置活动状态并通知。 |
-| activate，非活动 | 激活钩子返回后设活动状态。 |
+| activate，尚未初始化 | 先完成初始化，再设置活动状态并通知，最后执行激活钩子。 |
+| activate，非活动 | 先设置活动状态并通知，再执行激活钩子。 |
 | activate，已活动 | 无操作。 |
-| deactivate(false)，活动 | 停用钩子返回后设非活动并通知。 |
+| deactivate(false)，活动 | 先设非活动并通知，再执行停用钩子。 |
 | deactivate(false)，非活动或未初始化 | 无操作。 |
-| deactivate(true)，已初始化 | 每次调用都执行关闭钩子，包括已停用、已关闭或初始化后从未激活的对象；活动状态实际改变才通知。 |
+| deactivate(true)，已初始化 | 先设非活动，再执行关闭钩子；包括已停用、已关闭或初始化后从未激活的对象，每次调用都执行钩子，活动状态实际改变才通知。 |
 | deactivate(true)，未初始化 | 无操作。 |
 
 初始化一生只执行一次。Screen 基类关闭不删除、不重置初始化或业务字段；关闭后可重新激活。初始化通知最多一次，活动通知只在 bool 改变时发送。停用条件与 [CM 3.2 Screen](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/Screen.cs) 一致：`isActive || (isInitialized && close)`；不维护额外关闭标记或待清理资源扩展。未初始化的 Conductor 同样跳过关闭生命周期，保留当前项及父树所有权；已初始化的 Conductor 在关闭钩子中清空选择与全部持有项并延迟回收。
+
+状态提交顺序同样对齐 CM 3.2.0：初始化、激活和停用均先提交状态，再调用对应钩子；Qt 适配保留值实际改变才通知的行为。状态通知只表示属性已改变，不表示钩子或子对象转换已经完成。生命周期钩子抛异常时原样传播，已提交状态不回滚；例如激活钩子失败后 isActive 仍为 true，后续重复 activate 不自动重试，需先 deactivate 再 activate。初始化钩子失败后 isInitialized 仍为 true，不重复执行初始化钩子。
 
 例：activate → deactivate(false) → deactivate(true) → deactivate(true) → activate → deactivate(true)，钩子依次是初始化、激活、停用、关闭、关闭、激活、关闭；重复关闭仍执行钩子。
 
 ## 线程与重入
 
-展示 VM 沿用项目 GUI 线程约定：对象位于应用主线程，由调用方保证生命周期在该线程同步执行。Screen 不逐次检查线程，不自动调度，也不维护转换标记或拒绝重入；回调中的嵌套生命周期操作留待具体需求单独处理。
+展示 VM 沿用项目 GUI 线程约定：对象位于应用主线程，由调用方保证生命周期在该线程同步执行。Screen 不逐次检查线程，不自动调度，也不维护转换或关闭执行标记。业务钩子及同步状态通知回调不得重入改变自身生命周期或 Conductor 管理状态；框架不提供通用拒绝、警告、排队或自动重试机制。
 
-钩子读取的是提交新状态前的值：首次 onInitialize 中两个状态 false；onActivate 中初始化 true、活动 false；活动对象的 onDeactivate 中活动仍为 true。钩子及同步信号观察者必须保持对象有效，不能在调用栈内销毁它。
+首次 onInitialize 中初始化 true、活动 false；onActivate 中初始化和活动均为 true；onDeactivate 中活动为 false。钩子负责业务初始化、激活和清理，不主动激活、停用或关闭自身，也不回调父对象驱动自身生命周期。递归关闭自身违反调用契约；由于已初始化对象允许重复关闭，提前提交非活动状态不能保证这种递归自行终止。钩子及同步信号观察者必须保持对象有效，不能在调用栈内销毁它。
 
 生命周期钩子没有失败返回值，当前没有异步钩子、关闭守卫或异常恢复协议，钩子应正常返回。析构不补关闭，Screen 基类不自动传播子对象生命周期。示例 Shell 通过 Conductor 基类管理 Home；所有权和业务生命周期分别安排。
 
+## 框架自动驱动生命周期
+
+普通业务 Screen 无需在构造、QML Loaded 或生命周期钩子中调用自身 activate。Bootstrapper 在加载根 QML 前调用根 activate，自动完成根初始化；WindowManager 在装配弹窗 View 前激活弹窗；活动 Conductor 在选择子项时自动初始化并激活它，尚未活动的 Conductor 则在自身激活时驱动当前子项。构造或只加载、绑定 View 本身不保证激活。ViewHost 不驱动生命周期，窗口焦点也不驱动生命周期。
+
+业务导航选择由 Conductor 的 activateItem 入口处理；页面按钮请求关闭由 tryClose 或窗口服务处理，不在关闭钩子中再次请求关闭。
+
 ## 4C 集合导航的生命周期
 
-Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，Home 和 Detail 均继承 Screen，计数唯一保存在 CounterService。构造选择未初始化 Home；Shell.initialize() 只初始化自身，首次 activate 才初始化并激活 Home。通知顺序仍为 Shell 初始化、Home 初始化、Home 激活、Shell 激活。
+Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，Home 和 Detail 均继承 Screen，计数唯一保存在 CounterService。构造选择未初始化 Home；Shell.initialize() 只初始化自身，首次 activate 才初始化并激活 Home。通知顺序为 Shell 初始化、Shell 活动、Home 初始化、Home 活动；停用时先通知 Shell 非活动，再传播子项停用。父状态通知不表示子项已完成转换。
 
 进入 Detail 普通停用 Home，Home VM 留在集合；返回关闭并移除 Detail、重新激活原 Home，Home 不重复初始化。Home View 离开时销毁、返回时新建，不能用 View 创建次数判断 VM 初始化次数。普通父停用保留当前选择，恢复时只激活当前页。
 
