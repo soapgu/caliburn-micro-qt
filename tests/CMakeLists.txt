@@ -97,11 +97,13 @@ set_tests_properties(dialog PROPERTIES
 )
 
 # 框架默认映射、应用覆盖和无效覆盖使用独立进程，避免静态注册表互相影响。
-qt_add_executable(CaliburnFrameworkDialogTests qml/tst_framework_dialog.cpp)
+# 测试通过 Q_IMPORT_QML_PLUGIN 注册框架插件，普通目标避免 Qt 再次自动链接。
+add_executable(CaliburnFrameworkDialogTests qml/tst_framework_dialog.cpp)
 qt_add_resources(CaliburnFrameworkDialogTests framework_dialog_fixtures
     PREFIX /tests FILES fixtures/OverrideConfirm.qml)
+# 插件依赖框架库，按插件在前、框架库在后的顺序链接，避免重复静态库。
 target_link_libraries(CaliburnFrameworkDialogTests PRIVATE
-    Caliburn::MicroQt CaliburnMicroQtplugin Qt6::Test Qt6::Quick Qt6::QuickControls2)
+    CaliburnMicroQtplugin Caliburn::MicroQt Qt6::Test Qt6::Quick Qt6::QuickControls2)
 add_test(NAME framework_dialog COMMAND CaliburnFrameworkDialogTests)
 set_tests_properties(framework_dialog PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 30)
