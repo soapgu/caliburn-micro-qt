@@ -78,7 +78,7 @@ Detail 对 QML 暴露自己的 goBack：非活动时返回 false，活动时调�
 
 ## 第五批规划与当前接口边界
 
-5A 规划 IWindowManager / WindowManager 通用模态弹窗及 Home 重置确认；5B 规划 Detail 退出确认和 Conductor 关闭守卫，均为规划中、未实施、未验证，详见 [阶段划分](迭代实现计划.md#第五批阶段划分)。
+5A 已实现 IWindowManager / WindowManager 通用模态弹窗及 Home 重置确认，见 [WindowManager](WindowManager.md)；5B 的 Detail 退出确认和 Conductor 关闭守卫仍为规划中、未实施、未验证，详见 [阶段划分](迭代实现计划.md#第五批阶段划分)。
 
 5B 未来按 CM 3.2 将 tryClose 等入口迁移为普通命名的 void 请求方法；当前同步 bool 接口保持现状。Detail 沿 tryClose → Parent.closeItem → deactivateItem → 关闭策略请求关闭，IGuardClose.canClose(callback) 立即或延后回传许可；守卫消费 5A showDialogAsync 的窗口 Future 后回调，这是窗口服务的 Qt 适配方案，不把 Future 作为 Conductor 请求接口。初始化、激活、停用及关闭生命周期仍同步执行，方法返回不保证关闭已经完成，调用方需按完成通知接续处理。activationProcessed 可用于激活结果，不能代表全部关闭结果。
 

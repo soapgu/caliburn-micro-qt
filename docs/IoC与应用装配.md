@@ -4,25 +4,29 @@
 
 ## 4C 构造接口与模块边界
 
+以下为加入 5A 窗口服务后的当前签名；4C 原始签名保留在历史验收记录中。
+
 ```cpp
-explicit HomeViewModel(std::shared_ptr<CounterService> counterService);
+explicit HomeViewModel(std::shared_ptr<CounterService> counterService,
+                       std::shared_ptr<IWindowManager> windowManager);
 explicit DetailViewModel(std::shared_ptr<CounterService> counterService);
 using HomeViewModelFactory = std::function<std::unique_ptr<HomeViewModel>()>;
 using DetailViewModelFactory = std::function<std::unique_ptr<DetailViewModel>()>;
 explicit ShellViewModel(HomeViewModelFactory homeFactory,
-                        DetailViewModelFactory detailFactory);
+                        DetailViewModelFactory detailFactory,
+                        std::shared_ptr<IWindowManager> windowManager);
 std::unique_ptr<ShellViewModel> buildShell();
 ```
 
 CounterService 位于示例用户模块 services/，不注册为 QML 类型，没有 QObject 父对象。它唯一保存初始 0、范围 0～5 的计数，提供 count、canAdd、add、reset 和 countChanged；先比较剩余额度再相加，非法输入与无变化操作不通知。
 
-Home 保留原计数属性、文案、操作及守卫，直接读取服务，只缓存上次守卫结果。构造按已有服务状态初始化缓存，不发初始通知；服务变化时先更新缓存，再通知 count 和实际变化的守卫。Detail 只读展示 count/message，使用同一服务并转发 countChanged。两者必须显式接收非空服务，空服务抛出 invalid_argument，没有隐式服务或无参构造。
+Home 保留原计数属性、文案和操作，计数直接读取服务，缓存上次可用条件并维护重置请求的 pending/代次状态。构造按已有服务状态初始化缓存，不发初始通知；服务变化时先更新缓存，再通知 count 和实际变化的守卫。Detail 只读展示 count/message，使用同一服务并转发 countChanged。两者必须显式接收非空服务，空服务抛出 invalid_argument，没有隐式服务或无参构造。
 
-Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，只保存两个工厂。home/detail 从集合查找，使用 itemsChanged 通知；activeItem 是实际选择，没有额外页面所有权。构造检查两个工厂非空，创建并选择未初始化 Home。空页面或接管失败抛出 invalid_argument，工厂自身异常原样传播。业务 VM 和框架不包含 DI 容器接口。
+Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，保存两个工厂及 shared_ptr<IWindowManager>。home/detail 从集合查找，使用 itemsChanged 通知；activeItem 是实际选择，没有额外页面所有权。构造检查两个工厂及窗口服务非空，创建并选择未初始化 Home。空页面或接管失败抛出 invalid_argument，工厂自身异常原样传播。业务 VM 和框架不包含 DI 容器接口。
 
 ## 创建与所有权
 
-[ViewModelComposition.cpp](../examples/minimal/app/ViewModelComposition.cpp) 每次 buildShell 创建独立 shared_ptr<CounterService>，装配 Home 和 Detail 工厂。两个工厂都仅按值捕获该服务，每次调用局部 Boost.Ext.DI 注入器，绑定同一服务并创建对应 unique_ptr 页面。根注入器绑定两个工厂、创建 Shell，返回根 unique_ptr。
+[ViewModelComposition.cpp](../examples/minimal/app/ViewModelComposition.cpp) 每次 buildShell 创建独立 CounterService 和 WindowManager，以 shared_ptr 持有并装配 Home/Detail 工厂。Home 工厂按值捕获计数和窗口服务，Detail 工厂仅捕获计数服务，每次调用局部 Boost.Ext.DI 注入器，绑定同一服务并创建对应 unique_ptr 页面。根注入器绑定两个工厂及窗口服务、创建 Shell，返回根 unique_ptr。
 
 DI 仍为装配库私有依赖。工厂不捕获注入器或 Shell；局部注入器离开作用域后，工厂和页面的 shared_ptr 保持服务寿命。Conductor 接管页面时设置 QObject 父关系和 CppOwnership，释放临时 unique_ptr。根 Shell 由 unique_ptr 管理，服务没有 QObject 父对象。不同 buildShell 的计数相互隔离。
 
@@ -49,7 +53,7 @@ Shell 重写 onActivate：补齐缺失 Home，没有选择时选择 Home，然�
 
 ViewHost 继续绑定 activeItem。Home VM 导航期间常驻，但离开即卸载 Home View；返回创建新 View，文本和焦点按新 View 初始化，计数保留。Detail View 在 Detail VM 删除前卸载。Bootstrapper 登记 Shell/Home/Detail 映射，启动接口不变。
 
-本轮验收见 [4C 验收记录](4C验收记录.md)，第四批本机验收完成，麒麟待验证。集合导航的 View 保留机制列入 [后续版本 ToDoList](后续版本ToDoList.md)，本轮没有实现缓存、异步确认或关闭守卫。
+本轮验收见 [4C 验收记录](4C验收记录.md)，第四批本机验收完成，麒麟待验证。集合导航的 View 保留机制列入 [后续版本 ToDoList](后续版本ToDoList.md)，4C 当时没有实现缓存、异步确认或关闭守卫；5A 已增加重置确认，缓存和关闭守卫仍未实现。
 
 ## 逻辑 Parent 与对象所有权
 
@@ -67,10 +71,12 @@ Shell 新增 deactivateItem(ViewModelBase*, bool) override。仅当 close=true �
 
 正常返回保留 Home VM 身份和服务计数；Home 缺失时创建新 Home，仍读取原服务。buildShell、DI 捕获边界、页面所有权及 CounterService 寿命没有改变。本轮结果见 [tryClose 验收记录](tryClose验收记录.md)，第四批历史记录保持原样。
 
-## 第五批装配与确认规划
+## 第五批装配与确认
 
-**规划中、未实施、未验证。** 5A 由应用装配层创建 WindowManager、通过 IWindowManager 构造注入使用者，并登记确认 VM/View 映射；Shell 根窗口承载 DialogHost，Home 用 showDialogAsync 通用模态弹窗入口完成重置确认。ConfirmationRequest 只保存确认文案，实际重置仍由 Home 执行；入口同时支持自定义弹窗 VM，以 QFuture / QPromise 交付结果。
+**5A 已实现并完成本机验收；5B 规划中、未实施、未验证。** 5A 由应用装配层创建 WindowManager、通过 IWindowManager 构造注入使用者，并登记确认 VM/View 映射；Shell 根窗口承载 DialogHost，Home 用 showDialogAsync 通用模态弹窗入口完成重置确认。ConfirmationRequest 只保存确认文案，实际重置仍由 Home 执行；入口同时支持自定义弹窗 VM，以 QFuture / QPromise 交付结果。
 
 5B 复用 5A 的窗口管理能力，由 Detail 的 canClose(callback) 守卫消费窗口 Future 并回传许可，再由 Conductor 决定是否关闭，不在返回按钮操作中单独提前确认。未来 tryClose 等入口按 CM 3.2 迁移为普通命名的 void 请求方法，goBack 不能再依赖同步 bool 或方法返回推断关闭完成；当前代码调用链保持现状，迁移与完成通知接续属于 5B。
 
-Shell 未来须在许可通过后、实际关闭提交前 ensureHome；用户取消时不能因提前补建 Home 改变集合，补建失败时保留 Detail。此调整不放入通用集合算法。具体构造签名、回调类型、工厂捕获、完成通知和所有权细节待实施前设计。本次只更新文档，不调整 DI、服务寿命或代码接口，完整范围见 [第五批阶段划分](迭代实现计划.md#第五批阶段划分)。
+Shell 未来须在许可通过后、实际关闭提交前 ensureHome；用户取消时不能因提前补建 Home 改变集合，补建失败时保留 Detail。此调整不放入通用集合算法。具体构造签名、回调类型、工厂捕获、完成通知和所有权细节待实施前设计。以上 Shell 关闭时机与回调迁移仍是 5B 规划，5A 未实施这些调整，完整范围见 [第五批阶段划分](迭代实现计划.md#第五批阶段划分)。
+
+5A 窗口服务、弹窗所有权及 Home 的 pending/代次保护见 [WindowManager](WindowManager.md)，本机证据见 [5A 验收记录](5A验收记录.md)。

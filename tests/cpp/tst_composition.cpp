@@ -1,3 +1,4 @@
+#include "../support/TestWindowManager.h"
 #include <ViewModelComposition.h>
 #include <QQmlEngine>
 #include <QtTest>
@@ -20,6 +21,10 @@ private slots:
         QVERIFY(shell && !shell->parent());
         auto *home = shell->home();
         QVERIFY(home);
+        QPointer<IWindowManager> windows = shell->windowManager();
+        QSignalSpy windowsDestroyed(windows, &QObject::destroyed);
+        QVERIFY(windows && !windows->parent());
+        QCOMPARE(QQmlEngine::objectOwnership(windows), QQmlEngine::CppOwnership);
         QCOMPARE(home->parent(), shell.get());
         QCOMPARE(home->thread(), shell->thread());
         QCOMPARE(QQmlEngine::objectOwnership(shell.get()), QQmlEngine::CppOwnership);
@@ -31,11 +36,14 @@ private slots:
         home->add(2);
         auto second = buildShell();
         QVERIFY(second->home() != home);
+        QVERIFY(second->windowManager() != windows.data());
         QCOMPARE(second->home()->count(), 0);
         QCOMPARE(home->count(), 2);
         shell.reset();
         QVERIFY(!weak);
         QCOMPARE(destroyed.count(), 1);
+        QVERIFY(!windows);
+        QCOMPARE(windowsDestroyed.count(), 1);
     }
 
     void rootLifecycleControlsHome()
@@ -100,8 +108,8 @@ private slots:
         QVERIFY(!old);
         QCOMPARE(destroyed.count(), 1);
         QCOMPARE(shell->home(), next); // 旧销毁连接不会清空新项。
-        next->reset();
-        QCOMPARE(next->count(), 0);
+        next->add(1); // 重建后的页面仍能更新共享服务；确认流程另有专门测试。
+        QCOMPARE(next->count(), 5);
     }
 
     void factoryAndServiceSurvivePageClosure()
@@ -111,9 +119,9 @@ private slots:
         int calls = 0;
         HomeViewModelFactory factory = [service, &calls] {
             ++calls;
-            return std::make_unique<HomeViewModel>(service);
+            return std::make_unique<HomeViewModel>(service, testWindows());
         };
-        auto shell = std::make_unique<ShellViewModel>(factory, makeDetailFactory(service));
+        auto shell = std::make_unique<ShellViewModel>(factory, makeDetailFactory(service), testWindows());
         QSignalSpy serviceDestroyed(service.get(), &QObject::destroyed);
         service.reset();
         factory = {};
@@ -149,11 +157,11 @@ private slots:
         int homes = 0, details = 0;
         ShellViewModel shell([&] {
             ++homes;
-            return std::make_unique<HomeViewModel>(service);
+            return std::make_unique<HomeViewModel>(service, testWindows());
         }, [&] {
             ++details;
             return std::make_unique<DetailViewModel>(service);
-        });
+        }, testWindows());
         auto *home = shell.home();
         QSignalSpy initialized(home, &ScreenViewModel::isInitializedChanged);
         QSignalSpy navigation(&shell, &ShellViewModel::navigationChanged);
@@ -214,11 +222,11 @@ private slots:
         auto service = std::make_shared<CounterService>();
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, DetailViewModel{nullptr});
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument,
-                                (ShellViewModel{[service] { return std::make_unique<HomeViewModel>(service); }, {}}));
+                                (ShellViewModel{[service] { return std::make_unique<HomeViewModel>(service, testWindows()); }, {}, testWindows()}));
         int mode = 0;
         QObject parent;
         QPointer<DetailViewModel> invalid;
-        ShellViewModel shell([service] { return std::make_unique<HomeViewModel>(service); }, [&]() -> std::unique_ptr<DetailViewModel> {
+        ShellViewModel shell([service] { return std::make_unique<HomeViewModel>(service, testWindows()); }, [&]() -> std::unique_ptr<DetailViewModel> {
             if (mode == 0)
                 return {};
             if (mode == 1)
@@ -230,7 +238,7 @@ private slots:
             else
                 result->activate();
             return result;
-        });
+        }, testWindows());
         shell.activate();
         auto *home = shell.home();
         home->add(2);
@@ -281,8 +289,8 @@ private slots:
         auto service = std::make_shared<CounterService>();
         bool failHome = false;
         ShellViewModel shell([&]() -> std::unique_ptr<HomeViewModel> {
-            return failHome ? nullptr : std::make_unique<HomeViewModel>(service);
-        }, makeDetailFactory(service));
+            return failHome ? nullptr : std::make_unique<HomeViewModel>(service, testWindows());
+        }, makeDetailFactory(service), testWindows());
         shell.activate();
         QVERIFY(shell.showDetail());
         auto *detail = shell.detail();
@@ -314,10 +322,10 @@ private slots:
             if (mode == 1) return nullptr;
             if (mode == 3) throw std::runtime_error("Home 工厂失败");
             if (mode == 4) throw 42;
-            auto home = std::make_unique<HomeViewModel>(service);
+            auto home = std::make_unique<HomeViewModel>(service, testWindows());
             if (mode == 2) home->activate();
             return home;
-        }, makeDetailFactory(service));
+        }, makeDetailFactory(service), testWindows());
         QVERIFY(!shell.tryClose());
         shell.activate();
         QVERIFY(!shell.tryClose());
@@ -373,8 +381,8 @@ private slots:
     {
         auto service = std::make_shared<CounterService>();
         int homes = 0;
-        ShellViewModel shell([&] { ++homes; return std::make_unique<HomeViewModel>(service); },
-                             makeDetailFactory(service));
+        ShellViewModel shell([&] { ++homes; return std::make_unique<HomeViewModel>(service, testWindows()); },
+                             makeDetailFactory(service), testWindows());
         shell.activate();
         QVERIFY(shell.showDetail());
         auto *detail = shell.detail();
@@ -405,8 +413,8 @@ private slots:
         std::weak_ptr<CounterService> weak = service;
         QSignalSpy serviceDestroyed(service.get(), &QObject::destroyed);
         auto shell = std::make_unique<ShellViewModel>(
-            [service] { return std::make_unique<HomeViewModel>(service); },
-            makeDetailFactory(service));
+            [service] { return std::make_unique<HomeViewModel>(service, testWindows()); },
+            makeDetailFactory(service), testWindows());
         service.reset();
         shell->activate();
         shell->home()->add(5);
@@ -439,11 +447,11 @@ private slots:
         ShellViewModel shell([&]() -> std::unique_ptr<HomeViewModel> {
             ++calls;
             if (calls == 1)
-                return std::make_unique<HomeViewModel>(service);
+                return std::make_unique<HomeViewModel>(service, testWindows());
             if (throwFromFactory)
                 throw std::runtime_error("重建工厂异常");
             return {};
-        }, makeDetailFactory(service));
+        }, makeDetailFactory(service), testWindows());
         shell.activate();
         shell.home()->add(2);
         shell.deactivate(true);

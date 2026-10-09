@@ -46,6 +46,7 @@ ApplicationWindow {
         }
 
         ViewHost {
+            id: pageHost
             objectName: "homeHost"
             model: root.viewModel ? root.viewModel.activeItem : null
             focus: true
@@ -53,4 +54,11 @@ ApplicationWindow {
             Layout.fillHeight: true
         }
     }
+    DialogHost {
+        objectName: "dialogHost"
+        anchors.fill: parent
+        windowManager: root.viewModel ? root.viewModel.windowManager : null
+        fallbackFocusItem: pageHost
+    }
+
 }

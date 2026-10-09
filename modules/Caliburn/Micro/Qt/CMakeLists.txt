@@ -1,4 +1,7 @@
 set_source_files_properties(qml/ViewHost.qml PROPERTIES QT_RESOURCE_ALIAS ViewHost.qml)
+find_package(Qt6 6.8.3 REQUIRED COMPONENTS QuickControls2)
+set_source_files_properties(qml/DialogHost.qml PROPERTIES QT_RESOURCE_ALIAS DialogHost.qml)
+set_source_files_properties(qml/ConfirmActionView.qml PROPERTIES QT_RESOURCE_ALIAS ConfirmActionView.qml)
 qt_add_qml_module(CaliburnMicroQt
     STATIC
     URI Caliburn.Micro.Qt
@@ -27,7 +30,15 @@ qt_add_qml_module(CaliburnMicroQt
         src/ViewRegistry.cpp
         src/ViewHostState.h
         src/ViewHostState.cpp
-    QML_FILES qml/ViewHost.qml
+        include/CaliburnMicroQt/IWindowManager.h
+        include/CaliburnMicroQt/WindowManager.h
+        include/CaliburnMicroQt/ConfirmationRequest.h
+        include/CaliburnMicroQt/ConfirmActionViewModel.h
+        src/WindowManager.cpp
+        src/ConfirmActionViewModel.cpp
+        src/DialogHostState.h
+        src/DialogHostState.cpp
+    QML_FILES qml/ViewHost.qml qml/DialogHost.qml qml/ConfirmActionView.qml
 )
 add_library(Caliburn::MicroQt ALIAS CaliburnMicroQt)
 target_include_directories(CaliburnMicroQt
@@ -35,4 +46,4 @@ target_include_directories(CaliburnMicroQt
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include/CaliburnMicroQt"
             "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
-target_link_libraries(CaliburnMicroQt PUBLIC Qt6::Core Qt6::Qml PRIVATE Qt6::Quick)
+target_link_libraries(CaliburnMicroQt PUBLIC Qt6::Core Qt6::Qml PRIVATE Qt6::Quick Qt6::QuickControls2)

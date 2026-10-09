@@ -93,7 +93,7 @@ C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，卸载不删除
 
 ViewHost 使用 FocusScope，内部 Loader 设置 focus。Shell 给宿主设置 focus，Home 根 FocusScope 和内部输入 Item 也设置 focus，形成窗口至页面的焦点链。按键处理位于输入 Item；空白点击对该 Item 调用 forceActiveFocus，避免作用域保留文本框焦点。[Qt 焦点作用域](https://doc.qt.io/qt-6.8/qtquick-input-focus.html)
 
-窗口失焦不自动停用 VM。泛型单项 Conductor 核心已实现，并通过 activeItem 绑定宿主的集成验证，见 [Conductor](Conductor.md)。集合型 Conductor 和详情导航在 4C 已实现，仍沿用当前 ViewHost。通用默认焦点恢复、模态焦点、View 缓存、异步加载和自动重试未实现。5A 规划由 DialogHost 展示 WindowManager 的模态弹窗并处理焦点恢复，5B 规划在关闭守卫等待或拒绝期间保留相关页面；均未实施，见 [阶段划分](迭代实现计划.md#第五批阶段划分)。页面内部可使用同一宿主装配子 VM，无须复制加载规则。
+窗口失焦不自动停用 VM。泛型单项 Conductor 核心已实现，并通过 activeItem 绑定宿主的集成验证，见 [Conductor](Conductor.md)。集合型 Conductor 和详情导航在 4C 已实现，仍沿用当前 ViewHost。通用页面默认焦点恢复、View 缓存、异步加载和自动重试未实现。5A 已由 DialogHost 复用本宿主展示 WindowManager 的模态弹窗并处理弹窗焦点恢复，见 [WindowManager](WindowManager.md)；5B 仍规划在关闭守卫等待或拒绝期间保留相关页面，尚未实施，见 [阶段划分](迭代实现计划.md#第五批阶段划分)。页面内部可使用同一宿主装配子 VM，无须复制加载规则。
 
 验收覆盖跨模块 typed 注入、创建完成时机、同类型替换、属性变化保持身份、清空与销毁、旧连接解绑及各类失败；证据与平台限制见 [第三批验收记录](第三批验收记录.md)。
 

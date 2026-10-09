@@ -19,11 +19,14 @@ class ShellViewModel : public Conductor<ScreenViewModel>::Collection::OneActive
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("由示例应用装配层创建")
+    Q_PROPERTY(IWindowManager *windowManager READ windowManager CONSTANT)
     Q_PROPERTY(HomeViewModel *home READ home NOTIFY itemsChanged)
     Q_PROPERTY(DetailViewModel *detail READ detail NOTIFY itemsChanged)
     Q_PROPERTY(bool canShowDetail READ canShowDetail NOTIFY navigationChanged)
 public:
-    explicit ShellViewModel(HomeViewModelFactory homeFactory, DetailViewModelFactory detailFactory);
+    explicit ShellViewModel(HomeViewModelFactory homeFactory, DetailViewModelFactory detailFactory,
+                            std::shared_ptr<IWindowManager> windowManager);
+    IWindowManager *windowManager() const { return m_windowManager.get(); }
     HomeViewModel *home() const;
     DetailViewModel *detail() const;
     bool canShowDetail() const { return isActive() && home() && activeItem() == home(); }
@@ -35,6 +38,7 @@ protected:
     void onActivate() override;
 private:
     HomeViewModel *ensureHome();
+    std::shared_ptr<IWindowManager> m_windowManager;
     HomeViewModelFactory m_homeFactory;
     DetailViewModelFactory m_detailFactory;
 };

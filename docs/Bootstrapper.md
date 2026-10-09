@@ -83,4 +83,4 @@ CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周�
 
 Screen 已提供通过 IConductor 关闭受管页面的 C++ tryClose；IConductor 接口保持不变。根 Shell 没有逻辑 Parent，tryClose 返回 false，不发窗口关闭请求。Bootstrapper 退出行为没有变化，也没有关闭守卫。根窗口衔接继续见 [ToDoList](后续版本ToDoList.md)，本轮回归见 [tryClose 验收记录](tryClose验收记录.md)。
 
-5A 重置确认与 5B Detail 退出确认/Conductor 关闭守卫均为规划中、未实施，见 [阶段划分](迭代实现计划.md#第五批阶段划分)。5B 的父级关闭许可不包含主窗口关闭拦截；Bootstrapper 当前退出清理仍直接执行根生命周期，不等待用户确认。根 Shell.tryClose、窗口关闭事件与根关闭许可的衔接继续留待后续，本次不修改启动或退出代码。
+5A 重置确认已实现，AppBootstrapper 在冻结注册表前登记确认映射；5B Detail 退出确认/Conductor 关闭守卫仍为规划中、未实施、未验证，见 [阶段划分](迭代实现计划.md#第五批阶段划分)。5B 的父级关闭许可不包含主窗口关闭拦截；Bootstrapper 当前退出清理仍直接执行根生命周期，不等待用户确认。根 Shell.tryClose、窗口关闭事件与根关闭许可的衔接继续留待后续，本轮只为确认 View 增加映射，不改变 BootstrapperBase 启动或退出协议。

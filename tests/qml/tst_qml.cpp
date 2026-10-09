@@ -1,4 +1,6 @@
+#include "../support/TestWindowManager.h"
 #include <CaliburnMicroQt/Conductor.h>
+#include <CaliburnMicroQt/ConfirmActionViewModel.h>
 #include <ShellViewModel.h>
 #include <ViewModelComposition.h>
 #include <CaliburnMicroQt/ViewRegistry.h>
@@ -22,7 +24,7 @@ Q_IMPORT_QML_PLUGIN(CaliburnExampleModulePlugin)
 static HomeViewModelFactory makeHomeFactory(
         std::shared_ptr<CounterService> service = std::make_shared<CounterService>())
 {
-    return [service] { return std::make_unique<HomeViewModel>(service); };
+    return [service] { return std::make_unique<HomeViewModel>(service, testWindows()); };
 }
 
 static DetailViewModelFactory makeDetailFactory(
@@ -61,6 +63,14 @@ static bool displaysHome(QQuickWindow *window, HomeViewModel *model)
     return item && item->property("viewModel").value<QObject *>() == model;
 }
 
+static void acceptDialog(QQuickWindow *window)
+{
+    auto *button = window->findChild<QQuickItem *>(QStringLiteral("dialogAccept"));
+    QVERIFY(button);
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                     button->mapToScene(QPointF(button->width()/2, button->height()/2)).toPoint());
+}
+
 class QmlTests : public QObject
 {
     Q_OBJECT
@@ -78,12 +88,16 @@ private slots:
         QVERIFY(ViewRegistry::registerView<NonVisualVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/NonVisual.qml"))));
         QVERIFY(ViewRegistry::registerView<SyntaxVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/SyntaxError.qml"))));
         QVERIFY(ViewRegistry::registerView<MismatchVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/Mismatch.qml"))));
+        QVERIFY(ViewRegistry::registerView<ConfirmActionViewModel>(QUrl("qrc:/qt/qml/Caliburn/Micro/Qt/ConfirmActionView.qml")));
         QVERIFY(ViewRegistry::freeze());
     }
 
     void registeredTypesAreNotCreatable_data()
     {
         QTest::addColumn<QByteArray>("source");
+        QTest::newRow("windowManager") << QByteArray("import Caliburn.Micro.Qt 1.0; WindowManager {}");
+        QTest::newRow("windowInterface") << QByteArray("import Caliburn.Micro.Qt 1.0; IWindowManager {}");
+        QTest::newRow("confirmation") << QByteArray("import Caliburn.Micro.Qt 1.0; ConfirmActionViewModel {}");
         QTest::newRow("framework") << QByteArray("import Caliburn.Micro.Qt 1.0; ViewModelBase {}");
         QTest::newRow("example") << QByteArray("import CaliburnExample 1.0; ShellViewModel {}");
         QTest::newRow("detail") << QByteArray("import CaliburnExample 1.0; DetailViewModel {}");
@@ -102,7 +116,7 @@ private slots:
         QQmlComponent component(&engine);
         component.setData(source, QUrl());
         QVERIFY(component.isError());
-        QVERIFY(component.errorString().contains(QStringLiteral("创建")));
+        QVERIFY2(component.errorString().contains(QStringLiteral("创建")), qPrintable(component.errorString()));
     }
 
     void viewHostStateIsCreatable()
@@ -119,7 +133,7 @@ private slots:
 
     void requiredTypedInjection()
     {
-        HomeViewModel vm(std::make_shared<CounterService>());
+        HomeViewModel vm(std::make_shared<CounterService>(), testWindows());
         QQmlEngine::setObjectOwnership(&vm, QQmlEngine::CppOwnership);
         QQmlEngine engine;
         useEmbeddedModules(engine);
@@ -142,7 +156,7 @@ private slots:
 
     void registrySharedAcrossEngines()
     {
-        HomeViewModel home(std::make_shared<CounterService>());
+        HomeViewModel home(std::make_shared<CounterService>(), testWindows());
         QPointer<HomeViewModel> weak = &home;
         const QUrl expected = ViewRegistry::viewUrl(&home);
         QPointer<ViewRegistry> firstSingleton;
@@ -162,8 +176,8 @@ private slots:
 
     void hostIdentityAndLifetime()
     {
-        auto original = std::make_unique<HomeViewModel>(std::make_shared<CounterService>());
-        auto replacement = std::make_unique<HomeViewModel>(std::make_shared<CounterService>());
+        auto original = std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows());
+        auto replacement = std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows());
         for (auto *vm : {original.get(), replacement.get()})
             QQmlEngine::setObjectOwnership(vm, QQmlEngine::CppOwnership);
         QQmlEngine engine;
@@ -199,7 +213,7 @@ private slots:
         QVERIFY(!currentItem());
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QVERIFY(!replacedItem);
-        HomeViewModel next(std::make_shared<CounterService>());
+        HomeViewModel next(std::make_shared<CounterService>(), testWindows());
         QQmlEngine::setObjectOwnership(&next, QQmlEngine::CppOwnership);
         QVERIFY(host->setProperty("model", QVariant::fromValue(&next)));
         QVERIFY(currentItem());
@@ -229,7 +243,7 @@ private slots:
         HomeConductor conductor;
         QQmlEngine::setObjectOwnership(&conductor, QQmlEngine::CppOwnership);
         conductor.activate();
-        auto first = std::make_unique<HomeViewModel>(std::make_shared<CounterService>());
+        auto first = std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows());
         auto *old = first.get();
         QVERIFY(conductor.activateItem(std::move(first)));
         QQmlEngine engine;
@@ -262,7 +276,7 @@ private slots:
             ++destroyed;
             viewGoneBeforeVm = oldView.isNull();
         });
-        auto next = std::make_unique<HomeViewModel>(std::make_shared<CounterService>());
+        auto next = std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows());
         auto *replacement = next.get();
         QVERIFY(conductor.activateItem(std::move(next)));
         QCOMPARE(host->property("model").value<QObject *>(), replacement);
@@ -297,7 +311,7 @@ private slots:
         QVERIFY(!replacedVm && !replacedView);
         QVERIFY(replacedViewGoneBeforeVm);
         conductor.activate();
-        QVERIFY(conductor.activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>())));
+        QVERIFY(conductor.activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows())));
         delete conductor.activeItem();
         QVERIFY(!currentItem());
         QVERIFY(!host->property("model").value<QObject *>());
@@ -309,7 +323,7 @@ private slots:
     {
         HomeConductor conductor;
         conductor.activate();
-        QVERIFY(conductor.activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>())));
+        QVERIFY(conductor.activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows())));
         auto *home = conductor.activeItem();
         home->add(3);
         QQmlEngine engine;
@@ -364,7 +378,7 @@ private slots:
 
     void hostWaitsForCompletion()
     {
-        HomeViewModel home(std::make_shared<CounterService>());
+        HomeViewModel home(std::make_shared<CounterService>(), testWindows());
         QQmlEngine::setObjectOwnership(&home, QQmlEngine::CppOwnership);
         QQmlEngine engine;
         useEmbeddedModules(engine);
@@ -587,8 +601,8 @@ private slots:
         bool fail = false;
         auto shell = std::make_unique<ShellViewModel>([&] {
             if (fail) throw std::runtime_error("Home 工厂失败");
-            return std::make_unique<HomeViewModel>(service);
-        }, [service] { return std::make_unique<DetailViewModel>(service); });
+            return std::make_unique<HomeViewModel>(service, testWindows());
+        }, [service] { return std::make_unique<DetailViewModel>(service); }, testWindows());
         shell->activate();
         shell->home()->add(2);
         QQmlApplicationEngine engine;
@@ -629,8 +643,8 @@ private slots:
 
     void hostFailurePaths()
     {
-        HomeViewModel home(std::make_shared<CounterService>());
-        ShellViewModel shell(makeHomeFactory(), makeDetailFactory());
+        HomeViewModel home(std::make_shared<CounterService>(), testWindows());
+        ShellViewModel shell(makeHomeFactory(), makeDetailFactory(), testWindows());
         UnknownVm unknown;
         MissingResourceVm missing;
         WrongTypeVm wrong;
@@ -707,6 +721,10 @@ private slots:
             QCOMPARE(vm->count(), 5);
             QVERIFY(reset->isEnabled());
             click(reset);
+            QTRY_VERIFY(shell->windowManager()->currentDialog());
+            auto *accept = window->findChild<QQuickItem *>(QStringLiteral("dialogAccept"));
+            QVERIFY(accept);
+            click(accept);
             QTRY_COMPARE(vm->count(), 0);
             QTRY_COMPARE(label->property("text").toString(), QStringLiteral("已点击 0 次"));
             QTRY_VERIFY(increase->isEnabled());
@@ -728,6 +746,8 @@ private slots:
         auto replacementTree = buildShell();
         auto &shell = *originalTree;
         auto &replacementShell = *replacementTree;
+        shell.activate();
+        replacementShell.activate();
         auto &original = *shell.home();
         auto &replacement = *replacementShell.home();
         QQmlEngine::setObjectOwnership(&shell, QQmlEngine::CppOwnership);
@@ -771,6 +791,10 @@ private slots:
             QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, position);
         };
         click(reset);
+        QTRY_VERIFY(replacementShell.windowManager()->currentDialog());
+        auto *accept = window->findChild<QQuickItem *>(QStringLiteral("dialogAccept"));
+        QVERIFY(accept);
+        click(accept);
         QTRY_COMPARE(replacement.count(), 0);
         QCOMPARE(original.count(), 1);
         QTRY_VERIFY(increase->isEnabled());
@@ -791,6 +815,8 @@ private slots:
         auto replacementTree = buildShell();
         auto &shell = *originalTree;
         auto &replacementShell = *replacementTree;
+        shell.activate();
+        replacementShell.activate();
         auto &original = *shell.home();
         auto &replacement = *replacementShell.home();
         QQmlEngine::setObjectOwnership(&shell, QQmlEngine::CppOwnership);
@@ -845,6 +871,7 @@ private slots:
         QTRY_COMPARE(replacement.count(), 5);
         QVERIFY(!button->isEnabled());
         replacement.reset();
+        acceptDialog(window);
         QTRY_VERIFY(button->isEnabled());
         QCOMPARE(warnings.count(), 0);
         window->close();
@@ -856,6 +883,8 @@ private slots:
         auto replacementTree = buildShell();
         auto &shell = *originalTree;
         auto &replacementShell = *replacementTree;
+        shell.activate();
+        replacementShell.activate();
         auto &original = *shell.home();
         auto &replacement = *replacementShell.home();
         QQmlEngine::setObjectOwnership(&shell, QQmlEngine::CppOwnership);
@@ -908,6 +937,7 @@ private slots:
         QCOMPARE(count.count(), 2);
 
         original.reset();
+        acceptDialog(window);
         const auto click = [window](QQuickItem *item) {
             QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
                              item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint());

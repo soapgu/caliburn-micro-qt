@@ -1,3 +1,4 @@
+#include "../support/TestWindowManager.h"
 #include <AppBootstrapper.h>
 #include <ViewModelComposition.h>
 #include <CaliburnMicroQt/ViewRegistry.h>
@@ -18,7 +19,7 @@ Q_IMPORT_QML_PLUGIN(CaliburnExampleModulePlugin)
 static HomeViewModelFactory makeHomeFactory(
         std::shared_ptr<CounterService> service = std::make_shared<CounterService>())
 {
-    return [service] { return std::make_unique<HomeViewModel>(service); };
+    return [service] { return std::make_unique<HomeViewModel>(service, testWindows()); };
 }
 
 struct Observation {
@@ -46,7 +47,7 @@ class FailingCloseShell : public ShellViewModel
 {
 public:
     explicit FailingCloseShell(Observation &observation)
-        : ShellViewModel(makeHomeFactory(), makeDetailFactory()), m_observation(observation)
+        : ShellViewModel(makeHomeFactory(), makeDetailFactory(), testWindows()), m_observation(observation)
     {
         QQmlEngine::setObjectOwnership(home(), QQmlEngine::CppOwnership);
     }
@@ -92,7 +93,7 @@ protected:
         if (!ViewRegistry::registerView<ShellViewModel>(url))
             return false;
         if (m_scenario == "configureQuery") {
-            ShellViewModel probe(makeHomeFactory(), makeDetailFactory());
+            ShellViewModel probe(makeHomeFactory(), makeDetailFactory(), testWindows());
             if (ViewRegistry::viewUrl(&probe) != url)
                 return false;
         }

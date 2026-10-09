@@ -70,3 +70,26 @@ set_tests_properties(bootstrapper_example PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
     TIMEOUT 15
 )
+
+qt_add_executable(CaliburnWindowManagerTests cpp/tst_windowmanager.cpp)
+target_include_directories(CaliburnWindowManagerTests PRIVATE
+    "${PROJECT_SOURCE_DIR}/modules/Caliburn/Micro/Qt/src")
+target_link_libraries(CaliburnWindowManagerTests PRIVATE CaliburnExampleModule Qt6::Test)
+add_test(NAME windowmanager COMMAND CaliburnWindowManagerTests)
+set_tests_properties(windowmanager PROPERTIES TIMEOUT 30)
+
+qt_add_executable(CaliburnDialogTests qml/tst_dialog.cpp)
+qt_add_resources(CaliburnDialogTests dialog_fixtures
+    PREFIX /tests
+    FILES fixtures/CustomDialog.qml fixtures/NonVisual.qml
+          fixtures/SyntaxError.qml fixtures/MissingProperty.qml
+)
+target_link_libraries(CaliburnDialogTests PRIVATE
+    CaliburnExampleComposition CaliburnMicroQtplugin CaliburnExampleModuleplugin
+    Qt6::Test Qt6::Quick Qt6::QuickControls2
+)
+add_test(NAME dialog COMMAND CaliburnDialogTests)
+set_tests_properties(dialog PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+    TIMEOUT 60
+)
