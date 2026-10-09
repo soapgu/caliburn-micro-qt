@@ -119,16 +119,38 @@ private slots:
         QVERIFY2(component.errorString().contains(QStringLiteral("创建")), qPrintable(component.errorString()));
     }
 
-    void viewHostStateIsCreatable()
+    void hostStatesAreCreatable_data()
     {
+        QTest::addColumn<QByteArray>("source");
+        QTest::addColumn<bool>("dialog");
+        QTest::newRow("view") << QByteArray("import Caliburn.Micro.Qt 1.0; ViewHostState {}") << false;
+        QTest::newRow("dialog") << QByteArray("import Caliburn.Micro.Qt 1.0; DialogHostState {}") << true;
+    }
+
+    void hostStatesAreCreatable()
+    {
+        QFETCH(QByteArray, source);
+        QFETCH(bool, dialog);
         QQmlEngine engine;
         useEmbeddedModules(engine);
         QQmlComponent component(&engine);
-        component.setData("import Caliburn.Micro.Qt 1.0; ViewHostState {}", QUrl());
+        component.setData(source, QUrl());
         QVERIFY2(component.isReady(), qPrintable(component.errorString()));
         std::unique_ptr<QObject> state(component.create());
         QVERIFY2(state, qPrintable(component.errorString()));
         QVERIFY(!state->property("model").value<QObject *>());
+        const auto property = [&](const char *name) {
+            return state->metaObject()->property(state->metaObject()->indexOfProperty(name));
+        };
+        QCOMPARE(property("model").isWritable(), !dialog);
+        if (dialog) {
+            QVERIFY(property("available").isWritable());
+            QVERIFY(property("manager").isWritable());
+            QVERIFY(!property("requestId").isWritable());
+            QVERIFY(!state->property("available").toBool());
+            QVERIFY(!state->property("manager").value<QObject *>());
+            QCOMPARE(state->property("requestId").toString(), QString());
+        }
     }
 
     void requiredTypedInjection()

@@ -79,6 +79,8 @@ flowchart LR
 
 ViewHostState 是 `Caliburn.Micro.Qt 1.0` 模块公开、可创建的 QML 辅助类型。应用导入模块后可以直接使用 `ViewHostState {}`，ViewHost 自身也通过这种方式创建它。其头文件位于 src，不作为公开 C++ 头文件提供；这不限制它的公开 QML 接口。一般页面装配优先使用 ViewHost 的三个属性。
 
+本模块的 [DialogHostState](WindowManager.md#dialoghoststate公开-qml-宿主协调接口) 同样是公开、可创建的 QML 辅助类型，负责弹窗服务关联与请求释放；ViewHostState 负责 VM 借用与注入验证。两者职责分开，DialogHost 通过 ViewHost 复用页面装配。
+
 | ViewHostState 的 QML 接口 | 契约 |
 | --- | --- |
 | model: ViewModelBase | 可读写，默认 null；借用 VM，不接管所有权。赋值必须在辅助对象所属线程执行，非空 VM 必须属于同一线程；非法赋值输出诊断并保留旧模型。 |

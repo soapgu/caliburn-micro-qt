@@ -2,7 +2,8 @@
 
 #include <CaliburnMicroQt/WindowManager.h>
 
-// DialogHost 的 QML/C++ 适配；业务通过 IWindowManager 发起请求。
+// 公开、可创建的 QML 弹窗宿主协调类型；标准展示优先使用 DialogHost。
+// 自定义宿主可使用其协调接口，业务请求通过 IWindowManager 发起。
 class DialogHostState : public QObject
 {
     Q_OBJECT

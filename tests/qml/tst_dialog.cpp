@@ -3,12 +3,15 @@
 #include <CaliburnMicroQt/ViewRegistry.h>
 #include <ViewModelComposition.h>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlExtensionPlugin>
 #include <QLibraryInfo>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QQuickStyle>
 #include <QtTest>
+#include <memory>
+#include <stdexcept>
 
 Q_IMPORT_QML_PLUGIN(CaliburnMicroQtPlugin)
 Q_IMPORT_QML_PLUGIN(CaliburnExampleModulePlugin)
@@ -26,6 +29,63 @@ class MissingDialog : public ScreenViewModel { Q_OBJECT };
 class NonVisualDialog : public ScreenViewModel { Q_OBJECT };
 class SyntaxDialog : public ScreenViewModel { Q_OBJECT };
 class BadInjectionDialog : public ScreenViewModel { Q_OBJECT };
+
+// 用抽象服务的另一种实现验证 manager 的公开类型与具体服务限制。
+class UnsupportedWindowManager : public IWindowManager
+{
+public:
+    bool busy() const override { return false; }
+    ScreenViewModel *currentDialog() const override { return nullptr; }
+    QFuture<DialogResult> showDialogAsync(std::unique_ptr<ScreenViewModel>, QObject *) override
+    { return {}; }
+    void closeDialog(ScreenViewModel *, DialogResult) override {}
+    void cancelDialogsFor(QObject *) override {}
+};
+
+// 不包含 State 的 C++ 头文件；通过公共模块创建并调用实际 QML 接口。
+static std::unique_ptr<QObject> createDialogState(QQmlEngine &engine)
+{
+    engine.setImportPathList({"qrc:/qt/qml", QLibraryInfo::path(QLibraryInfo::QmlImportsPath)});
+    QQmlComponent component(&engine);
+    component.setData(R"(
+        import Caliburn.Micro.Qt 1.0
+        DialogHostState {
+            property string hiddenRequest: ""
+            onHideRequested: (id) => { hiddenRequest = id }
+            function attachService(service) { manager = service }
+            function setHostAvailable(value) { available = value }
+            function failRequest(id, message) { failed(id, message) }
+            function releaseRequest(id) { released(id) }
+            function dismissRequest(id) { dismiss(id) }
+        }
+    )", QUrl());
+    std::unique_ptr<QObject> state(component.create());
+    if (!state)
+        qWarning().noquote() << component.errorString();
+    return state;
+}
+
+static bool attachService(QObject *state, IWindowManager *manager)
+{
+    return QMetaObject::invokeMethod(state, "attachService",
+        Q_ARG(QVariant, QVariant::fromValue(manager)));
+}
+
+static bool setHostAvailable(QObject *state, bool available)
+{
+    return QMetaObject::invokeMethod(state, "setHostAvailable", Q_ARG(QVariant, available));
+}
+
+static bool reportRequest(QObject *state, const char *method, const QString &id)
+{
+    return QMetaObject::invokeMethod(state, method, Q_ARG(QVariant, id));
+}
+
+static bool reportFailure(QObject *state, const QString &id)
+{
+    return QMetaObject::invokeMethod(state, "failRequest", Q_ARG(QVariant, id),
+        Q_ARG(QVariant, QStringLiteral("自定义宿主展示失败")));
+}
 
 static QQuickWindow *loadShell(QQmlApplicationEngine &engine, ShellViewModel &shell)
 {
@@ -59,6 +119,133 @@ private slots:
         QVERIFY(ViewRegistry::registerView<BadInjectionDialog>(QUrl("qrc:/tests/fixtures/MissingProperty.qml")));
         QVERIFY(ViewRegistry::freeze());
     }
+
+    void publicStateServiceAssociation() {
+        auto manager = std::make_unique<WindowManager>();
+        UnsupportedWindowManager unsupported;
+        QQmlEngine engine;
+        auto first = createDialogState(engine);
+        auto second = createDialogState(engine);
+        QVERIFY(first && second);
+        QSignalSpy managerChanged(first.get(), SIGNAL(managerChanged()));
+        QSignalSpy availableChanged(first.get(), SIGNAL(availableChanged()));
+        QSignalSpy modelChanged(first.get(), SIGNAL(modelChanged()));
+        QVERIFY(attachService(first.get(), manager.get()));
+        QCOMPARE(first->property("manager").value<QObject *>(), manager.get());
+        QVERIFY(setHostAvailable(first.get(), true));
+        QVERIFY(first->property("available").toBool());
+        QVERIFY(attachService(first.get(), manager.get()));
+        QVERIFY(setHostAvailable(first.get(), true));
+        QCOMPARE(managerChanged.count(), 1);
+        QCOMPARE(modelChanged.count(), 1);
+        QCOMPARE(availableChanged.count(), 1);
+
+        QTest::ignoreMessage(QtWarningMsg, "DialogHost：窗口服务不受支持或已有宿主");
+        QVERIFY(attachService(second.get(), manager.get()));
+        QVERIFY(!second->property("manager").value<QObject *>());
+        QCOMPARE(first->property("manager").value<QObject *>(), manager.get());
+        QTest::ignoreMessage(QtWarningMsg, "DialogHost：窗口服务不受支持或已有宿主");
+        QVERIFY(attachService(second.get(), &unsupported));
+        QVERIFY(!second->property("manager").value<QObject *>());
+        QVERIFY(reportFailure(second.get(), "unused"));
+        QVERIFY(reportRequest(second.get(), "dismissRequest", "unused"));
+        QVERIFY(reportRequest(second.get(), "releaseRequest", "unused"));
+
+        QVERIFY(attachService(first.get(), nullptr));
+        QVERIFY(attachService(second.get(), manager.get()));
+        QCOMPARE(second->property("manager").value<QObject *>(), manager.get());
+        QSignalSpy detached(second.get(), SIGNAL(managerChanged()));
+        manager.reset();
+        QVERIFY(!second->property("manager").value<QObject *>());
+        QVERIFY(!second->property("model").value<QObject *>());
+        QCOMPARE(detached.count(), 1);
+    }
+
+    void publicStateRequestProtocol_data() {
+        QTest::addColumn<QByteArray>("closeMethod");
+        QTest::newRow("dismiss") << QByteArray("dismissRequest");
+        QTest::newRow("failed") << QByteArray("failRequest");
+        QTest::newRow("unavailable") << QByteArray("setHostAvailable");
+    }
+
+    void publicStateRequestProtocol() {
+        QFETCH(QByteArray, closeMethod);
+        QStringList destructionOrder;
+        WindowManager manager;
+        QObject requester;
+        QQmlEngine engine;
+        auto state = createDialogState(engine);
+        QVERIFY(state);
+        QVERIFY(attachService(state.get(), &manager));
+        QVERIFY(setHostAvailable(state.get(), true));
+        auto vm = std::make_unique<CustomDialogVm>(manager);
+        QPointer<CustomDialogVm> weak = vm.get();
+        auto future = manager.showDialogAsync(std::move(vm), &requester);
+        QVERIFY(!future.isFinished());
+        QVERIFY(weak->isInitialized() && weak->isActive());
+        QCOMPARE(state->property("model").value<QObject *>(), weak.data());
+        const auto id = state->property("requestId").toString();
+        QVERIFY(!id.isEmpty());
+
+        QQmlComponent viewComponent(&engine);
+        viewComponent.setData("import QtQml; import Caliburn.Micro.Qt 1.0; "
+            "QtObject { required property ScreenViewModel viewModel }", QUrl());
+        std::unique_ptr<QObject> view(viewComponent.createWithInitialProperties(
+            {{"viewModel", QVariant::fromValue(weak.data())}}));
+        QVERIFY2(view, qPrintable(viewComponent.errorString()));
+        connect(view.get(), &QObject::destroyed, this, [&] { destructionOrder << "view"; });
+        connect(weak.data(), &QObject::destroyed, this, [&] { destructionOrder << "vm"; });
+        // 提前报告 released 不能自行关闭活动请求。
+        QVERIFY(reportRequest(state.get(), "releaseRequest", id));
+        QVERIFY(manager.busy() && !future.isFinished());
+        if (closeMethod == "failRequest")
+            QVERIFY(reportFailure(state.get(), id));
+        else if (closeMethod == "setHostAvailable")
+            QVERIFY(setHostAvailable(state.get(), false));
+        else
+            QVERIFY(reportRequest(state.get(), closeMethod.constData(), id));
+
+        QCOMPARE(state->property("hiddenRequest").toString(), id);
+        QVERIFY(!state->property("model").value<QObject *>());
+        QCOMPARE(state->property("requestId").toString(), id);
+        QVERIFY(manager.busy() && !future.isFinished());
+        QVERIFY(weak->isActive());
+        // 关闭中的重复报告不能改写已确定的结果。
+        QVERIFY(reportFailure(state.get(), id));
+        QVERIFY(reportRequest(state.get(), "dismissRequest", id));
+        view.reset();
+        QVERIFY(reportRequest(state.get(), "releaseRequest", id));
+        QVERIFY(future.isFinished());
+        QVERIFY(!manager.busy());
+        QCOMPARE(state->property("requestId").toString(), QString());
+        QVERIFY(weak && weak->isInitialized() && !weak->isActive());
+        if (closeMethod == "failRequest")
+            QVERIFY_THROWS_EXCEPTION(std::runtime_error, future.result());
+        else
+            QCOMPARE(future.result(), DialogResult{});
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!weak);
+        QCOMPARE(destructionOrder, QStringList({"view", "vm"}));
+
+        QVERIFY(setHostAvailable(state.get(), true));
+        auto nextVm = std::make_unique<CustomDialogVm>(manager);
+        QPointer<CustomDialogVm> next = nextVm.get();
+        auto nextFuture = manager.showDialogAsync(std::move(nextVm), &requester);
+        const auto nextId = state->property("requestId").toString();
+        QVERIFY(!nextId.isEmpty() && nextId != id);
+        QVERIFY(reportFailure(state.get(), id));
+        QVERIFY(reportRequest(state.get(), "dismissRequest", id));
+        QVERIFY(reportRequest(state.get(), "releaseRequest", id));
+        QVERIFY(manager.busy() && !nextFuture.isFinished());
+        QCOMPARE(state->property("model").value<QObject *>(), next.data());
+        manager.closeDialog(next.data(), true);
+        QVERIFY(reportRequest(state.get(), "releaseRequest", nextId));
+        QVERIFY(nextFuture.isFinished());
+        QCOMPARE(nextFuture.result(), DialogResult(true));
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!next);
+    }
+
     void homeAcceptCancelAndModalInput() {
         auto shell = buildShell(); shell->activate(); shell->home()->add(3);
         QQmlApplicationEngine engine;
