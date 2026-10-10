@@ -2,7 +2,7 @@
 
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
-> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/4C验收记录.md)。Parent 与统一 Conductor 协议增量已实现并完成本机验收，见 [独立记录](docs/Parent体系验收记录.md)。受管页面 tryClose 与 Detail 内返回已实现并完成本机验收，见 [tryClose 记录](docs/tryClose验收记录.md)。5A 重置确认与弹窗基础设施已实现，5B 退出确认与关闭守卫已完成本机验收，见 [5B 记录](docs/5B验收记录.md)；本轮 CM 直接回调与单项管理精简已完成本机复验，见 [精简验收记录](docs/CM关闭守卫精简验收记录.md)；第六批待实施，麒麟待验证。
+> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/4C验收记录.md)。Parent 与统一 Conductor 协议增量已实现并完成本机验收，见 [独立记录](docs/Parent体系验收记录.md)。受管页面 tryClose 与 Detail 内返回已实现并完成本机验收，见 [tryClose 记录](docs/tryClose验收记录.md)。5A 重置确认与弹窗基础设施已实现，5B 退出确认与关闭守卫已完成本机验收，见 [5B 记录](docs/5B验收记录.md)；CM 直接回调与单项管理精简已完成本机复验，见 [精简验收记录](docs/CM关闭守卫精简验收记录.md)。根窗口守卫、双向关闭桥接与 Bootstrapper 钩子已完成本机验收，见 [根窗口验收记录](docs/根窗口关闭守卫与生命周期验收记录.md)；第六批待实施，麒麟与外部消费工程待验证。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
 
@@ -88,11 +88,11 @@ ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected �
 
 单项 `deactivateItem(item, false)` 清空选择并普通停用，保留 VM、Parent 和恢复资格；`activateItem(item)` 恢复原对象。切换新项关闭旧当前项，旧对象不登记为留存成员；`closeItem` 只处理当前项。已初始化父关闭只处理当前项，未初始化父关闭无操作；父普通停用仍保留选择。`getChildren()` 在单项只返回当前项，集合型返回全部成员，均为借用快照。详见 [Conductor](docs/Conductor.md) 和 [Parent 体系验收记录](docs/Parent体系验收记录.md)。
 
-新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、Screen 活动状态及逻辑 Parent。基础校验拒绝不移动调用方所有权；通过后单项请求暂存候选，许可拒绝或回调释放时回收，通过时接管并设置父对象；对象使用 CppOwnership。单项裸指针入口可重新选择本 Conductor 接管过的有效旧对象；调用方不得复用已提交关闭对象。集合裸指针入口只操作成员。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 已通过逻辑 Parent 委托 IConductor 关闭。关闭守卫已在 5B 实现；根窗口请求、Action 和 View 缓存继续留待后续。
+新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、Screen 活动状态及逻辑 Parent。基础校验拒绝不移动调用方所有权；通过后单项请求暂存候选，许可拒绝或回调释放时回收，通过时接管并设置父对象；对象使用 CppOwnership。单项裸指针入口可重新选择本 Conductor 接管过的有效旧对象；调用方不得复用已提交关闭对象。集合裸指针入口只操作成员。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 已通过逻辑 Parent 委托 IConductor 关闭。关闭守卫已在 5B 实现；根窗口请求已接入双向桥接，Action 和 View 缓存继续留待后续。
 
 5A 与 5B 均已实现并完成本机验收。5A 的 showDialogAsync 接受自定义 VM，以 QFuture / QPromise 交付一次结果；只允许一个当前弹窗，忙时拒绝新请求，请求者失效后旧结果不能继续执行业务操作。结果为可空 bool，接受 true、明确取消 false、无决定关闭空值，忙和展示失败以异常交付，详见 [WindowManager](docs/WindowManager.md)。这是 Qt 适配差异：CM 3.2 WPF 使用同步 ShowDialog，本项目不为复刻阻塞返回引入嵌套事件循环。
 
-5B 已按 CM 3.2.0 将 activateItem、deactivateItem、closeItem、tryClose 迁移为 void 请求，无完成回调。激活看 activationProcessed，实际停用/关闭看 deactivated(close)，方法返回不保证完成。默认策略检查 getChildren 快照后汇总，单项只有当前项，集合包含全部成员；拒绝时不部分关闭。按 CM 直接回调，不支持重叠请求、重复回调或等待期间修改参与对象，不维护 Request、代次或取消上下文。完整契约见 [关闭守卫](docs/关闭守卫.md)，验收见 [5B](docs/5B验收记录.md)。主窗口退出拦截和根请求仍待设计。
+5B 已按 CM 3.2.0 将 activateItem、deactivateItem、closeItem、tryClose 迁移为 void 请求，无完成回调。激活看 activationProcessed，实际停用/关闭看 deactivated(close)，方法返回不保证完成。默认策略检查 getChildren 快照后汇总，单项只有当前项，集合包含全部成员；拒绝时不部分关闭。按 CM 直接回调，不支持重叠请求、重复回调或等待期间修改参与对象，不维护 Request、代次或取消上下文。完整契约见 [关闭守卫](docs/关闭守卫.md)，验收见 [5B](docs/5B验收记录.md)。主窗口关闭与根 tryClose 已接入同一守卫链，根生命周期和 OnExit 单次执行；启动钩子改为 void，正常退出钩子在 aboutToQuit 执行。见 [根窗口验收记录](docs/根窗口关闭守卫与生命周期验收记录.md)。
 
 ## 模块与项目结构
 
@@ -101,7 +101,7 @@ ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected �
 | 单元 | CMake 目标 | QML URI / 版本 | 内容及进度 |
 | --- | --- | --- | --- |
 | 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 已实现基类、Screen 生命周期、注册表、ViewHost 和单项 Conductor；集合型 Conductor 和 5A 通用模态弹窗已实现。 |
-| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 已实现 Shell 根窗口和 Home 计数页、参数按钮、键盘输入及生命周期状态；共享计数服务及 Home 重建；Detail 只读详情导航已实现，确认交互待后续批次。 |
+| 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 已实现 Shell 根窗口和 Home 计数页、参数按钮、键盘输入及生命周期状态；共享计数服务及 Home 重建；Detail 只读详情导航、退出确认和根窗口关闭守卫已实现。 |
 | 示例装配库 | `CaliburnExampleComposition` | 无独立 QML URI | Boost.Ext.DI 绑定共享服务及 Home/Detail 工厂，创建 Shell 并设置根 CppOwnership；子项由 Conductor 接管。 |
 | 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | AppBootstrapper 配置映射与根工厂，框架 Bootstrapper 统一启动、根生命周期、类型化注入及有序退出。 |
 

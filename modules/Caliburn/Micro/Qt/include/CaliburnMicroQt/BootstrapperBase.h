@@ -12,6 +12,7 @@ class QGuiApplication;
 class QQmlApplicationEngine;
 class IWindowManager;
 class WindowManager;
+class WindowConductor;
 
 // 根窗口设置的扩展位置，目前不影响显示行为。
 struct RootViewOptions {};
@@ -28,7 +29,7 @@ public:
 
 protected:
     virtual bool Configure() = 0;
-    virtual bool OnStartup() = 0;
+    virtual void OnStartup() {}
     // 启动中途失败也会调用，须允许应用资源尚未创建。
     virtual void OnExit() {}
 
@@ -55,10 +56,14 @@ protected:
     {
         static_assert(std::is_base_of_v<ScreenViewModel, T>, "根 VM 必须继承 ScreenViewModel");
         Q_UNUSED(options);
-        if (!CreateRootViewModel(&T::staticMetaObject))
+        if (!CreateRootViewModel(&T::staticMetaObject)) {
+            m_rootDisplayFailed = true;
             return false;
+        }
         // 保留具体 T* 类型供 QML 注入；对象仍由 m_root 持有。
-        return DisplayRootView(QVariant::fromValue(static_cast<T *>(m_root.get())));
+        const bool displayed = DisplayRootView(QVariant::fromValue(static_cast<T *>(m_root.get())));
+        if (!displayed) m_rootDisplayFailed = true;
+        return displayed;
     }
 
 private:
@@ -70,6 +75,7 @@ private:
     bool DisplayRootView(const QVariant &viewModel);
     bool Fail(const QString &message) const;
     void CloseRoot() noexcept;
+    void NotifyExit() noexcept;
     void Shutdown(bool invokeExit) noexcept;
 
     QGuiApplication &m_app;
@@ -78,8 +84,11 @@ private:
     std::unique_ptr<ScreenViewModel> m_root;
     std::unique_ptr<QQmlApplicationEngine> m_engine;
     std::shared_ptr<WindowManager> m_windowManager;
+    std::unique_ptr<WindowConductor> m_windowConductor;
     bool m_displayAttempted = false;
     bool m_rootDisplayed = false;
+    bool m_rootDisplayFailed = false;
     bool m_closeAttempted = false;
     bool m_cleanupFailed = false;
+    bool m_exitNotified = false;
 };

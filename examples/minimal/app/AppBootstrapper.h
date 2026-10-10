@@ -9,5 +9,5 @@ public:
 
 protected:
     bool Configure() override;
-    bool OnStartup() override;
+    void OnStartup() override;
 };

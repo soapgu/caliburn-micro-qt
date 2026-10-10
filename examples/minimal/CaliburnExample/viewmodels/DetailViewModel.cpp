@@ -33,7 +33,7 @@ void DetailViewModel::canClose(CloseCallback callback)
     QFuture<DialogResult> result;
     try {
         auto dialog = std::make_unique<ConfirmActionViewModel>(
-            ConfirmationRequest{QStringLiteral("返回首页"), QStringLiteral("确定离开详情并返回首页吗？")},
+            ConfirmationRequest{QStringLiteral("离开详情"), QStringLiteral("确定离开当前详情吗？")},
             *m_windowManager);
         result = m_windowManager->showDialogAsync(std::move(dialog), this);
     } catch (...) {

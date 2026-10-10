@@ -58,7 +58,7 @@ target_link_libraries(CaliburnBootstrapperTests PRIVATE
 foreach(scenario IN ITEMS
     success injectedService explicitOptions emptyFactory hostFailure configureQuery lateRegistration exitCode configureFailure missingFactory factoryException nullRoot
     missingMapping remoteView missingResource nonWindow noRoot ignoredLoadFailure
-    duplicateRoot exitException closeException
+    duplicateRoot exitException closeException startupException windowCloseException externalCloseException
 )
     add_test(NAME bootstrapper_${scenario}
         COMMAND CaliburnBootstrapperTests "startupAndCleanup:${scenario}")
@@ -72,6 +72,14 @@ set_tests_properties(bootstrapper_example PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
     TIMEOUT 15
 )
+add_test(NAME bootstrapper_defaultStartup COMMAND CaliburnBootstrapperTests defaultStartup)
+set_tests_properties(bootstrapper_defaultStartup PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 15)
+foreach(scenario IN ITEMS home accept cancel escape rootTryClose modelClose ordinaryDeactivate quit forcedExit inactiveDetail busy missingHome showFailure)
+    add_test(NAME rootwindow_${scenario} COMMAND CaliburnBootstrapperTests "rootWindowClose:${scenario}")
+    set_tests_properties(rootwindow_${scenario} PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 15)
+endforeach()
 
 qt_add_executable(CaliburnWindowManagerTests cpp/tst_windowmanager.cpp)
 target_include_directories(CaliburnWindowManagerTests PRIVATE
@@ -118,3 +126,11 @@ add_executable(CaliburnGuardCloseTests cpp/tst_guardclose.cpp)
 target_link_libraries(CaliburnGuardCloseTests PRIVATE Caliburn::MicroQt Qt6::Test)
 add_test(NAME guardclose COMMAND CaliburnGuardCloseTests)
 set_tests_properties(guardclose PROPERTIES TIMEOUT 30)
+
+add_executable(CaliburnWindowConductorTests cpp/tst_windowconductor.cpp)
+target_include_directories(CaliburnWindowConductorTests PRIVATE
+    "${PROJECT_SOURCE_DIR}/modules/Caliburn/Micro/Qt/src")
+target_link_libraries(CaliburnWindowConductorTests PRIVATE Caliburn::MicroQt Qt6::Test Qt6::Quick)
+add_test(NAME windowconductor COMMAND CaliburnWindowConductorTests)
+set_tests_properties(windowconductor PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 30)

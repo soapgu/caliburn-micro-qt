@@ -112,8 +112,10 @@ private slots:
         QObject unrelated;
         ProtocolScreen screen;
         screen.activate();
+        QSignalSpy windowRequests(&screen, &ScreenViewModel::closeRequested);
         screen.setParent(&manager);
         screen.tryClose(); // QObject 所有权不能代替逻辑 Parent。
+        QCOMPARE(windowRequests.count(), 1);
         QCOMPARE(manager.calls, 0);
         QVERIFY(screen.isActive());
         manager.attach(&screen, &unrelated);
@@ -129,6 +131,7 @@ private slots:
         QCOMPARE(manager.calls, 2);
         manager.attach(&screen, &unrelated);
         screen.tryClose(); // 每次重新读取 Parent。
+        QCOMPARE(windowRequests.count(), 1); // 非 Conductor 的逻辑 Parent 不发窗口请求。
         QCOMPARE(manager.calls, 2);
         manager.attach(&screen, &manager);
         manager.throws = true;

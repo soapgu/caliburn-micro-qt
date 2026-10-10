@@ -76,4 +76,4 @@ DetailView 返回按钮仍绑定页面活动状态与非空逻辑 Parent。showD
 
 5A、5B 均已实现并完成本机验收，见 [5A](5A验收记录.md)、[5B](5B验收记录.md)。Home 和 Detail 使用同一 shared_ptr<IWindowManager>；两个工厂都按值捕获计数及窗口服务，每次调用在局部注入器中绑定二者。不同 buildShell 实例仍相互隔离。
 
-窗口服务与 DialogHost 由框架创建、挂载，Shell 不声明宿主或接线属性。ConfirmationRequest 只保存文案；重置由 Home 完成，关闭由 Conductor 完成。主窗口退出拦截、根请求衔接和缓存继续留待后续，麒麟待验证。
+窗口服务与 DialogHost 由框架创建、挂载，Shell 不声明宿主或接线属性。ConfirmationRequest 只保存文案；重置由 Home 完成，关闭由 Conductor 完成。主窗口关闭与根请求由 Bootstrapper 的私有窗口桥接接入守卫；缓存继续留待后续，麒麟待验证。

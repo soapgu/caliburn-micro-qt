@@ -11,6 +11,8 @@ qt_add_qml_module(CaliburnMicroQt
     SOURCES
         include/CaliburnMicroQt/BootstrapperBase.h
         src/BootstrapperBase.cpp
+        src/WindowConductor.h
+        src/WindowConductor.cpp
         include/CaliburnMicroQt/ViewModelBase.h
         src/ViewModelBase.cpp
         include/CaliburnMicroQt/IChild.h

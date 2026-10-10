@@ -24,11 +24,12 @@ public:
     void initialize();
     void activate();
     void deactivate(bool close = false);
-    // 请求方法返回不代表已经关闭；无逻辑 Parent 时无操作。
+    // 请求方法返回不代表已经关闭；无逻辑 Parent 时请求关联窗口关闭。
     void tryClose();
     void canClose(CloseCallback callback) override;
 
 signals:
+    void closeRequested();
     void attemptingDeactivation(bool close);
     void deactivated(bool close);
     void parentViewModelChanged();

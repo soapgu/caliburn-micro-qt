@@ -1,6 +1,7 @@
 #include <CaliburnMicroQt/BootstrapperBase.h>
 #include <CaliburnMicroQt/ViewRegistry.h>
 #include <CaliburnMicroQt/WindowManager.h>
+#include "WindowConductor.h"
 #include <QDebug>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -27,7 +28,11 @@ bool tryCleanup(const char *stage, Action action) noexcept
 
 BootstrapperBase::BootstrapperBase(QGuiApplication &app) : m_app(app)
 {
-    connect(&m_app, &QCoreApplication::aboutToQuit, this, [this] { CloseRoot(); });
+    connect(&m_app, &QCoreApplication::aboutToQuit, this, [this] {
+        if (m_windowConductor) m_windowConductor->detach();
+        CloseRoot();
+        NotifyExit();
+    });
 }
 
 BootstrapperBase::~BootstrapperBase()
@@ -73,9 +78,8 @@ bool BootstrapperBase::Initialize()
     if (!ViewRegistry::freeze())
         return Fail(QStringLiteral("ViewRegistry 冻结失败"));
     m_state = State::Starting;
-    if (!OnStartup())
-        return Fail(QStringLiteral("OnStartup 失败"));
-    if (!m_rootDisplayed)
+    OnStartup();
+    if (!m_rootDisplayed || m_rootDisplayFailed)
         return Fail(QStringLiteral("OnStartup 未成功显示根窗口"));
     return true;
 }
@@ -98,6 +102,9 @@ bool BootstrapperBase::CreateRootViewModel(const QMetaObject *type)
         return Fail(QStringLiteral("根 VM 必须无父对象且位于应用主线程"));
 
     m_root = std::move(model);
+    connect(m_root.get(), &ScreenViewModel::attemptingDeactivation, this, [this](bool close) {
+        if (close) m_closeAttempted = true;
+    });
     QQmlEngine::setObjectOwnership(m_root.get(), QQmlEngine::CppOwnership);
     return true;
 }
@@ -119,6 +126,9 @@ bool BootstrapperBase::DisplayRootView(const QVariant &viewModel)
         return Fail(QStringLiteral("根 View 加载失败或根对象不是窗口"));
     if (!m_windowManager->attachToWindow(qobject_cast<QQuickWindow *>(roots.first())))
         return Fail(QStringLiteral("根窗口弹窗宿主挂载失败"));
+    m_windowConductor = std::make_unique<WindowConductor>(
+        qobject_cast<QQuickWindow *>(roots.first()), m_root.get());
+    connect(m_windowConductor.get(), &WindowConductor::windowClosed, this, [this] { CloseRoot(); });
     m_rootDisplayed = true;
     return true;
 }
@@ -132,14 +142,23 @@ void BootstrapperBase::CloseRoot() noexcept
         m_cleanupFailed = true;
 }
 
+void BootstrapperBase::NotifyExit() noexcept
+{
+    if (m_exitNotified) return;
+    m_exitNotified = true;
+    if (!tryCleanup("执行 OnExit", [this] { OnExit(); }))
+        m_cleanupFailed = true;
+}
+
 void BootstrapperBase::Shutdown(bool invokeExit) noexcept
 {
     if (m_state == State::Stopping || m_state == State::Stopped)
         return;
     m_state = State::Stopping;
+    if (m_windowConductor) m_windowConductor->detach();
     CloseRoot();
-    if (invokeExit && !tryCleanup("执行 OnExit", [this] { OnExit(); }))
-        m_cleanupFailed = true;
+    if (invokeExit) NotifyExit();
+    m_windowConductor.reset();
     // View 先于其借用的 VM 销毁。
     m_engine.reset();
     m_root.reset();

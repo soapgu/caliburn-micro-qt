@@ -14,7 +14,8 @@ bool AppBootstrapper::Configure()
         && ViewRegistry::registerView<DetailViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/DetailView.qml")));
 }
 
-bool AppBootstrapper::OnStartup()
+void AppBootstrapper::OnStartup()
 {
-    return DisplayRootViewFor<ShellViewModel>();
+    if (!DisplayRootViewFor<ShellViewModel>())
+        return;
 }

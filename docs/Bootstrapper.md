@@ -19,8 +19,8 @@ int main(int argc, char *argv[])
 | --- | --- |
 | `int Run()` | 编排配置、启动、事件循环和清理。同一实例只能调用一次；重复调用返回 1，不重复执行退出钩子。 |
 | `bool Configure()` | 应用设置样式、登记业务 View 映射和根工厂；返回 false 则停止启动，不自动冻结注册表。成功后由 Bootstrapper 显式冻结，再进入 OnStartup。 |
-| `bool OnStartup()` | 应用调用 `DisplayRootViewFor<T>()`，返回启动结果。返回 true 但未成功加载根窗口仍会判定失败。 |
-| `void OnExit()` | 可选的应用退出钩子，在根生命周期关闭之后、View 和 VM 释放之前调用。配置或启动中途失败也会调用，须兼容部分初始化。 |
+| `void OnStartup()` | 默认空实现的虚方法；在 Configure 成功并冻结映射后调用。应用显示根窗口，显示失败、重复显示或未显示均判定启动失败。 |
+| `void OnExit()` | 默认空实现的虚方法。正常退出在 aboutToQuit 中、根关闭之后调用；失败清理补调。最多调用一次，调用时根 VM 与 QML 对象尚未释放，须兼容部分初始化。 |
 | `bool RegisterRootFactory<T>(std::function<std::unique_ptr<T>(std::shared_ptr<IWindowManager>)> factory)` | 只允许在 Configure 中登记，每个类型只能登记一次；拒绝空工厂，登记时不创建对象。工厂统一接收框架窗口服务并返回 unique_ptr<T>。 |
 | `bool DisplayRootViewFor<T>(RootViewOptions options = {})` | 只允许在 OnStartup 中调用；每个 Bootstrapper 只允许一次显示尝试，T 必须继承 ScreenViewModel。RootViewOptions 当前为空，预留根窗口设置扩展。 |
 
@@ -51,11 +51,11 @@ Bootstrapper 始终自动把标准 DialogHost 挂到 `QQuickWindow::contentItem(
 3. 查询根 View 地址，拒绝空映射与远程 URL。
 4. 初始化并激活根 Screen；Shell 的 Conductor 基类驱动 Home。
 5. 创建 QQmlApplicationEngine，类型化注入 viewModel，加载根 View。
-6. 验证加载结果恰有一个 QQuickWindow，自动挂载框架 DialogHost，成功后才进入应用事件循环。
-7. aboutToQuit 只关闭根生命周期，不在发起退出的 QML 调用栈内销毁引擎。
-8. 事件循环返回后，调用 OnExit，销毁引擎与 View，最后释放根 VM、子对象树、工厂与框架持有的窗口服务。
+6. 验证加载结果恰有一个 QQuickWindow，自动挂载 DialogHost 和私有 WindowConductor，成功后才进入应用事件循环。
+7. 窗口关闭先询问根 canClose；实际关闭后执行一次根生命周期。aboutToQuit 先停用桥接，再兜底关闭根并调用 OnExit，不销毁引擎。
+8. 事件循环返回后，未通知退出时补调 OnExit，然后销毁桥接、引擎与 View，最后释放根 VM、子对象树、工厂与框架持有的窗口服务。
 
-根对象关闭最多尝试一次，退出钩子调用一次。基类析构只兜底清理，不调用派生类 OnExit。Run 的清理路径捕获关闭钩子和 OnExit 的异常，继续释放剩余资源；异常不会从 aboutToQuit 回调逸出。
+根对象关闭最多尝试一次，包括业务直接执行根 deactivate(true) 的情况；退出钩子调用一次。基类析构只兜底清理，不调用派生类 OnExit。Run 的清理路径捕获关闭钩子和 OnExit 的异常，继续释放剩余资源；异常不会从 aboutToQuit 回调逸出。
 
 配置失败、缺少工厂、空对象、工厂或启动异常、缺少映射、QML 加载失败及根对象不是窗口都打印诊断并返回 1。正常退出保留 Qt 事件循环退出码；如果原退出码为 0 但清理失败，返回 1。
 
@@ -90,6 +90,6 @@ CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周�
 
 根 Shell 的逻辑 parentViewModel 为空；Bootstrapper 继续持有根 unique_ptr，不实现 IConductor，也不作为逻辑 Parent。退出先关闭根生命周期，再释放根 View/引擎，最后释放根 VM。已初始化单项 Conductor 关闭时仅处理当前项；普通停用后的旧对象不补发关闭生命周期，集合型清理全部成员；QObject 父树兜底回收未处理的延迟删除项。
 
-Screen 已提供通过 IConductor 关闭受管页面的 C++ tryClose；IConductor 已在 5B 迁移为 void 请求及 /2.0 IID。根 Shell 没有逻辑 Parent，tryClose 无操作，不发窗口关闭请求。Bootstrapper 退出行为没有变化，也没有关闭守卫。根窗口衔接继续见 [ToDoList](后续版本ToDoList.md)，本轮回归见 [tryClose 验收记录](tryClose验收记录.md)。
+Screen 的 tryClose 有 Parent 时委托 IConductor；无逻辑 Parent 时发送 closeRequested，由根 WindowConductor 请求窗口关闭。桥接先拒绝原关闭事件，在调用栈退出后询问根 canClose，获准后恢复关闭；其他 QML 关闭处理仍可拒绝。根直接完成 deactivate(true) 时反向关闭窗口，不重复守卫。普通停用不关闭窗口。未关联窗口的 Screen 发送请求后无操作。
 
-5A 重置确认已实现，框架提供默认确认映射并自动挂载宿主；5B Detail 退出确认/Conductor 关闭守卫已实现并完成本机验收，见 [阶段划分](迭代实现计划.md#第五批阶段划分)。5B 的父级关闭许可不包含主窗口关闭拦截；Bootstrapper 当前退出清理仍直接执行根生命周期，不等待用户确认。根 Shell.tryClose、窗口关闭事件与根关闭许可的衔接继续留待后续，本次自动宿主装配不改变根关闭许可协议。
+5A/5B 的能力及历史验收继续保留。当前增量补齐根窗口双向桥接及 CM 风格 void 启动、退出钩子，见 [根窗口验收记录](根窗口关闭守卫与生命周期验收记录.md)。旧 bool OnStartup 重写需迁移为 void；OnExit 从事件循环返回后前移到 aboutToQuit。配置和启动失败仍补调退出通知。直接 exit 或强制清理不询问守卫，多窗口和系统强制终止交互不在范围内。

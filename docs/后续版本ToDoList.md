@@ -18,10 +18,8 @@
 
 当前继续使用手写 QML 属性绑定和事件处理器，不提前改变示例。Action 动作绑定与 5A 已实现的 ConfirmActionViewModel 确认弹窗是不同能力，不绑定到 5A/5B 交付。本项尚未实现，不作为已支持接口或验收通过证据。
 
-## 根窗口关闭请求与 tryClose 衔接（待设计、待实施）
+## 根窗口关闭请求与 tryClose 衔接（已实现）
 
-受管页面的 Screen.tryClose 已实现：普通 C++ 方法通过当前逻辑 Parent 转换为 IConductor，再请求 deactivateItem(this, true)。Detail.goBack 作为 QML 返回入口，当前接口见 [Screen](ScreenViewModel.md#tryclose受管页面请求关闭自己) 与 [应用装配](IoC与应用装配.md#detail-自关闭返回)，本轮结果见 [tryClose 验收记录](tryClose验收记录.md)。
+根窗口与根 VM 通过 Bootstrapper 创建的私有 WindowConductor 双向关联。窗口关闭先检查根 canClose，根 tryClose 请求关联窗口关闭；根直接完成关闭生命周期后反向关闭窗口。Bootstrapper 协调一次性根清理和 OnExit，完整契约见 [Bootstrapper](Bootstrapper.md)、[关闭守卫](关闭守卫.md)，结果见 [根窗口验收](根窗口关闭守卫与生命周期验收记录.md)。
 
-根对象没有逻辑 Parent 时，tryClose 当前为 void 无操作，不向窗口发请求。如何衔接 Bootstrapper、窗口关闭事件、关闭许可及重复请求处理，仍待独立设计。5B 包含 Conductor 父级关闭许可，但不包含主窗口关闭拦截或根 Shell.tryClose 衔接；不能把父级守卫检查视为应用退出已受保护。
-
-当前 Bootstrapper 在退出清理阶段关闭根生命周期，这个阶段不负责等待用户确认。后续根窗口设计需要在允许窗口关闭前等待根关闭许可，并处理重复关闭及强制清理边界；当前尚未实现。Conductor 关闭守卫及单项当前项检查的范围改由 [5B 契约](关闭守卫.md) 维护，Action 和集合 View 保留继续留在本文件。
+后续仍不包含多窗口退出协调、系统强制终止交互拦截及 View 缓存；麒麟与外部消费工程待验证。
