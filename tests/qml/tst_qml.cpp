@@ -31,7 +31,7 @@ static HomeViewModelFactory makeHomeFactory(
 static DetailViewModelFactory makeDetailFactory(
         std::shared_ptr<CounterService> service = std::make_shared<CounterService>())
 {
-    return [service] { return std::make_unique<DetailViewModel>(service); };
+    return [service] { return std::make_unique<DetailViewModel>(service, testWindows()); };
 }
 
 class UnknownVm : public ViewModelBase { Q_OBJECT };
@@ -267,7 +267,7 @@ private slots:
         conductor.activate();
         auto first = std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows());
         auto *old = first.get();
-        QVERIFY(conductor.activateItem(std::move(first)));
+        conductor.activateItem(std::move(first));
         QQmlEngine engine;
         useEmbeddedModules(engine);
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
@@ -300,7 +300,7 @@ private slots:
         });
         auto next = std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows());
         auto *replacement = next.get();
-        QVERIFY(conductor.activateItem(std::move(next)));
+        conductor.activateItem(std::move(next));
         QCOMPARE(host->property("model").value<QObject *>(), replacement);
         QVERIFY(currentItem());
         QCOMPARE(currentItem()->property("viewModel").value<QObject *>(), replacement);
@@ -323,7 +323,7 @@ private slots:
             conductor.deactivate(true);
             QVERIFY(!conductor.isActive());
         } else {
-            QVERIFY(conductor.closeItem(replacement));
+            conductor.closeItem(replacement);
         }
         QVERIFY(!conductor.activeItem());
         QVERIFY(!currentItem());
@@ -333,7 +333,7 @@ private slots:
         QVERIFY(!replacedVm && !replacedView);
         QVERIFY(replacedViewGoneBeforeVm);
         conductor.activate();
-        QVERIFY(conductor.activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows())));
+        conductor.activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows()));
         delete conductor.activeItem();
         QVERIFY(!currentItem());
         QVERIFY(!host->property("model").value<QObject *>());
@@ -345,7 +345,7 @@ private slots:
     {
         HomeConductor conductor;
         conductor.activate();
-        QVERIFY(conductor.activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows())));
+        conductor.activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows()));
         auto *home = conductor.activeItem();
         home->add(3);
         QQmlEngine engine;
@@ -378,12 +378,12 @@ private slots:
         QCOMPARE(host->property("logicalParent").value<QObject *>(), &conductor);
         QVERIFY(!home->setProperty("parentViewModel", QVariant::fromValue(static_cast<QObject *>(nullptr))));
         IConductor *api = qobject_cast<IConductor *>(&conductor);
-        QVERIFY(api && api->deactivateItem(home, false));
+        QVERIFY(api); api->deactivateItem(home, false);
         QVERIFY(!item() && vm && !home->isActive());
         QCOMPARE(host->property("logicalParent").value<QObject *>(), &conductor);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QVERIFY(!firstView && vm);
-        QVERIFY(api->activateItem(home));
+        api->activateItem(home);
         QVERIFY(item() && home->isActive());
         QCOMPARE(item()->property("viewModel").value<QObject *>(), home);
         QCOMPARE(home->count(), 3);
@@ -391,7 +391,7 @@ private slots:
         QPointer<QQuickItem> lastView = item();
         bool viewGoneBeforeVm = false;
         connect(home, &QObject::destroyed, &engine, [&] { viewGoneBeforeVm = lastView.isNull(); });
-        QVERIFY(api->deactivateItem(home, true));
+        api->deactivateItem(home, true);
         QVERIFY(!item() && !host->property("logicalParent").value<QObject *>());
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QVERIFY(!vm && !lastView && viewGoneBeforeVm);
@@ -519,14 +519,14 @@ private slots:
         const auto property = conductor.metaObject()->property(conductor.metaObject()->indexOfProperty("items"));
         QVERIFY(!property.isWritable());
         QCOMPARE(observer->property("itemCount").toInt(), 0);
-        QVERIFY(conductor.activateItem(std::make_unique<ViewModelBase>()));
+        conductor.activateItem(std::make_unique<ViewModelBase>());
         auto *first = conductor.activeItem();
         QCOMPARE(observer->property("first").value<QObject *>(), first);
-        QVERIFY(conductor.activateItem(std::make_unique<ViewModelBase>()));
+        conductor.activateItem(std::make_unique<ViewModelBase>());
         QCOMPARE(observer->property("itemCount").toInt(), 2);
         QCOMPARE(observer->property("first").value<QObject *>(), first);
         QCOMPARE(observer->property("current").value<QObject *>(), conductor.activeItem());
-        QVERIFY(conductor.closeItem(conductor.activeItem()));
+        conductor.closeItem(conductor.activeItem());
         QCOMPARE(observer->property("itemCount").toInt(), 1);
         QCOMPARE(observer->property("current").value<QObject *>(), first);
         delete first;
@@ -536,7 +536,8 @@ private slots:
 
     void collectionNavigationRecreatesViews()
     {
-        auto shell = buildShell();
+        auto windows = std::make_shared<WindowManager>();
+        auto shell = buildShell(windows);
         shell->activate();
         auto *home = shell->home();
         home->add(3);
@@ -561,7 +562,7 @@ private slots:
         QVERIFY(show && show->isEnabled());
         QVERIFY(!window->findChild<QQuickItem *>(QStringLiteral("goHome")));
         QVERIFY(!window->findChild<QQuickItem *>(QStringLiteral("goBack")));
-        QVERIFY(!shell->tryClose() && window->isVisible());
+        shell->tryClose(); QVERIFY(window->isVisible());
         const auto click = [window](QQuickItem *button) {
             QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
                               button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
@@ -588,7 +589,12 @@ private slots:
         QStringList destruction;
         connect(firstDetailView.data(), &QObject::destroyed, &engine, [&] { destruction << "view"; });
         connect(detail, &QObject::destroyed, &engine, [&] { destruction << "vm"; });
+        QVERIFY(windows->attachToWindow(window));
         click(back.data());
+        QTRY_VERIFY(windows->busy());
+        QCOMPARE(shell->activeItem(), detail);
+        auto *accept = window->findChild<QQuickItem *>("dialogAccept");
+        QVERIFY(accept); click(accept);
         QTRY_VERIFY(displaysHome(window, home));
         QTRY_VERIFY(!firstDetailView && !oldDetail && !back);
         QCOMPARE(destruction, QStringList({"view", "vm"}));
@@ -612,6 +618,10 @@ private slots:
         QTest::keyClick(window, Qt::Key_Tab);
         QTRY_VERIFY(back->hasActiveFocus());
         QTest::keyClick(window, Qt::Key_Space);
+        QTRY_VERIFY(windows->busy());
+        auto *confirm = window->findChild<QQuickItem *>("dialogAccept");
+        QVERIFY(confirm); confirm->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_Return);
         QTRY_VERIFY(displaysHome(window, home));
         QTRY_VERIFY(!back);
         QCOMPARE(home->count(), 5);
@@ -630,7 +640,7 @@ private slots:
         auto shell = std::make_unique<ShellViewModel>([&] {
             if (fail) throw std::runtime_error("Home 工厂失败");
             return std::make_unique<HomeViewModel>(service, testWindows());
-        }, [service] { return std::make_unique<DetailViewModel>(service); });
+        }, [service] { return std::make_unique<DetailViewModel>(service, testWindows()); });
         shell->activate();
         shell->home()->add(2);
         QQmlApplicationEngine engine;
@@ -641,7 +651,7 @@ private slots:
         QVERIFY(engine.rootObjects().size() == 1);
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         QVERIFY(window && QTest::qWaitForWindowExposed(window));
-        QVERIFY(shell->showDetail());
+        shell->showDetail();
         auto *detail = shell->detail();
         QTRY_VERIFY(homeItem(window) && homeItem(window)->property("viewModel").value<QObject *>() == detail);
         QPointer<QQuickItem> view = homeItem(window);

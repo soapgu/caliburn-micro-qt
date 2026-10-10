@@ -1,6 +1,6 @@
 # WindowManager 与模态弹窗
 
-5A 已实现通用模态弹窗与 Home 重置确认，本机验证见 [5A 验收记录](5A验收记录.md)。5B 的回调守卫、Conductor 请求接口迁移和 Detail 退出确认仍为规划中、未实施、未验证。
+5A 已实现通用模态弹窗与 Home 重置确认，本机验证见 [5A 验收记录](5A验收记录.md)。5B 的回调守卫、void 请求接口迁移和 Detail 退出确认已实现并完成本机验收。
 
 ## C++ 接口与结果
 
@@ -77,4 +77,4 @@ Home.reset 设置 resetPending 后发起确认；canReset 要求计数大于零�
 
 ViewRegistry 自动提供确认视图的默认映射，应用可在冻结前显式注册替换视图；显式映射加载失败不会回退。Bootstrapper 在根窗口加载后自动挂载 DialogHost，Shell 不参与宿主装配。框架现在需要 Core/Qml/Quick/QuickControls2；不依赖业务模块或 Boost.Ext.DI。
 
-CM 3.2 WPF 使用同步 [WindowManager.ShowDialog](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro.Platform/net40/WindowManager.cs)，本项目保留 QFuture/QPromise 是明确的 Qt 适配差异，不通过嵌套事件循环复刻阻塞返回。Screen 和 Conductor 的同步生命周期与 bool 请求接口未改动；5B 仍按 [迭代计划](迭代实现计划.md#第五批阶段划分) 另行实施。
+CM 3.2 WPF 使用同步 [WindowManager.ShowDialog](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro.Platform/net40/WindowManager.cs)，本项目保留 QFuture/QPromise 是明确的 Qt 适配差异，不通过嵌套事件循环复刻阻塞返回。Screen 与 Conductor 生命周期仍同步；5B 已将请求接口迁移为 void，实际完成看生命周期通知，见 [关闭守卫](关闭守卫.md)。

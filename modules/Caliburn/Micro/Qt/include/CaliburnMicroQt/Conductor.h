@@ -24,24 +24,17 @@ public:
 
     template<class U, std::enable_if_t<std::is_base_of_v<T, U>
                                      && !std::is_const_v<U> && !std::is_volatile_v<U>, int> = 0>
-    [[nodiscard]] bool activateItem(std::unique_ptr<U> &&item)
+    void activateItem(std::unique_ptr<U> &&item)
     {
-        // 校验前不转换 unique_ptr，拒绝时调用方仍持有原来的具体类型对象。
         if (!validateItemChange(item.get())) {
             onActivationProcessed(item.get(), false);
-            return false;
+            return;
         }
         changeActiveItem(std::unique_ptr<ViewModelBase>(std::move(item)));
-        return true;
     }
 
-    [[nodiscard]] bool activateItem(std::nullptr_t)
-    {
-        changeActiveItem(nullptr);
-        return true;
-    }
-
-    [[nodiscard]] bool activateItem(T *item) { return ConductorViewModelBase::activateItem(item); }
-    [[nodiscard]] bool deactivateItem(T *item, bool close) { return ConductorViewModelBase::deactivateItem(item, close); }
-    [[nodiscard]] bool closeItem(T *item) { return deactivateItem(item, true); }
+    void activateItem(std::nullptr_t) { ConductorViewModelBase::activateItem(nullptr); }
+    void activateItem(T *item) { ConductorViewModelBase::activateItem(item); }
+    void deactivateItem(T *item, bool close) { ConductorViewModelBase::deactivateItem(item, close); }
+    void closeItem(T *item) { static_cast<IConductor *>(this)->deactivateItem(item, true); }
 };

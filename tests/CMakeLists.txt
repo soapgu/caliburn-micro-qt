@@ -113,3 +113,8 @@ foreach(mapping IN ITEMS override missing)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;CMQT_CONFIRM_MAPPING=${mapping}"
         TIMEOUT 15)
 endforeach()
+
+add_executable(CaliburnGuardCloseTests cpp/tst_guardclose.cpp)
+target_link_libraries(CaliburnGuardCloseTests PRIVATE Caliburn::MicroQt Qt6::Test)
+add_test(NAME guardclose COMMAND CaliburnGuardCloseTests)
+set_tests_properties(guardclose PROPERTIES TIMEOUT 30)

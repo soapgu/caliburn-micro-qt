@@ -46,8 +46,8 @@ private slots:
         QSignalSpy active(&c, &ConductorCollectionOneActiveViewModelBase::activeItemChanged);
         std::unique_ptr<PlainVm> empty;
         QVERIFY(!c.addItem(std::move(empty)));
-        QVERIFY(c.activateItem(std::move(empty)));
-        QVERIFY(c.activateItem(nullptr));
+        c.activateItem(std::move(empty));
+        c.activateItem(nullptr);
         QCOMPARE(items.count(), 0);
         QCOMPARE(active.count(), 0);
         auto owned = std::make_unique<PlainVm>();
@@ -63,20 +63,20 @@ private slots:
         const auto variants = c.property("items").toList();
         QCOMPARE(variants.size(), 1);
         QCOMPARE(variants.first().value<ViewModelBase *>(), first);
-        QVERIFY(c.activateItem(first));
-        QVERIFY(c.activateItem(first));
-        QVERIFY(c.activateItem(std::make_unique<PlainVm>()));
+        c.activateItem(first);
+        c.activateItem(first);
+        c.activateItem(std::make_unique<PlainVm>());
         QCOMPARE(c.items().size(), 2);
         QCOMPARE(items.count(), 2);
         QCOMPARE(active.count(), 2);
         PlainVm foreign;
-        QVERIFY(!c.activateItem(&foreign));
-        QVERIFY(!c.closeItem(&foreign));
-        QVERIFY(!c.closeItem(nullptr));
-        QVERIFY(c.activateItem(nullptr));
+        c.activateItem(&foreign);
+        c.closeItem(&foreign);
+        c.closeItem(nullptr);
+        c.activateItem(nullptr);
         QCOMPARE(c.items().size(), 2);
         QCOMPARE(active.count(), 3);
-        QVERIFY(c.closeItem(first));
+        c.closeItem(first);
         QCOMPARE(c.items().size(), 1);
     }
 
@@ -87,7 +87,7 @@ private slots:
         auto a = std::make_unique<TrackedScreen>("a", &events);
         auto *first = a.get();
         QVERIFY(c.addItem(std::move(a)));
-        QVERIFY(c.activateItem(first));
+        c.activateItem(first);
         c.initialize();
         QVERIFY(!first->isInitialized());
         c.activate();
@@ -98,16 +98,16 @@ private slots:
         });
         connect(&c, &Collection::activeItemChanged, this, [&] { events << "active"; });
         events.clear();
-        QVERIFY(c.activateItem(std::make_unique<TrackedScreen>("b", &events)));
+        c.activateItem(std::make_unique<TrackedScreen>("b", &events));
         auto *second = c.activeItem();
         QCOMPARE(events, QStringList({"items", "active", "a:deactivate", "b:initialize", "b:activate"}));
         QVERIFY(!first->isActive() && second->isActive());
         QCOMPARE(c.items().size(), 2);
         events.clear();
-        QVERIFY(c.activateItem(first));
+        c.activateItem(first);
         QCOMPARE(events, QStringList({"active", "b:deactivate", "a:activate"}));
         events.clear();
-        QVERIFY(c.activateItem(first));
+        c.activateItem(first);
         QVERIFY(events.isEmpty());
         c.deactivate();
         QVERIFY(!first->isActive());
@@ -128,21 +128,21 @@ private slots:
         QFETCH(bool, emptyOwner);
         QStringList events;
         Collection c;
-        QVERIFY(c.activateItem(std::make_unique<TrackedScreen>("a", &events)));
+        c.activateItem(std::make_unique<TrackedScreen>("a", &events));
         auto *first = c.activeItem();
         c.activate();
         events.clear();
         if (emptyOwner) {
             std::unique_ptr<TrackedScreen> empty;
-            QVERIFY(c.activateItem(std::move(empty)));
+            c.activateItem(std::move(empty));
         } else {
-            QVERIFY(c.activateItem(nullptr));
+            c.activateItem(nullptr);
         }
         QVERIFY(!c.activeItem());
         QCOMPARE(events, QStringList({"a:deactivate"}));
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QCOMPARE(c.items().first(), first);
-        QVERIFY(c.activateItem(first));
+        c.activateItem(first);
         QCOMPARE(events.last(), QStringLiteral("a:activate"));
     }
 
@@ -169,7 +169,7 @@ private slots:
             QVERIFY(c.addItem(std::make_unique<TrackedScreen>(QString::number(i), &events, &destroyed)));
         const auto original = c.items();
         auto *old = original[index];
-        QVERIFY(c.activateItem(old));
+        c.activateItem(old);
         if (parentActive)
             c.activate();
         else
@@ -182,7 +182,7 @@ private slots:
         });
         connect(&c, &Collection::activeItemChanged, this, [&] { events << "active"; });
         events.clear();
-        QVERIFY(c.closeItem(old));
+        c.closeItem(old);
         QStringList wanted{"items", "active"};
         if (parentActive)
             wanted << QString::number(index) + ":close";
@@ -190,7 +190,7 @@ private slots:
             wanted << QString::number(expected) + ":initialize" << QString::number(expected) + ":activate";
         QCOMPARE(events, wanted);
         QVERIFY(weak);
-        QVERIFY(!c.closeItem(old));
+        c.closeItem(old);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QVERIFY(!weak);
         QCOMPARE(destroyed, 1);
@@ -202,16 +202,16 @@ private slots:
         QStringList events;
         int destroyed = 0;
         Collection c;
-        QVERIFY(c.activateItem(std::make_unique<TrackedScreen>("a", &events, &destroyed)));
+        c.activateItem(std::make_unique<TrackedScreen>("a", &events, &destroyed));
         auto *first = c.activeItem();
         c.deactivate(true); // 未初始化不清空。
         QCOMPARE(c.items().size(), 1);
         c.activate();
-        QVERIFY(c.activateItem(std::make_unique<TrackedScreen>("b", &events, &destroyed)));
+        c.activateItem(std::make_unique<TrackedScreen>("b", &events, &destroyed));
         auto *second = c.activeItem();
         events.clear();
         QSignalSpy selection(&c, &Collection::activeItemChanged);
-        QVERIFY(c.closeItem(first));
+        c.closeItem(first);
         QCOMPARE(events, QStringList({"a:close"}));
         QCOMPARE(selection.count(), 0);
         QCOMPARE(c.activeItem(), second);
@@ -235,9 +235,9 @@ private slots:
         QStringList events;
         Collection c;
         c.activate();
-        QVERIFY(c.activateItem(std::make_unique<TrackedScreen>("a", &events)));
+        c.activateItem(std::make_unique<TrackedScreen>("a", &events));
         auto *a = c.activeItem();
-        QVERIFY(c.activateItem(std::make_unique<TrackedScreen>("b", &events)));
+        c.activateItem(std::make_unique<TrackedScreen>("b", &events));
         auto *b = c.activeItem();
         QSignalSpy selected(&c, &Collection::activeItemChanged);
         QSignalSpy members(&c, &Collection::itemsChanged);
@@ -254,9 +254,9 @@ private slots:
     void unexpectedDeletionDoesNotNavigate()
     {
         Collection c;
-        QVERIFY(c.activateItem(std::make_unique<TrackedScreen>()));
+        c.activateItem(std::make_unique<TrackedScreen>());
         auto *first = c.activeItem();
-        QVERIFY(c.activateItem(std::make_unique<TrackedScreen>()));
+        c.activateItem(std::make_unique<TrackedScreen>());
         auto *second = c.activeItem();
         c.activate();
         QSignalSpy members(&c, &Collection::itemsChanged);
@@ -272,7 +272,7 @@ private slots:
         QCOMPARE(c.items().size(), 1);
         QVERIFY(!remaining->isActive());
         QCOMPARE(selected.count(), 1);
-        QVERIFY(c.activateItem(remaining));
+        c.activateItem(remaining);
     }
 
     void ownershipRejection()
@@ -287,7 +287,7 @@ private slots:
         auto active = std::make_unique<TrackedScreen>();
         active->activate();
         QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的 Screen");
-        QVERIFY(!c.activateItem(std::move(active)));
+        c.activateItem(std::move(active));
         QVERIFY(active && active->isActive());
         auto self = std::make_unique<ConductorCollectionOneActive<>>();
         QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管自身或祖先对象");
@@ -296,7 +296,7 @@ private slots:
         auto ancestor = std::make_unique<ConductorCollectionOneActive<>>();
         auto *child = new ConductorCollectionOneActive<>(ancestor.get());
         QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管自身或祖先对象");
-        QVERIFY(!child->activateItem(std::move(ancestor)));
+        child->activateItem(std::move(ancestor));
         QVERIFY(ancestor);
         QVERIFY(c.items().isEmpty());
     }
@@ -335,17 +335,17 @@ private slots:
         auto outer = std::make_unique<Collection>();
         auto inner = std::make_unique<Collection>();
         auto *nested = inner.get();
-        QVERIFY(inner->activateItem(std::make_unique<TrackedScreen>("leaf", nullptr, &destroyed)));
+        inner->activateItem(std::make_unique<TrackedScreen>("leaf", nullptr, &destroyed));
         QPointer<ScreenViewModel> leaf = inner->activeItem();
-        QVERIFY(outer->activateItem(std::move(inner)));
+        outer->activateItem(std::move(inner));
         outer->activate();
         QVERIFY(nested->isActive() && leaf->isActive());
         outer->deactivate();
         QVERIFY(!nested->isActive() && !leaf->isActive());
         outer->activate();
-        QVERIFY(outer->closeItem(nested));
+        outer->closeItem(nested);
         QVERIFY(nested->items().isEmpty());
-        QVERIFY(outer->activateItem(std::make_unique<TrackedScreen>("new", nullptr, &destroyed)));
+        outer->activateItem(std::make_unique<TrackedScreen>("new", nullptr, &destroyed));
         QPointer<ScreenViewModel> current = outer->activeItem();
         QSignalSpy changed(outer.get(), &Collection::activeItemChanged);
         outer.reset(); // 父树回收等待删除的项和当前项。

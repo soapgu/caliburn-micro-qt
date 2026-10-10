@@ -15,6 +15,10 @@ qt_add_qml_module(CaliburnMicroQt
         src/ViewModelBase.cpp
         include/CaliburnMicroQt/IChild.h
         include/CaliburnMicroQt/IParent.h
+        include/CaliburnMicroQt/IGuardClose.h
+        include/CaliburnMicroQt/ICloseStrategy.h
+        include/CaliburnMicroQt/DefaultCloseStrategy.h
+        src/DefaultCloseStrategy.cpp
         include/CaliburnMicroQt/IConductor.h
         include/CaliburnMicroQt/ConductorBase.h
         src/ConductorBase.cpp

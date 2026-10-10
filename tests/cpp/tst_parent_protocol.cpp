@@ -52,18 +52,16 @@ class CloseRequestParent : public ConductorBase
 {
 public:
     int calls = 0;
-    bool accepted = false;
     bool throws = false;
     bool requestedClose = false;
     ViewModelBase *target = nullptr;
     void attach(ViewModelBase *child, QObject *parent) { setLogicalParent(child, parent); }
     QList<ViewModelBase *> getChildren() const override { return {}; }
-    bool activateItem(ViewModelBase *) override { return false; }
-    bool deactivateItem(ViewModelBase *item, bool close) override
+    void activateItem(ViewModelBase *) override {}
+    void deactivateItem(ViewModelBase *item, bool close) override
     {
         ++calls; target = item; requestedClose = close;
         if (throws) throw std::runtime_error("关闭请求失败");
-        return accepted;
     }
 };
 
@@ -115,23 +113,22 @@ private slots:
         ProtocolScreen screen;
         screen.activate();
         screen.setParent(&manager);
-        QVERIFY(!screen.tryClose()); // QObject 所有权不能代替逻辑 Parent。
+        screen.tryClose(); // QObject 所有权不能代替逻辑 Parent。
         QCOMPARE(manager.calls, 0);
         QVERIFY(screen.isActive());
         manager.attach(&screen, &unrelated);
-        QVERIFY(!screen.tryClose());
+        screen.tryClose();
         QCOMPARE(manager.calls, 0);
         manager.attach(&screen, &manager);
-        QVERIFY(!screen.tryClose());
+        screen.tryClose();
         QCOMPARE(manager.calls, 1);
         QCOMPARE(manager.target, &screen);
         QVERIFY(manager.requestedClose && screen.isActive());
         QCOMPARE(screen.parentViewModel(), &manager);
-        manager.accepted = true;
-        QVERIFY(screen.tryClose());
+        screen.tryClose();
         QCOMPARE(manager.calls, 2);
         manager.attach(&screen, &unrelated);
-        QVERIFY(!screen.tryClose()); // 每次重新读取 Parent。
+        screen.tryClose(); // 每次重新读取 Parent。
         QCOMPARE(manager.calls, 2);
         manager.attach(&screen, &manager);
         manager.throws = true;
@@ -157,30 +154,27 @@ private slots:
         auto owned = std::make_unique<ProtocolScreen>();
         owned->destroyed = &destroyed;
         QPointer<ProtocolScreen> page = owned.get();
-        QVERIFY(c.activateItem(std::move(owned)));
+        c.activateItem(std::move(owned));
         ProtocolScreen *other = nullptr;
         if (retained) {
-            QVERIFY(c.deactivateItem(page.data(), false));
-            QVERIFY(c.activateItem(std::make_unique<ProtocolScreen>()));
+            c.deactivateItem(page.data(), false);
+            c.activateItem(std::make_unique<ProtocolScreen>());
             other = c.activeItem();
         }
         QSignalSpy selected(&c, &ConductorViewModelBase::activeItemChanged);
         QSignalSpy result(&c, &ConductorBase::activationProcessed);
         QSignalSpy parent(page.data(), &ScreenViewModel::parentViewModelChanged);
-        QVERIFY(page->tryClose());
-        QVERIFY(page && !page->parentViewModel());
+        page->tryClose();
         QCOMPARE(page->parent(), &c);
-        QCOMPARE(page->closed, 1);
-        QVERIFY(page->closeSawEmptyParent);
         QCOMPARE(c.activeItem(), other);
         QCOMPARE(selected.count(), retained ? 0 : 1);
-        QCOMPARE(parent.count(), 1);
+        QCOMPARE(parent.count(), retained ? 0 : 1);
         QCOMPARE(result.count(), 0);
-        QVERIFY(!page->tryClose());
-        QCOMPARE(page->closed, 1);
+        QCOMPARE(page->closed, retained ? 0 : 1);
+        QCOMPARE(page->parentViewModel(), retained ? &c : nullptr);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(!page);
-        QCOMPARE(destroyed, 1);
+        QCOMPARE(bool(page), retained);
+        QCOMPARE(destroyed, retained ? 0 : 1);
     }
 
     void tryCloseCollectionAndNestedConductor()
@@ -192,15 +186,15 @@ private slots:
         auto leaf = std::make_unique<ProtocolScreen>();
         leaf->destroyed = &destroyed;
         QPointer<ProtocolScreen> page = leaf.get();
-        QVERIFY(middle->activateItem(std::move(leaf)));
-        QVERIFY(outer->activateItem(std::move(inner)));
-        QVERIFY(outer->activateItem(std::make_unique<ProtocolScreen>()));
+        middle->activateItem(std::move(leaf));
+        outer->activateItem(std::move(inner));
+        outer->activateItem(std::make_unique<ProtocolScreen>());
         auto *neighbor = outer->activeItem();
-        QVERIFY(outer->activateItem(middle));
+        outer->activateItem(middle);
         outer->activate();
         QSignalSpy processed(outer.get(), &ConductorBase::activationProcessed);
         QPointer<ScreenViewModel> pending = middle;
-        QVERIFY(middle->tryClose());
+        middle->tryClose();
         QCOMPARE(outer->activeItem(), neighbor);
         QCOMPARE(outer->getChildren(), QList<ViewModelBase *>{neighbor});
         QVERIFY(neighbor->isActive());
@@ -209,7 +203,7 @@ private slots:
         QCOMPARE(page->closed, 1);
         QCOMPARE(processed.count(), 1);
         QCOMPARE(processed.first().at(0).value<ViewModelBase *>(), neighbor);
-        QVERIFY(!middle->tryClose());
+        middle->tryClose();
         outer.reset(); // 删除事件之前父树兜底，不能双重回收。
         QVERIFY(!pending && !page);
         QCOMPARE(destroyed, 1);
@@ -224,11 +218,11 @@ private slots:
         c.activate();
         auto owned = std::make_unique<ProtocolScreen>();
         auto *page = owned.get();
-        QVERIFY(c.activateItem(std::move(owned)));
+        c.activateItem(std::move(owned));
         QSignalSpy parent(page, &ScreenViewModel::parentViewModelChanged);
         QSignalSpy active(&c, &ConductorViewModelBase::activeItemChanged);
         QSignalSpy processed(&c, &ConductorBase::activationProcessed);
-        QVERIFY(api->deactivateItem(page, false));
+        api->deactivateItem(page, false);
         QVERIFY(!c.activeItem() && api->getChildren().isEmpty());
         QCOMPARE(page->parentViewModel(), &c);
         QCOMPARE(page->parent(), &c);
@@ -238,10 +232,10 @@ private slots:
         QCOMPARE(active.count(), 1);
         QCOMPARE(parent.count(), 0);
         QCOMPARE(processed.count(), 0);
-        QVERIFY(api->activateItem(nullptr));
-        QVERIFY(api->deactivateItem(page, false));
+        api->activateItem(nullptr);
+        api->deactivateItem(page, false);
         QCOMPARE(active.count(), 1);
-        QVERIFY(api->activateItem(page));
+        api->activateItem(page);
         QCOMPARE(c.activeItem(), page);
         QCOMPARE(api->getChildren(), QList<ViewModelBase *>{page});
         QVERIFY(page->isActive());
@@ -254,126 +248,107 @@ private slots:
         QVERIFY(page->isActive());
     }
 
-    void retainedRestoreClosesOnlyCurrent()
+    void businessCanReactivateOldObjectAndClosesCurrent()
     {
         Conductor<ProtocolScreen> c;
         c.activate();
         auto first = std::make_unique<ProtocolScreen>();
         auto *a = first.get();
-        QVERIFY(c.activateItem(std::move(first)));
-        QVERIFY(c.deactivateItem(a, false));
+        c.activateItem(std::move(first));
+        c.deactivateItem(a, false);
         auto second = std::make_unique<ProtocolScreen>();
         auto *b = second.get();
-        QVERIFY(c.activateItem(std::move(second)));
+        c.activateItem(std::move(second));
         QPointer<ProtocolScreen> old = b;
-        QVERIFY(c.activateItem(a));
+        c.activateItem(a);
         QCOMPARE(a->initialized, 1);
         QCOMPARE(b->closed, 1);
         QVERIFY(b->closeSawEmptyParent);
         QCOMPARE(b->parent(), &c);
-        QVERIFY(!c.activateItem(b));
-        QVERIFY(!c.closeItem(b));
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QVERIFY(!old);
         QCOMPARE(c.activeItem(), a);
     }
 
-    void closeRetainedDoesNotChangeSelection()
+    void closeNonCurrentOldObjectIsNoOp()
     {
         Conductor<ProtocolScreen> c;
         c.activate();
-        QVERIFY(c.activateItem(std::make_unique<ProtocolScreen>()));
+        c.activateItem(std::make_unique<ProtocolScreen>());
         auto *a = c.activeItem();
-        QVERIFY(c.deactivateItem(a, false));
-        QVERIFY(c.activateItem(std::make_unique<ProtocolScreen>()));
+        c.deactivateItem(a, false);
+        c.activateItem(std::make_unique<ProtocolScreen>());
         auto *b = c.activeItem();
         QSignalSpy selected(&c, &ConductorViewModelBase::activeItemChanged);
         QSignalSpy processed(&c, &ConductorBase::activationProcessed);
-        QVERIFY(c.closeItem(a));
+        c.closeItem(a);
         QCOMPARE(c.activeItem(), b);
-        QCOMPARE(a->closed, 1);
-        QVERIFY(a->closeSawEmptyParent && !a->parentViewModel());
+        QCOMPARE(a->closed, 0);
+        QCOMPARE(a->parentViewModel(), &c);
         QCOMPARE(selected.count(), 0);
         QCOMPARE(processed.count(), 0);
-        QVERIFY(!c.closeItem(a));
+        c.closeItem(a);
     }
 
-    void parentClosesAllRetained_data()
+    void parentDoesNotCloseOldObjects_data()
     {
         QTest::addColumn<bool>("initialized");
         QTest::newRow("initialized") << true;
         QTest::newRow("uninitialized") << false;
     }
-    void parentClosesAllRetained()
+    void parentDoesNotCloseOldObjects()
     {
         QFETCH(bool, initialized);
         int destroyed = 0;
-        Conductor<ProtocolScreen> c;
-        if (initialized) c.activate();
+        auto c = std::make_unique<Conductor<ProtocolScreen>>();
+        if (initialized) c->activate();
         QList<QPointer<ProtocolScreen>> pages;
         for (int i = 0; i < 3; ++i) {
             auto next = std::make_unique<ProtocolScreen>();
             next->destroyed = &destroyed;
-            auto *page = next.get();
-            QVERIFY(c.activateItem(std::move(next)));
-            pages << page;
-            QVERIFY(c.deactivateItem(page, false));
+            auto *page = next.get(); c->activateItem(std::move(next));
+            pages << page; c->deactivateItem(page, false);
         }
-        QVERIFY(c.getChildren().isEmpty());
-        c.deactivate(true);
-        if (!initialized) {
-            for (const auto &page : pages) QCOMPARE(page->parentViewModel(), &c);
-            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-            QCOMPARE(destroyed, 0);
-            c.initialize();
-            c.deactivate(true);
-        }
+        QVERIFY(c->getChildren().isEmpty());
+        c->deactivate(true);
         for (const auto &page : pages) {
-            QVERIFY(page && !page->parentViewModel());
-            QCOMPARE(page->closed, initialized ? 1 : 0);
-            QVERIFY(!c.activateItem(page.data()));
+            QVERIFY(page); QCOMPARE(page->closed, 0);
+            QCOMPARE(page->parentViewModel(), c.get());
         }
-        c.deactivate(true);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QCOMPARE(destroyed, 3);
+        QCOMPARE(destroyed, 0);
+        c.reset(); QCOMPARE(destroyed, 3);
         for (const auto &page : pages) QVERIFY(!page);
     }
 
-    void parentClosesCurrentAndRetainedTogether()
+    void parentClosesOnlyCurrent()
     {
         int destroyed = 0;
         QStringList events;
-        Conductor<ProtocolScreen> c;
-        c.activate();
+        auto c = std::make_unique<Conductor<ProtocolScreen>>(); c->activate();
         QList<QPointer<ProtocolScreen>> pages;
         for (int i = 0; i < 3; ++i) {
             auto next = std::make_unique<ProtocolScreen>();
-            next->name = QString::number(i);
-            next->events = &events;
-            next->destroyed = &destroyed;
-            auto *page = next.get();
-            QVERIFY(c.activateItem(std::move(next)));
-            pages << page;
-            if (i < 2) QVERIFY(c.deactivateItem(page, false));
+            next->name = QString::number(i); next->events = &events; next->destroyed = &destroyed;
+            auto *page = next.get(); c->activateItem(std::move(next)); pages << page;
+            if (i < 2) c->deactivateItem(page, false);
         }
         events.clear();
-        connect(&c, &ConductorViewModelBase::activeItemChanged, &c, [&] {
-            QVERIFY(!c.activeItem() && c.getChildren().isEmpty());
-            for (const auto &page : pages) {
-                QVERIFY(page && !page->parentViewModel());
-                QCOMPARE(page->parent(), &c);
-                QCOMPARE(page->closed, 0);
-            }
+        connect(c.get(), &ConductorViewModelBase::activeItemChanged, c.get(), [&] {
+            QVERIFY(!c->activeItem() && c->getChildren().isEmpty());
+            QCOMPARE(pages[0]->parentViewModel(), c.get());
+            QCOMPARE(pages[1]->parentViewModel(), c.get());
+            QVERIFY(!pages[2]->parentViewModel());
             events << "selection";
         });
-        QSignalSpy result(&c, &ConductorBase::activationProcessed);
-        c.deactivate(true);
-        QCOMPARE(events, QStringList({"selection", "0:close", "1:close", "2:close"}));
+        QSignalSpy result(c.get(), &ConductorBase::activationProcessed);
+        c->deactivate(true);
+        QCOMPARE(events, QStringList({"selection", "2:close"}));
         QCOMPARE(result.count(), 0);
-        QCOMPARE(destroyed, 0);
-        for (const auto &page : pages) QVERIFY(page->closeSawEmptyParent);
+        QCOMPARE(pages[0]->closed, 0); QCOMPARE(pages[1]->closed, 0); QCOMPARE(pages[2]->closed, 1);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QCOMPARE(destroyed, 3);
+        QCOMPARE(destroyed, 1); QVERIFY(pages[0] && pages[1] && !pages[2]);
+        c.reset(); QCOMPARE(destroyed, 3);
     }
 
     void collectionParentNotificationOrder()
@@ -381,7 +356,7 @@ private slots:
         QStringList events;
         Conductor<ProtocolScreen>::Collection::OneActive c;
         c.activate();
-        QVERIFY(c.activateItem(std::make_unique<ProtocolScreen>()));
+        c.activateItem(std::make_unique<ProtocolScreen>());
         auto *a = c.activeItem();
         auto next = std::make_unique<ProtocolScreen>();
         auto *b = next.get();
@@ -406,10 +381,10 @@ private slots:
         connect(&c, &ConductorBase::activationProcessed, &c, [&](ViewModelBase *item, bool success) {
             QVERIFY(success && item == c.activeItem()); events << "processed";
         });
-        QVERIFY(c.activateItem(std::move(next)));
+        c.activateItem(std::move(next));
         QCOMPARE(events, QStringList({"parent", "items", "selection", "b:activate", "processed"}));
         events.clear();
-        QVERIFY(c.deactivateItem(b, true));
+        c.deactivateItem(b, true);
         QCOMPARE(events, QStringList({"detach", "items", "selection", "b:close", "processed"}));
         QVERIFY(b->closeSawEmptyParent);
     }
@@ -423,10 +398,11 @@ private slots:
             auto page = std::make_unique<ProtocolScreen>();
             page->destroyed = &destroyed;
             auto *raw = page.get();
-            return c->activateItem(std::move(page)) ? raw : nullptr;
+            c->activateItem(std::move(page));
+            return c->activeItem() == raw ? raw : nullptr;
         };
         auto *a = add();
-        QVERIFY(a && c->deactivateItem(a, false));
+        QVERIFY(a); c->deactivateItem(a, false);
         auto *b = add();
         QSignalSpy changed(c.get(), &ConductorViewModelBase::activeItemChanged);
         delete a;
@@ -436,9 +412,9 @@ private slots:
         QCOMPARE(changed.count(), 1);
         QVERIFY(!c->activeItem());
         QPointer<ProtocolScreen> pending = add();
-        QVERIFY(c->closeItem(pending.data()));
+        c->closeItem(pending.data());
         QPointer<ProtocolScreen> retained = add();
-        QVERIFY(c->deactivateItem(retained.data(), false));
+        c->deactivateItem(retained.data(), false);
         QPointer<ProtocolScreen> current = add();
         c.reset();
         QVERIFY(!pending && !retained && !current);
@@ -458,7 +434,7 @@ private slots:
         connect(a, &ScreenViewModel::parentViewModelChanged, &c, [&] {
             events << (a->parentViewModel() ? "a:parent" : "a:detach");
         });
-        QVERIFY(c.activateItem(std::move(first)));
+        c.activateItem(std::move(first));
         events.clear();
         auto second = std::make_unique<ProtocolScreen>();
         second->name = "b"; second->events = &events;
@@ -473,7 +449,7 @@ private slots:
         connect(&c, &ConductorBase::activationProcessed, &c, [&](ViewModelBase *item, bool success) {
             QCOMPARE(item, b); QVERIFY(success && b->isActive()); events << "processed";
         });
-        QVERIFY(c.activateItem(std::move(second)));
+        c.activateItem(std::move(second));
         QCOMPARE(events, QStringList({"a:detach", "b:parent", "selection", "a:close", "b:activate", "processed"}));
     }
 
@@ -482,13 +458,13 @@ private slots:
         Conductor<> c;
         auto owned = std::make_unique<CustomChild>();
         auto *child = owned.get();
-        QVERIFY(c.activateItem(std::move(owned)));
+        c.activateItem(std::move(owned));
         QCOMPARE(child->parentViewModel(), &c);
         QCOMPARE(child->changes, 1);
-        QVERIFY(c.deactivateItem(child, false));
-        QVERIFY(c.activateItem(child));
+        c.deactivateItem(child, false);
+        c.activateItem(child);
         QCOMPARE(child->changes, 1);
-        QVERIFY(c.closeItem(child));
+        c.closeItem(child);
         QCOMPARE(child->changes, 2);
         Conductor<>::Collection::OneActive customCollection;
         auto customOwned = std::make_unique<CustomChild>();
@@ -498,11 +474,11 @@ private slots:
         QCOMPARE(custom->parentViewModel(), &customCollection);
         QCOMPARE(addedResult.count(), 0);
         IConductor *customApi = &customCollection;
-        QVERIFY(customApi->activateItem(custom));
-        QVERIFY(customApi->deactivateItem(custom, false));
+        customApi->activateItem(custom);
+        customApi->deactivateItem(custom, false);
         QCOMPARE(customCollection.activeItem(), custom);
         QCOMPARE(custom->changes, 1);
-        QVERIFY(customApi->deactivateItem(custom, true));
+        customApi->deactivateItem(custom, true);
         QVERIFY(!custom->parentViewModel());
         QCOMPARE(custom->changes, 2);
         QObject owner;
@@ -510,14 +486,14 @@ private slots:
         auto *raw = rejected.get();
         QSignalSpy result(&c, &ConductorBase::activationProcessed);
         QTest::ignoreMessage(QtWarningMsg, "Conductor：不能接管已有逻辑 Parent 的对象");
-        QVERIFY(!c.activateItem(std::move(rejected)));
+        c.activateItem(std::move(rejected));
         QCOMPARE(rejected.get(), raw);
         QCOMPARE(raw->parentViewModel(), &owner);
         QCOMPARE(result.count(), 1);
         QVERIFY(!result.first().at(1).toBool());
         Conductor<>::Collection::OneActive collection;
         QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已有逻辑 Parent 的对象");
-        QVERIFY(!collection.activateItem(std::move(rejected)));
+        collection.activateItem(std::move(rejected));
         QCOMPARE(rejected.get(), raw);
     }
 
@@ -526,9 +502,9 @@ private slots:
         Conductor<ProtocolScreen>::Collection::OneActive c;
         IConductor *api = &c;
         c.activate();
-        QVERIFY(c.activateItem(std::make_unique<ProtocolScreen>()));
+        c.activateItem(std::make_unique<ProtocolScreen>());
         auto *a = c.activeItem();
-        QVERIFY(c.activateItem(std::make_unique<ProtocolScreen>()));
+        c.activateItem(std::make_unique<ProtocolScreen>());
         auto *b = c.activeItem();
         QCOMPARE(api->getChildren(), (QList<ViewModelBase *>{a, b}));
         auto snapshot = api->getChildren(); snapshot.clear();
@@ -536,26 +512,26 @@ private slots:
         QSignalSpy parent(a, &ScreenViewModel::parentViewModelChanged);
         QSignalSpy selected(&c, &ConductorCollectionOneActiveViewModelBase::activeItemChanged);
         QSignalSpy processed(&c, &ConductorBase::activationProcessed);
-        QVERIFY(api->deactivateItem(b, false));
+        api->deactivateItem(b, false);
         QCOMPARE(c.activeItem(), b);
         QVERIFY(!b->isActive());
         QCOMPARE(b->parentViewModel(), &c);
         QCOMPARE(selected.count(), 0);
-        QVERIFY(api->activateItem(b));
+        api->activateItem(b);
         QVERIFY(b->isActive());
         QCOMPARE(processed.count(), 1);
-        QVERIFY(api->activateItem(nullptr));
+        api->activateItem(nullptr);
         QCOMPARE(c.items().size(), 2);
-        QVERIFY(api->activateItem(b));
+        api->activateItem(b);
         processed.clear();
-        QVERIFY(api->deactivateItem(b, true));
+        api->deactivateItem(b, true);
         QCOMPARE(c.activeItem(), a);
         QVERIFY(a->isActive() && !b->parentViewModel() && b->closeSawEmptyParent);
         QCOMPARE(processed.count(), 1);
         QCOMPARE(processed.first().at(0).value<ViewModelBase *>(), a);
         QCOMPARE(parent.count(), 0);
-        QVERIFY(!api->activateItem(b));
-        QVERIFY(!api->deactivateItem(b, true));
+        api->activateItem(b);
+        api->deactivateItem(b, true);
         c.deactivate(true);
         QVERIFY(!a->parentViewModel() && a->closeSawEmptyParent);
         QCOMPARE(parent.count(), 1);
@@ -576,51 +552,51 @@ private slots:
         else owner = std::make_unique<Conductor<ProtocolScreen>>();
         QSignalSpy result(owner.get(), &ConductorBase::activationProcessed);
         auto next = std::make_unique<ProtocolScreen>(); page = next.get();
-        if (collection) QVERIFY(static_cast<Conductor<ProtocolScreen>::Collection::OneActive *>(owner.get())->activateItem(std::move(next)));
-        else QVERIFY(static_cast<Conductor<ProtocolScreen> *>(owner.get())->activateItem(std::move(next)));
+        if (collection) static_cast<Conductor<ProtocolScreen>::Collection::OneActive *>(owner.get())->activateItem(std::move(next));
+        else static_cast<Conductor<ProtocolScreen> *>(owner.get())->activateItem(std::move(next));
         QCOMPARE(result.count(), 1); // 非活动父对象也公布新选择。
-        QVERIFY(owner->activateItem(page));
+        owner->activateItem(page);
         QCOMPARE(result.count(), 1); // 非活动父对象重复同项不公布。
         owner->activate();
         QCOMPARE(result.count(), 1);
-        QVERIFY(owner->activateItem(page));
+        owner->activateItem(page);
         QCOMPARE(result.count(), 2);
         ViewModelBase foreign;
-        QVERIFY(!owner->activateItem(&foreign));
+        owner->activateItem(&foreign);
         QCOMPARE(result.count(), 3);
         QCOMPARE(result.last().at(0).value<ViewModelBase *>(), &foreign);
         QVERIFY(!result.last().at(1).toBool());
-        QVERIFY(!owner->deactivateItem(&foreign, false));
-        QVERIFY(!owner->deactivateItem(nullptr, true));
+        owner->deactivateItem(&foreign, false);
+        owner->deactivateItem(nullptr, true);
         QCOMPARE(result.count(), 3);
-        QVERIFY(owner->activateItem(nullptr));
+        owner->activateItem(nullptr);
         QCOMPARE(result.count(), 3);
     }
 
     void plainVmAndNestedConductors()
     {
         Conductor<> single;
-        QVERIFY(single.activateItem(std::make_unique<ViewModelBase>()));
+        single.activateItem(std::make_unique<ViewModelBase>());
         auto *plain = single.activeItem();
-        QVERIFY(single.deactivateItem(plain, false));
+        single.deactivateItem(plain, false);
         QVERIFY(single.getChildren().isEmpty());
-        QVERIFY(single.activateItem(plain));
+        single.activateItem(plain);
         Conductor<>::Collection::OneActive outer;
         auto inner = std::make_unique<Conductor<ProtocolScreen>>();
         auto *middle = inner.get();
-        QVERIFY(middle->activateItem(std::make_unique<ProtocolScreen>()));
+        middle->activateItem(std::make_unique<ProtocolScreen>());
         auto *leaf = middle->activeItem();
-        QVERIFY(outer.activateItem(std::move(inner)));
+        outer.activateItem(std::move(inner));
         QCOMPARE(middle->parentViewModel(), &outer);
         QCOMPARE(leaf->parentViewModel(), middle);
         outer.activate();
-        QVERIFY(middle->deactivateItem(leaf, false));
+        middle->deactivateItem(leaf, false);
         QVERIFY(middle->getChildren().isEmpty());
         QCOMPARE(leaf->parentViewModel(), middle);
         outer.deactivate(true);
-        QVERIFY(!middle->parentViewModel() && !leaf->parentViewModel());
-        QCOMPARE(leaf->closed, 1);
-        QVERIFY(leaf->closeSawEmptyParent);
+        QVERIFY(!middle->parentViewModel());
+        QCOMPARE(leaf->parentViewModel(), middle);
+        QCOMPARE(leaf->closed, 0);
     }
 };
 

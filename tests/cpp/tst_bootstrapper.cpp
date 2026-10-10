@@ -46,7 +46,7 @@ struct Observation {
 static DetailViewModelFactory makeDetailFactory(
         std::shared_ptr<CounterService> service = std::make_shared<CounterService>())
 {
-    return [service] { return std::make_unique<DetailViewModel>(service); };
+    return [service] { return std::make_unique<DetailViewModel>(service, testWindows()); };
 }
 
 class FailingCloseShell : public ShellViewModel
@@ -325,7 +325,8 @@ private slots:
                 shellActive = shell->isInitialized() && shell->isActive();
                 homeActive = shell->home()->isInitialized() && shell->home()->isActive();
                 shell->home()->add(2);
-                if (shell->showDetail()) {
+                shell->showDetail();
+                if (shell->detail()) {
                     auto *host = root->findChild<QQuickItem *>(QStringLiteral("homeHost"));
                     auto *item = host ? host->property("item").value<QQuickItem *>() : nullptr;
                     detailLoaded = item && shell->detail()->count() == 2

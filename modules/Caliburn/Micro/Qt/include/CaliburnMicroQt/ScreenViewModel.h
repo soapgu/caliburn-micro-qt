@@ -3,11 +3,12 @@
 #include <CaliburnMicroQt/ViewModelBase.h>
 #include <CaliburnMicroQt/IChild.h>
 #include <QPointer>
+#include <CaliburnMicroQt/IGuardClose.h>
 
-class ScreenViewModel : public ViewModelBase, public IChild
+class ScreenViewModel : public ViewModelBase, public IChild, public IGuardClose
 {
     Q_OBJECT
-    Q_INTERFACES(IChild)
+    Q_INTERFACES(IChild IGuardClose)
     QML_ELEMENT
     QML_UNCREATABLE("Screen 由 C++ 应用装配层创建")
     Q_PROPERTY(QObject *parentViewModel READ parentViewModel NOTIFY parentViewModelChanged)
@@ -23,10 +24,13 @@ public:
     void initialize();
     void activate();
     void deactivate(bool close = false);
-    // 向逻辑 Parent 请求关闭；成功表示已处理请求，实际回收可以延迟。
-    bool tryClose();
+    // 请求方法返回不代表已经关闭；无逻辑 Parent 时无操作。
+    void tryClose();
+    void canClose(CloseCallback callback) override;
 
 signals:
+    void attemptingDeactivation(bool close);
+    void deactivated(bool close);
     void parentViewModelChanged();
     void isInitializedChanged();
     void isActiveChanged();

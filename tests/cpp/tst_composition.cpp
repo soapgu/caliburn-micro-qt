@@ -9,7 +9,7 @@
 static DetailViewModelFactory makeDetailFactory(
         std::shared_ptr<CounterService> service = std::make_shared<CounterService>())
 {
-    return [service] { return std::make_unique<DetailViewModel>(service); };
+    return [service] { return std::make_unique<DetailViewModel>(service, testWindows()); };
 }
 
 class CompositionTests : public QObject
@@ -165,18 +165,18 @@ private slots:
             return std::make_unique<HomeViewModel>(service, testWindows());
         }, [&] {
             ++details;
-            return std::make_unique<DetailViewModel>(service);
+            return std::make_unique<DetailViewModel>(service, testWindows());
         });
         auto *home = shell.home();
         QSignalSpy initialized(home, &ScreenViewModel::isInitializedChanged);
         QSignalSpy navigation(&shell, &ShellViewModel::navigationChanged);
         QVERIFY(!shell.canShowDetail());
-        QVERIFY(!shell.showDetail());
+        shell.showDetail();
         QCOMPARE(details, 0);
         shell.activate();
         home->add(3);
         QVERIFY(shell.canShowDetail());
-        QVERIFY(shell.showDetail());
+        shell.showDetail();
         auto *detail = shell.detail();
         QVERIFY(detail && detail->isActive() && !home->isActive());
         QCOMPARE(shell.home(), home);
@@ -192,24 +192,24 @@ private slots:
         QCOMPARE(home->count(), 4);
         QCOMPARE(detailCount.count(), 1);
         QCOMPARE(homeCount.count(), 1);
-        QVERIFY(!shell.showDetail());
+        shell.showDetail();
         QCOMPARE(details, 1);
         shell.deactivate();
-        QVERIFY(!shell.showDetail());
+        shell.showDetail();
         QVERIFY(!detail->isActive());
-        QVERIFY(!detail->goBack());
+        detail->goBack();
         shell.activate();
         QCOMPARE(shell.activeItem(), detail);
         QCOMPARE(shell.detail(), detail);
         QPointer<DetailViewModel> old = detail;
         QSignalSpy destroyed(detail, &QObject::destroyed);
-        QVERIFY(detail->goBack());
+        detail->goBack();
         QVERIFY(!shell.detail() && old);
         QCOMPARE(shell.items().size(), 1);
         QCOMPARE(shell.activeItem(), home);
         QVERIFY(home->isActive() && !old->isActive());
-        QVERIFY(!old->goBack());
-        QVERIFY(shell.showDetail()); // 旧 Detail 尚未处理删除事件。
+        old->goBack();
+        shell.showDetail(); // 旧 Detail 尚未处理删除事件。
         QVERIFY(shell.detail() != old.data());
         QCOMPARE(shell.detail()->count(), 4);
         QCOMPARE(homes, 1);
@@ -225,7 +225,7 @@ private slots:
     void detailFactoryFailuresKeepCurrentPage()
     {
         auto service = std::make_shared<CounterService>();
-        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, DetailViewModel{nullptr});
+        QVERIFY_THROWS_EXCEPTION(std::invalid_argument, DetailViewModel(nullptr, testWindows()));
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument,
                                 (ShellViewModel{[service] { return std::make_unique<HomeViewModel>(service, testWindows()); }, {}}));
         int mode = 0;
@@ -236,7 +236,7 @@ private slots:
                 return {};
             if (mode == 1)
                 throw std::runtime_error("Detail 工厂异常");
-            auto result = std::make_unique<DetailViewModel>(service);
+            auto result = std::make_unique<DetailViewModel>(service, testWindows());
             invalid = result.get();
             if (mode == 2)
                 result->setParent(&parent);
@@ -266,18 +266,18 @@ private slots:
 
     void missingPagesRecoverOnlyOnRequestedNavigation()
     {
-        auto shell = buildShell();
+        auto shell = buildShell(testWindows());
         shell->activate();
         shell->home()->add(4);
-        QVERIFY(shell->showDetail());
+        shell->showDetail();
         auto *detail = shell->detail();
         delete shell->home(); // 非当前 Home 失效，不打断 Detail。
         QVERIFY(!shell->home());
         QCOMPARE(shell->activeItem(), detail);
-        QVERIFY(detail->tryClose()); // 统一关闭入口先补入 Home，再关闭 Detail。
+        detail->tryClose(); // 默认接受守卫后补入 Home，再关闭 Detail。
         QCOMPARE(shell->activeItem(), shell->home());
         QCOMPARE(shell->home()->count(), 4);
-        QVERIFY(shell->showDetail());
+        shell->showDetail();
         delete shell->detail();
         QVERIFY(!shell->activeItem());
         QVERIFY(shell->home() && !shell->home()->isActive());
@@ -297,7 +297,7 @@ private slots:
             return failHome ? nullptr : std::make_unique<HomeViewModel>(service, testWindows());
         }, makeDetailFactory(service));
         shell.activate();
-        QVERIFY(shell.showDetail());
+        shell.showDetail();
         auto *detail = shell.detail();
         delete shell.home();
         failHome = true;
@@ -306,7 +306,7 @@ private slots:
         QVERIFY(detail->isActive() && shell.isActive());
         QCOMPARE(shell.items().size(), 1);
         failHome = false;
-        QVERIFY(detail->tryClose());
+        detail->tryClose();
         QVERIFY(shell.home() && shell.home()->isActive());
     }
 
@@ -331,12 +331,12 @@ private slots:
             if (mode == 2) home->activate();
             return home;
         }, makeDetailFactory(service));
-        QVERIFY(!shell.tryClose());
+        shell.tryClose();
         shell.activate();
-        QVERIFY(!shell.tryClose());
+        shell.tryClose();
         QVERIFY(shell.isActive() && shell.home()->isActive());
         shell.home()->add(3);
-        QVERIFY(shell.showDetail());
+        shell.showDetail();
         auto *detail = shell.detail();
         QVERIFY(detail->metaObject()->indexOfMethod("goBack()") >= 0);
         QCOMPARE(detail->metaObject()->indexOfMethod("tryClose()"), -1);
@@ -356,9 +356,7 @@ private slots:
         else QVERIFY_THROWS_EXCEPTION(int, detail->tryClose());
         expectRejectionWarning();
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Detail 返回失败：.*"));
-        bool returned = true;
-        QVERIFY(QMetaObject::invokeMethod(detail, "goBack", Q_RETURN_ARG(bool, returned)));
-        QVERIFY(!returned);
+        QVERIFY(QMetaObject::invokeMethod(detail, "goBack"));
         QCOMPARE(shell.activeItem(), detail);
         QCOMPARE(shell.items().size(), 1);
         QCOMPARE(detail->parentViewModel(), &shell);
@@ -369,11 +367,11 @@ private slots:
         QCOMPARE(active.count(), 0);
         mode = 0;
         QPointer<DetailViewModel> old = detail;
-        QVERIFY(detail->goBack());
+        detail->goBack();
         QVERIFY(shell.home()->isActive() && !shell.detail());
         QCOMPARE(shell.home()->count(), 3);
         QCOMPARE(shell.activeItem(), shell.home());
-        QVERIFY(old && !old->parentViewModel() && !old->goBack());
+        QVERIFY(old); QVERIFY(!old->parentViewModel()); old->goBack();
         QCOMPARE(items.count(), 2); // 补入 Home、移除 Detail。
         QCOMPARE(selected.count(), 1);
         QCOMPARE(parent.count(), 1);
@@ -389,25 +387,25 @@ private slots:
         ShellViewModel shell([&] { ++homes; return std::make_unique<HomeViewModel>(service, testWindows()); },
                              makeDetailFactory(service));
         shell.activate();
-        QVERIFY(shell.showDetail());
+        shell.showDetail();
         auto *detail = shell.detail();
         delete shell.home();
         IConductor *api = &shell;
         ViewModelBase foreign;
-        QVERIFY(!api->deactivateItem(nullptr, true));
-        QVERIFY(!api->deactivateItem(&foreign, true));
-        QVERIFY(api->deactivateItem(detail, false));
+        api->deactivateItem(nullptr, true);
+        api->deactivateItem(&foreign, true);
+        api->deactivateItem(detail, false);
         QCOMPARE(shell.activeItem(), detail);
-        QVERIFY(!detail->isActive() && !detail->goBack());
+        QVERIFY(!detail->isActive()); detail->goBack();
         QCOMPARE(homes, 1);
-        QVERIFY(shell.activateItem(detail));
-        QVERIFY(detail->goBack());
+        shell.activateItem(detail);
+        detail->goBack();
         QCOMPARE(homes, 2);
-        QVERIFY(shell.showDetail());
+        shell.showDetail();
         detail = shell.detail();
-        QVERIFY(shell.activateItem(shell.home())); // 留存的非当前 Detail 也能显式关闭。
-        QVERIFY(!detail->goBack());
-        QVERIFY(api->deactivateItem(detail, true));
+        shell.activateItem(shell.home()); // 留存的非当前 Detail 也能显式关闭。
+        detail->goBack();
+        api->deactivateItem(detail, true);
         QCOMPARE(homes, 2);
         QCOMPARE(shell.activeItem(), shell.home());
     }
@@ -423,7 +421,7 @@ private slots:
         service.reset();
         shell->activate();
         shell->home()->add(5);
-        QVERIFY(shell->showDetail());
+        shell->showDetail();
         QPointer<HomeViewModel> oldHome = shell->home();
         QPointer<DetailViewModel> oldDetail = shell->detail();
         QSignalSpy homeDestroyed(oldHome.data(), &QObject::destroyed);
@@ -433,7 +431,7 @@ private slots:
         QVERIFY(oldHome && oldDetail);
         shell->activate();
         QCOMPARE(shell->home()->count(), 5);
-        QVERIFY(shell->showDetail());
+        shell->showDetail();
         QPointer<HomeViewModel> currentHome = shell->home();
         QPointer<DetailViewModel> currentDetail = shell->detail();
         shell.reset();
@@ -478,6 +476,92 @@ private slots:
         QCOMPARE(service->count(), 2);
         QCOMPARE(shell.home()->count(), 2);
     }
+    void detailGuardOutcomes_data()
+    {
+        QTest::addColumn<int>("outcome");
+        QTest::newRow("accept") << 1;
+        QTest::newRow("cancel") << 0;
+        QTest::newRow("dismiss") << 2;
+        QTest::newRow("failure") << 3;
+    }
+    void detailGuardOutcomes()
+    {
+        QFETCH(int, outcome);
+        auto windows = std::make_shared<TestWindowManager>(); windows->autoComplete = false;
+        auto shell = buildShell(windows); shell->activate(); shell->home()->add(3); shell->showDetail();
+        QPointer<DetailViewModel> detail = shell->detail();
+        delete shell->home();
+        QSignalSpy closed(detail, &ScreenViewModel::deactivated);
+        QSignalSpy members(shell.get(), &ShellViewModel::itemsChanged);
+        detail->goBack();
+        QVERIFY(windows->busy()); QCOMPARE(shell->activeItem(), detail.data());
+        QVERIFY(!shell->home()); QCOMPARE(members.count(), 0); QCOMPARE(closed.count(), 0);
+        if (outcome == 3) windows->fail();
+        else windows->complete(outcome == 2 ? DialogResult{} : DialogResult{outcome == 1});
+        if (outcome == 1) {
+            QTRY_VERIFY(shell->home() && shell->activeItem() == shell->home());
+            QCOMPARE(shell->home()->count(), 3); QCOMPARE(closed.count(), 1);
+            QCOMPARE(closed.first().first().toBool(), true); QCOMPARE(members.count(), 2);
+        } else {
+            QCOMPARE(shell->activeItem(), detail.data()); QVERIFY(!shell->home());
+            QCOMPARE(closed.count(), 0); QCOMPARE(members.count(), 0); QVERIFY(detail->isActive());
+        }
+    }
+
+    void deferredHomeFactoryFailureKeepsDetail()
+    {
+        auto windows = std::make_shared<TestWindowManager>(); windows->autoComplete = false;
+        auto service = std::make_shared<CounterService>();
+        bool fail = false;
+        ShellViewModel shell([&]() -> std::unique_ptr<HomeViewModel> {
+            if (fail) throw std::runtime_error("Home 工厂失败");
+            return std::make_unique<HomeViewModel>(service, windows);
+        }, [=] { return std::make_unique<DetailViewModel>(service, windows); });
+        shell.activate(); shell.showDetail(); auto *detail = shell.detail();
+        delete shell.home(); fail = true;
+        QSignalSpy closed(detail, &ScreenViewModel::deactivated);
+        detail->goBack(); QVERIFY(windows->busy());
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Detail：关闭执行失败：.*"));
+        windows->complete(true);
+        QVERIFY(detail->isActive()); QCOMPARE(shell.activeItem(), detail);
+        QVERIFY(!shell.home()); QCOMPARE(closed.count(), 0); QCOMPARE(windows->requests, 1);
+        fail = false; detail->goBack(); windows->complete(true);
+        QVERIFY(!shell.detail()); QCOMPARE(shell.activeItem(), shell.home()); QCOMPARE(closed.count(), 1);
+    }
+
+    void busyWindowRejectsDetailClose()
+    {
+        auto windows = std::make_shared<TestWindowManager>(); windows->autoComplete = false;
+        auto shell = buildShell(windows); shell->activate(); shell->showDetail();
+        auto existing = windows->showDialogAsync(std::make_unique<ScreenViewModel>(), shell.get());
+        auto *dialog = windows->currentDialog();
+        auto *detail = shell->detail(); QSignalSpy closed(detail, &ScreenViewModel::deactivated);
+        detail->goBack();
+        QCOMPARE(windows->currentDialog(), dialog); QCOMPARE(shell->activeItem(), detail);
+        QCOMPARE(closed.count(), 0); QVERIFY(detail->isActive());
+        windows->complete(false); QVERIFY(existing.isFinished());
+    }
+
+    void inactiveDetailStillRequiresExplicitClosePermission()
+    {
+        auto windows = std::make_shared<TestWindowManager>(); windows->autoComplete = false;
+        auto shell = buildShell(windows); shell->activate(); shell->showDetail();
+        auto *detail = shell->detail(); shell->activateItem(shell->home());
+        detail->goBack(); QVERIFY(!windows->busy());
+        shell->closeItem(detail); QVERIFY(windows->busy());
+        windows->complete(true); QVERIFY(!shell->detail());
+        QCOMPARE(shell->activeItem(), shell->home());
+    }
+
+    void destroyedDetailCancelsConfirmation()
+    {
+        auto windows = std::make_shared<TestWindowManager>(); windows->autoComplete = false;
+        auto shell = buildShell(windows); shell->activate(); shell->showDetail();
+        shell->detail()->goBack(); QVERIFY(windows->busy());
+        delete shell->detail(); QVERIFY(!windows->busy()); QVERIFY(!shell->activeItem());
+        QCOMPARE(windows->cancellations, 1);
+    }
+
 };
 
 QTEST_GUILESS_MAIN(CompositionTests)

@@ -33,12 +33,19 @@ void ScreenViewModel::deactivate(bool close)
     // 与 CM Screen 一致：活动对象可停用，已初始化对象可反复关闭。
     if (!(m_active || (m_initialized && close)))
         return;
+    emit attemptingDeactivation(close);
     setAndNotify(m_active, false, &ScreenViewModel::isActiveChanged);
     onDeactivate(close);
+    emit deactivated(close);
 }
 
-bool ScreenViewModel::tryClose()
+void ScreenViewModel::tryClose()
 {
     auto *conductor = qobject_cast<IConductor *>(parentViewModel());
-    return conductor && conductor->deactivateItem(this, true);
+    if (conductor) conductor->deactivateItem(this, true);
+}
+
+void ScreenViewModel::canClose(CloseCallback callback)
+{
+    callback(true);
 }

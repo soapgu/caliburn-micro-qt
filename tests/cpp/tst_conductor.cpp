@@ -57,12 +57,12 @@ private slots:
         QVERIFY(!conductor.isInitialized());
         QVERIFY(!conductor.isActive());
         QSignalSpy changed(&conductor, &ConductorViewModelBase::activeItemChanged);
-        QVERIFY(conductor.activateItem(nullptr));
+        conductor.activateItem(nullptr);
         QCOMPARE(changed.count(), 0);
         auto item = std::make_unique<PlainVm>(&destroyed);
         auto *raw = item.get();
         QQmlEngine::setObjectOwnership(raw, QQmlEngine::JavaScriptOwnership);
-        QVERIFY(conductor.activateItem(std::move(item)));
+        conductor.activateItem(std::move(item));
         QVERIFY(!item);
         QCOMPARE(conductor.activeItem(), raw);
         QCOMPARE(raw->parent(), &conductor);
@@ -71,7 +71,7 @@ private slots:
         conductor.deactivate();
         conductor.activate();
         QPointer<PlainVm> weak = raw;
-        QVERIFY(conductor.closeItem(raw));
+        conductor.closeItem(raw);
         QVERIFY(!conductor.activeItem());
         QVERIFY(weak);
         QCOMPARE(weak->parent(), &conductor);
@@ -89,7 +89,7 @@ private slots:
         conductor.activate();
         auto a = std::make_unique<TrackedScreen>("a", &events, &destroyed);
         auto *old = a.get();
-        QVERIFY(conductor.activateItem(std::move(a)));
+        conductor.activateItem(std::move(a));
         auto b = std::make_unique<TrackedScreen>("b", &events);
         auto *next = b.get();
         bool observedIntermediate = false;
@@ -101,7 +101,7 @@ private slots:
         });
         events.clear();
         QPointer<TrackedScreen> weak = old;
-        QVERIFY(conductor.activateItem(std::move(b)));
+        conductor.activateItem(std::move(b));
         QVERIFY(observedIntermediate);
         QCOMPARE(events, QStringList({"changed", "a:close", "b:initialize", "b:activate"}));
         QVERIFY(!old->isActive());
@@ -120,7 +120,7 @@ private slots:
         Conductor<TrackedScreen> conductor;
         auto item = std::make_unique<TrackedScreen>("child", &events);
         auto *child = item.get();
-        QVERIFY(conductor.activateItem(std::move(item)));
+        conductor.activateItem(std::move(item));
         QSignalSpy changed(&conductor, &ConductorViewModelBase::activeItemChanged);
         conductor.initialize();
         QVERIFY(!child->isInitialized());
@@ -178,9 +178,9 @@ private slots:
         if (state == 4)
             conductor.deactivate(true); // 已关闭父对象后再接入新项，也必须能清理。
         if (screenItem)
-            QVERIFY(conductor.activateItem(std::make_unique<TrackedScreen>("child", &events, &destroyed)));
+            conductor.activateItem(std::make_unique<TrackedScreen>("child", &events, &destroyed));
         else
-            QVERIFY(conductor.activateItem(std::make_unique<PlainVm>(&destroyed)));
+            conductor.activateItem(std::make_unique<PlainVm>(&destroyed));
         if (state == 3)
             conductor.deactivate();
         const bool initialized = conductor.isInitialized();
@@ -238,7 +238,7 @@ private slots:
     {
         int destroyed = 0;
         auto conductor = std::make_unique<Conductor<>>();
-        QVERIFY(conductor->activateItem(std::make_unique<PlainVm>(&destroyed)));
+        conductor->activateItem(std::make_unique<PlainVm>(&destroyed));
         QPointer<ViewModelBase> weak = conductor->activeItem();
         conductor->initialize();
         conductor->deactivate(true);
@@ -256,7 +256,7 @@ private slots:
         int destroyed = 0;
         QStringList events;
         auto conductor = std::make_unique<Conductor<TrackedScreen>>();
-        QVERIFY(conductor->activateItem(std::make_unique<TrackedScreen>("child", &events, &destroyed)));
+        conductor->activateItem(std::make_unique<TrackedScreen>("child", &events, &destroyed));
         QPointer<TrackedScreen> weak = conductor->activeItem();
         conductor->deactivate(true);
         QCOMPARE(conductor->activeItem(), weak.data());
@@ -273,10 +273,10 @@ private slots:
         QStringList events;
         Conductor<TrackedScreen> conductor;
         conductor.activate();
-        QVERIFY(conductor.activateItem(std::make_unique<TrackedScreen>("a", &events)));
+        conductor.activateItem(std::make_unique<TrackedScreen>("a", &events));
         conductor.deactivate();
         events.clear();
-        QVERIFY(conductor.activateItem(std::make_unique<TrackedScreen>("b", &events)));
+        conductor.activateItem(std::make_unique<TrackedScreen>("b", &events));
         QCOMPARE(events, QStringList({"a:close"}));
         QVERIFY(!conductor.activeItem()->isInitialized());
         conductor.activate();
@@ -297,7 +297,7 @@ private slots:
         QStringList events;
         Conductor<TrackedScreen> conductor;
         conductor.activate();
-        QVERIFY(conductor.activateItem(std::make_unique<TrackedScreen>("a", &events)));
+        conductor.activateItem(std::make_unique<TrackedScreen>("a", &events));
         auto *old = conductor.activeItem();
         QPointer<TrackedScreen> weak = old;
         connect(&conductor, &ConductorViewModelBase::activeItemChanged, this, [&] {
@@ -307,16 +307,16 @@ private slots:
         });
         events.clear();
         if (mode == 0)
-            QVERIFY(conductor.activateItem(nullptr));
+            conductor.activateItem(nullptr);
         else if (mode == 1) {
             std::unique_ptr<TrackedScreen> empty;
-            QVERIFY(conductor.activateItem(std::move(empty)));
+            conductor.activateItem(std::move(empty));
         } else
-            QVERIFY(conductor.closeItem(old));
+            conductor.closeItem(old);
         QCOMPARE(events, QStringList({"changed", "a:close"}));
         QVERIFY(weak);
-        QVERIFY(!conductor.closeItem(old));
-        QVERIFY(!conductor.closeItem(nullptr));
+        conductor.closeItem(old);
+        conductor.closeItem(nullptr);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QVERIFY(!weak);
     }
@@ -324,23 +324,23 @@ private slots:
     void rejectedCandidatesKeepOwnership()
     {
         Conductor<> conductor;
-        QVERIFY(conductor.activateItem(std::make_unique<PlainVm>()));
+        conductor.activateItem(std::make_unique<PlainVm>());
         auto *current = conductor.activeItem();
         QSignalSpy changed(&conductor, &ConductorViewModelBase::activeItemChanged);
         QObject parent;
         auto parented = std::make_unique<PlainVm>();
         parented->setParent(&parent);
         QTest::ignoreMessage(QtWarningMsg, "Conductor：接管对象必须无父对象且与 Conductor 位于同一线程");
-        QVERIFY(!conductor.activateItem(std::move(parented)));
+        conductor.activateItem(std::move(parented));
         QVERIFY(parented);
         QCOMPARE(parented->parent(), &parent);
         auto active = std::make_unique<TrackedScreen>();
         active->activate();
         QTest::ignoreMessage(QtWarningMsg, "Conductor：不能接管已经激活的 Screen");
-        QVERIFY(!conductor.activateItem(std::move(active)));
+        conductor.activateItem(std::move(active));
         QVERIFY(active);
         QVERIFY(active->isActive());
-        QVERIFY(!conductor.closeItem(active.get()));
+        conductor.closeItem(active.get());
         QCOMPARE(conductor.activeItem(), current);
         QCOMPARE(changed.count(), 0);
     }
@@ -350,12 +350,12 @@ private slots:
         auto self = std::make_unique<Conductor<>>();
         auto *selfRaw = self.get();
         QTest::ignoreMessage(QtWarningMsg, "Conductor：不能接管自身或祖先对象");
-        QVERIFY(!selfRaw->activateItem(std::move(self)));
+        selfRaw->activateItem(std::move(self));
         QCOMPARE(self.get(), selfRaw);
         auto ancestor = std::make_unique<Conductor<>>();
         auto *child = new Conductor<>(ancestor.get());
         QTest::ignoreMessage(QtWarningMsg, "Conductor：不能接管自身或祖先对象");
-        QVERIFY(!child->activateItem(std::move(ancestor)));
+        child->activateItem(std::move(ancestor));
         QVERIFY(ancestor);
         QCOMPARE(child->parent(), ancestor.get());
     }
@@ -373,7 +373,8 @@ private slots:
         QMetaObject::invokeMethod(&context, [&] { foreign = new PlainVm; }, Qt::BlockingQueuedConnection);
         std::unique_ptr<PlainVm> foreignOwner(foreign);
         QTest::ignoreMessage(QtWarningMsg, "Conductor：接管对象必须无父对象且与 Conductor 位于同一线程");
-        foreignRejected = !conductor.activateItem(std::move(foreignOwner));
+        conductor.activateItem(std::move(foreignOwner));
+        foreignRejected = bool(foreignOwner);
         const bool retained = foreignOwner.get() == foreign;
         foreignOwner.release();
         QMetaObject::invokeMethod(&context, [&] {
@@ -388,13 +389,13 @@ private slots:
     void unexpectedDestruction()
     {
         Conductor<> conductor;
-        QVERIFY(conductor.activateItem(std::make_unique<PlainVm>()));
+        conductor.activateItem(std::make_unique<PlainVm>());
         QSignalSpy changed(&conductor, &ConductorViewModelBase::activeItemChanged);
         delete conductor.activeItem();
         QVERIFY(!conductor.activeItem());
         QCOMPARE(changed.count(), 1);
-        QVERIFY(conductor.activateItem(std::make_unique<PlainVm>()));
-        QVERIFY(conductor.activateItem(std::make_unique<PlainVm>()));
+        conductor.activateItem(std::make_unique<PlainVm>());
+        conductor.activateItem(std::make_unique<PlainVm>());
         auto *current = conductor.activeItem();
         const int before = changed.count();
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
@@ -410,9 +411,9 @@ private slots:
         {
             Conductor<TrackedScreen> conductor;
             conductor.activate();
-            QVERIFY(conductor.activateItem(std::make_unique<TrackedScreen>("a", &events, &destroyed)));
+            conductor.activateItem(std::make_unique<TrackedScreen>("a", &events, &destroyed));
             first = conductor.activeItem();
-            QVERIFY(conductor.activateItem(std::make_unique<TrackedScreen>("b", &events, &destroyed)));
+            conductor.activateItem(std::make_unique<TrackedScreen>("b", &events, &destroyed));
             second = conductor.activeItem();
             QCOMPARE(destroyed, 0);
             events.clear();
@@ -430,9 +431,9 @@ private slots:
         Conductor<ScreenViewModel> outer;
         auto inner = std::make_unique<Conductor<TrackedScreen>>();
         auto *nested = inner.get();
-        QVERIFY(inner->activateItem(std::make_unique<TrackedScreen>("leaf", &events)));
+        inner->activateItem(std::make_unique<TrackedScreen>("leaf", &events));
         auto *leaf = inner->activeItem();
-        QVERIFY(outer.activateItem(std::move(inner)));
+        outer.activateItem(std::move(inner));
         outer.activate();
         QVERIFY(nested->isActive() && leaf->isActive());
         outer.deactivate();

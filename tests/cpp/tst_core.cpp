@@ -33,7 +33,7 @@ struct TrackedValue
 static DetailViewModelFactory makeDetailFactory(
         std::shared_ptr<CounterService> service = std::make_shared<CounterService>())
 {
-    return [service] { return std::make_unique<DetailViewModel>(service); };
+    return [service] { return std::make_unique<DetailViewModel>(service, testWindows()); };
 }
 
 class NotifyVm : public ViewModelBase
@@ -198,7 +198,7 @@ private slots:
         Conductor<ScreenViewModel> parent;
         auto child = std::make_unique<ScreenViewModel>();
         auto *screen = child.get();
-        QVERIFY(parent.activateItem(std::move(child)));
+        parent.activateItem(std::move(child));
         QVERIFY(!screen->isInitialized() && !screen->isActive());
         QSignalSpy initialized(screen, &ScreenViewModel::isInitializedChanged);
         QSignalSpy active(screen, &ScreenViewModel::isActiveChanged);

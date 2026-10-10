@@ -27,12 +27,12 @@ public:
     HomeViewModel *home() const;
     DetailViewModel *detail() const;
     bool canShowDetail() const { return isActive() && home() && activeItem() == home(); }
-    Q_INVOKABLE bool showDetail();
-    bool deactivateItem(ViewModelBase *item, bool close) override;
+    Q_INVOKABLE void showDetail();
 signals:
     void navigationChanged();
 protected:
     void onActivate() override;
+    bool prepareCloseItem(ViewModelBase *item) override;
 private:
     HomeViewModel *ensureHome();
     HomeViewModelFactory m_homeFactory;

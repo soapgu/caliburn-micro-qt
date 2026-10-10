@@ -2,7 +2,7 @@
 
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
-> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/4C验收记录.md)。Parent 与统一 Conductor 协议增量已实现并完成本机验收，见 [独立记录](docs/Parent体系验收记录.md)。受管页面 tryClose 与 Detail 内返回已实现并完成本机验收，见 [tryClose 记录](docs/tryClose验收记录.md)。5A 重置确认与弹窗基础设施已实现，5B 与第六批待实施，麒麟待验证。
+> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/4C验收记录.md)。Parent 与统一 Conductor 协议增量已实现并完成本机验收，见 [独立记录](docs/Parent体系验收记录.md)。受管页面 tryClose 与 Detail 内返回已实现并完成本机验收，见 [tryClose 记录](docs/tryClose验收记录.md)。5A 重置确认与弹窗基础设施已实现，5B 退出确认与关闭守卫已完成本机验收，见 [5B 记录](docs/5B验收记录.md)；本轮 CM 直接回调与单项管理精简已完成本机复验，见 [精简验收记录](docs/CM关闭守卫精简验收记录.md)；第六批待实施，麒麟待验证。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
 
@@ -52,13 +52,13 @@ flowchart LR
 | ViewLocator / ViewModelBinder | ViewRegistry、ViewHost | 按应用提供的 VM 类型映射定位 View，创建前注入 viewModel。 |
 | ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
 | IWindowManager / WindowManager 的模态职责 | IWindowManager、WindowManager、DialogHost | 5A 已实现接受自定义 VM 的通用模态弹窗，以 Home 重置确认为首个示例；普通窗口与 Popup 管理留待后续。 |
-| IGuardClose / 关闭策略 | Conductor 关闭守卫与回调式请求协调 | 5B 规划 Detail 退出确认，覆盖成员关闭、单项替换及普通停用、父级关闭许可；保留同步生命周期。 |
+| IGuardClose / 关闭策略 | Conductor 关闭守卫与直接许可回调 | 5B 已实现 Detail 退出确认，覆盖成员关闭、单项替换及普通停用、父级关闭许可；保留同步生命周期。 |
 | IoC / 构造注入 | 应用组合根 + Boost.Ext.DI v1.3.2 | 创建与长期持有分开，框架 VM 不依赖容器。 |
 | Bootstrapper | BootstrapperBase + AppBootstrapper | Configure 配置映射和根工厂，OnStartup 显示根窗口，Run 统一生命周期与清理。 |
 
 ## 类型清单与实现状态
 
-这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry、ViewHost、BootstrapperBase、Parent 统一协议以及单项与集合型 Conductor。5A 弹窗与重置确认已实现并完成本机验收；5B 关闭守卫仍为规划中、未实施、未验证，详见 [第五批阶段划分](docs/迭代实现计划.md#第五批阶段划分)。
+这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry、ViewHost、BootstrapperBase、Parent 统一协议以及单项与集合型 Conductor。5A 弹窗与重置确认已实现并完成本机验收；5B 关闭守卫已实现并完成本机验收，详见 [第五批阶段划分](docs/迭代实现计划.md#第五批阶段划分)。
 
 | 类型 | 形态 | 职责 |
 | --- | --- | --- |
@@ -78,7 +78,7 @@ flowchart LR
 | DialogHostState | 公开、可创建的 QML 辅助类型（5A 已实现） | 关联窗口服务并协调请求释放；标准展示优先使用 DialogHost，见 [公开接口](docs/WindowManager.md#dialoghoststate公开-qml-宿主协调接口)。 |
 | ConfirmActionViewModel | C++ Screen 子类（5A 已实现） | 提供确认文案、accept / cancel 操作与一次完成结果。 |
 | ConfirmActionView | QML View（5A 已实现） | 展示确认 VM，通过手写事件处理器调用接受或取消方法。 |
-| IGuardClose / 关闭策略 | C++ 协议与协调机制（5B 规划中、未实施） | canClose(callback) 立即或延后交付许可；适用场景包括关闭及单项成员普通停用，拒绝时保留成员、选择和页面。 |
+| IGuardClose / 关闭策略 | C++ 回调协议（5B 已实现） | canClose(callback) 立即或延后交付许可；适用场景包括关闭及单项成员普通停用，拒绝时保留成员、选择和页面。 |
 
 5A 配套值类型 **ConfirmationRequest**（已实现）保存 `title`、`message`、`confirmText`、`cancelText`，不保存业务操作枚举、控件或 VM 引用；它是确认 VM 的文案参数，不限制 IWindowManager 只能展示确认框。
 
@@ -86,13 +86,13 @@ ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected �
 
 已实现的 [Screen](docs/ScreenViewModel.md) 初始化一次、同步执行生命周期，提供只读逻辑 Parent。普通 ViewModelBase 默认不实现 IChild；自行声明该接口的 VM 也能接入。QObject 父树负责所有权，逻辑 Parent 由 Conductor 独立维护。
 
-单项 `deactivateItem(item, false)` 清空选择并普通停用，保留 VM、Parent 和恢复资格；`activateItem(item)` 恢复原对象。切换新项关闭旧当前项，其他留存项不受影响；`closeItem` 可关闭当前或留存项。已初始化父关闭清理全部持有项，未初始化父关闭无操作；父普通停用仍保留选择。`getChildren()` 在单项只返回当前项，集合型返回全部成员，均为借用快照。详见 [Conductor](docs/Conductor.md) 和 [Parent 体系验收记录](docs/Parent体系验收记录.md)。
+单项 `deactivateItem(item, false)` 清空选择并普通停用，保留 VM、Parent 和恢复资格；`activateItem(item)` 恢复原对象。切换新项关闭旧当前项，旧对象不登记为留存成员；`closeItem` 只处理当前项。已初始化父关闭只处理当前项，未初始化父关闭无操作；父普通停用仍保留选择。`getChildren()` 在单项只返回当前项，集合型返回全部成员，均为借用快照。详见 [Conductor](docs/Conductor.md) 和 [Parent 体系验收记录](docs/Parent体系验收记录.md)。
 
-新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、Screen 活动状态及逻辑 Parent。拒绝不移动调用方所有权；成功设置父对象与 CppOwnership。裸指针入口只操作内部记录中的尚未关闭对象，等待删除对象不能恢复。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 已通过逻辑 Parent 委托 IConductor 关闭。关闭守卫已纳入 5B 规划，尚未实施；根窗口请求、Action 和 View 缓存继续留待后续。
+新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、Screen 活动状态及逻辑 Parent。基础校验拒绝不移动调用方所有权；通过后单项请求暂存候选，许可拒绝或回调释放时回收，通过时接管并设置父对象；对象使用 CppOwnership。单项裸指针入口可重新选择本 Conductor 接管过的有效旧对象；调用方不得复用已提交关闭对象。集合裸指针入口只操作成员。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 已通过逻辑 Parent 委托 IConductor 关闭。关闭守卫已在 5B 实现；根窗口请求、Action 和 View 缓存继续留待后续。
 
-5A 已实现并完成本机验收，5B 仍为**规划中、未实施、未验证**。5A 的 showDialogAsync 接受自定义 VM，以 QFuture / QPromise 交付一次结果；只允许一个当前弹窗，忙时拒绝新请求，请求者失效后旧结果不能继续执行业务操作。结果为可空 bool，接受 true、明确取消 false、无决定关闭空值，忙和展示失败以异常交付，详见 [WindowManager](docs/WindowManager.md)。这是 Qt 适配差异：CM 3.2 WPF 使用同步 ShowDialog，本项目不为复刻阻塞返回引入嵌套事件循环。
+5A 与 5B 均已实现并完成本机验收。5A 的 showDialogAsync 接受自定义 VM，以 QFuture / QPromise 交付一次结果；只允许一个当前弹窗，忙时拒绝新请求，请求者失效后旧结果不能继续执行业务操作。结果为可空 bool，接受 true、明确取消 false、无决定关闭空值，忙和展示失败以异常交付，详见 [WindowManager](docs/WindowManager.md)。这是 Qt 适配差异：CM 3.2 WPF 使用同步 ShowDialog，本项目不为复刻阻塞返回引入嵌套事件循环。
 
-5B 未来按 CM 3.2 将 activateItem、deactivateItem、closeItem、tryClose 迁移为普通命名的 void 请求入口，通过回调或完成通知表达结果；当前代码的同步 bool 接口保持现状。守卫立即同意时可在当前调用栈完成，延后回调时请求先返回，再继续同步生命周期，因此方法返回不保证页面已切换。单项替换和成员普通停用/关闭均检查守卫；集合型仅成员关闭检查，普通停用及内部切换不检查；父级普通停用不因此增加守卫。父级关闭许可覆盖全部持有成员，含单项留存项。完整签名、回调类型、所有权和关闭完成通知尚待设计，范围集中维护在 [迭代计划](docs/迭代实现计划.md#第五批阶段划分)。
+5B 已按 CM 3.2.0 将 activateItem、deactivateItem、closeItem、tryClose 迁移为 void 请求，无完成回调。激活看 activationProcessed，实际停用/关闭看 deactivated(close)，方法返回不保证完成。默认策略检查 getChildren 快照后汇总，单项只有当前项，集合包含全部成员；拒绝时不部分关闭。按 CM 直接回调，不支持重叠请求、重复回调或等待期间修改参与对象，不维护 Request、代次或取消上下文。完整契约见 [关闭守卫](docs/关闭守卫.md)，验收见 [5B](docs/5B验收记录.md)。主窗口退出拦截和根请求仍待设计。
 
 ## 模块与项目结构
 
@@ -229,7 +229,7 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 
 ## 当前状态与后续方向
 
-第一批已交付框架基础和 Shell 示例，第二批增加 add(int)、canAddTwo、“加 2”按钮和数字键 2 操作。文本框优先消费输入，页面过滤自动重复；Tab / Shift+Tab 显式切换焦点并跳过禁用按钮。第二批独立目录配置与构建、CTest、qmllint、Cocoa 测试和真实示例操作均通过。详情见 [第一批验收记录](docs/第一批验收记录.md) 与 [第二批验收记录](docs/第二批验收记录.md)。第三批已实现 ScreenViewModel、ViewRegistry 与 ViewHost，计数整体迁入 Home；自动检查及实际窗口验收通过，见 [第三批验收记录](docs/第三批验收记录.md)。第四批 4A 已实现泛型单项 Conductor 核心与测试；4B 已改造 Shell 与共享计数服务，关闭后重建 Home 保留计数，见 [4B 验收记录](docs/4B验收记录.md)；4C 已完成 Collection.OneActive 和 Detail 导航，见 [4C 验收记录](docs/4C验收记录.md)；5A 通用模态弹窗与重置确认已通过本机验收，下一步 5B 退出确认与关闭守卫；麒麟与外部消费工程待验证。
+第一批已交付框架基础和 Shell 示例，第二批增加 add(int)、canAddTwo、“加 2”按钮和数字键 2 操作。文本框优先消费输入，页面过滤自动重复；Tab / Shift+Tab 显式切换焦点并跳过禁用按钮。第二批独立目录配置与构建、CTest、qmllint、Cocoa 测试和真实示例操作均通过。详情见 [第一批验收记录](docs/第一批验收记录.md) 与 [第二批验收记录](docs/第二批验收记录.md)。第三批已实现 ScreenViewModel、ViewRegistry 与 ViewHost，计数整体迁入 Home；自动检查及实际窗口验收通过，见 [第三批验收记录](docs/第三批验收记录.md)。第四批 4A 已实现泛型单项 Conductor 核心与测试；4B 已改造 Shell 与共享计数服务，关闭后重建 Home 保留计数，见 [4B 验收记录](docs/4B验收记录.md)；4C 已完成 Collection.OneActive 和 Detail 导航，见 [4C 验收记录](docs/4C验收记录.md)；5A 通用模态弹窗与重置确认已通过本机验收，5B 退出确认与关闭守卫也已通过本机验收；麒麟与外部消费工程待验证。
 
 后续每批同时交付框架功能、example、必要测试和验收记录，验收通过后进入下一批：
 
@@ -240,7 +240,7 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 | 3．生命周期与视图装配 | Screen、注册表与 ViewHost；Shell 根入口、Home 计数页面及 VM 替换。 | 已完成，macOS arm64 验收通过 |
 | 4．页面组合与导航 | 4A 单项核心、4B 共享服务、4C 集合型与 Detail 均已完成。 | 第四批本机验收完成；麒麟待验证 |
 | 5A．重置确认 | IWindowManager / WindowManager 通用模态弹窗、确认 VM/View 与 DialogHost；Home 重置确认、请求失效及焦点。 | 已实现，macOS arm64 验收通过；麒麟待验证 |
-| 5B．Detail 退出确认与关闭守卫 | Detail 返回通过回调式守卫确认；覆盖成员关闭、单项替换及普通停用、父级关闭许可；未来迁移 void 请求入口。 | 规划中、未实施；未验证 |
+| 5B．Detail 退出确认与关闭守卫 | Detail 确认、关闭策略、父级当前项/集合成员许可、直接回调及 void 入口。 | 已实现；本机验收通过，麒麟待验证 |
 | 6．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
 
 第四批阶段与历史验收分别记录：

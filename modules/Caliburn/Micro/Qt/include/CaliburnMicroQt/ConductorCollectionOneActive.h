@@ -35,19 +35,17 @@ public:
     }
     template<class U, std::enable_if_t<std::is_base_of_v<T, U>
                                      && !std::is_const_v<U> && !std::is_volatile_v<U>, int> = 0>
-    [[nodiscard]] bool activateItem(std::unique_ptr<U> &&item)
+    void activateItem(std::unique_ptr<U> &&item)
     {
-        if (!item)
-            return ConductorCollectionOneActiveViewModelBase::activateItem(nullptr);
+        if (!item) { ConductorCollectionOneActiveViewModelBase::activateItem(nullptr); return; }
         if (!validateItemChange(item.get())) {
             onActivationProcessed(item.get(), false);
-            return false;
+            return;
         }
         adoptItem(std::unique_ptr<ViewModelBase>(std::move(item)), true);
-        return true;
     }
-    [[nodiscard]] bool activateItem(T *item) { return ConductorCollectionOneActiveViewModelBase::activateItem(item); }
-    [[nodiscard]] bool activateItem(std::nullptr_t) { return ConductorCollectionOneActiveViewModelBase::activateItem(nullptr); }
-    [[nodiscard]] bool deactivateItem(T *item, bool close) { return ConductorCollectionOneActiveViewModelBase::deactivateItem(item, close); }
-    [[nodiscard]] bool closeItem(T *item) { return deactivateItem(item, true); }
+    void activateItem(T *item) { ConductorCollectionOneActiveViewModelBase::activateItem(item); }
+    void activateItem(std::nullptr_t) { ConductorCollectionOneActiveViewModelBase::activateItem(nullptr); }
+    void deactivateItem(T *item, bool close) { ConductorCollectionOneActiveViewModelBase::deactivateItem(item, close); }
+    void closeItem(T *item) { static_cast<IConductor *>(this)->deactivateItem(item, true); }
 };

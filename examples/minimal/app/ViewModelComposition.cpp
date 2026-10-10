@@ -21,9 +21,10 @@ std::unique_ptr<ShellViewModel> buildShell(std::shared_ptr<IWindowManager> windo
             boost::di::bind<IWindowManager>.to(windowManager));
         return injector.create<std::unique_ptr<HomeViewModel>>();
     };
-    DetailViewModelFactory detailFactory = [counterService] {
+    DetailViewModelFactory detailFactory = [counterService, windowManager] {
         auto injector = boost::di::make_injector(
-            boost::di::bind<CounterService>.to(counterService));
+            boost::di::bind<CounterService>.to(counterService),
+            boost::di::bind<IWindowManager>.to(windowManager));
         return injector.create<std::unique_ptr<DetailViewModel>>();
     };
     auto injector = boost::di::make_injector(

@@ -22,8 +22,8 @@ public:
     ViewModelBase *activeItem() const { return m_activeItem.data(); }
     QVariantList items() const;
     QList<ViewModelBase *> getChildren() const override { return m_items; }
-    bool activateItem(ViewModelBase *item) override;
-    bool deactivateItem(ViewModelBase *item, bool close) override;
+    void activateItem(ViewModelBase *item) override;
+    void deactivateItem(ViewModelBase *item, bool close) override;
 
 signals:
     void itemsChanged();
@@ -34,6 +34,8 @@ protected:
     bool validateItemChange(ViewModelBase *item) const;
     void adoptItem(std::unique_ptr<ViewModelBase> item, bool select);
     bool closeMember(ViewModelBase *item);
+    // 许可通过后的业务准备；失败时不移除目标。
+    virtual bool prepareCloseItem(ViewModelBase *item) { Q_UNUSED(item); return true; }
     void onActivate() override;
     void onDeactivate(bool close) override;
 

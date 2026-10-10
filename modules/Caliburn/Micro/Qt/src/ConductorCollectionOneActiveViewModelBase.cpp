@@ -85,11 +85,11 @@ void ConductorCollectionOneActiveViewModelBase::adoptItem(std::unique_ptr<ViewMo
     }
 }
 
-bool ConductorCollectionOneActiveViewModelBase::activateItem(ViewModelBase *item)
+void ConductorCollectionOneActiveViewModelBase::activateItem(ViewModelBase *item)
 {
     if (item && !m_items.contains(item)) {
         onActivationProcessed(item, false);
-        return false;
+        return;
     }
     auto *previous = m_activeItem.data();
     if (previous == item) {
@@ -97,7 +97,7 @@ bool ConductorCollectionOneActiveViewModelBase::activateItem(ViewModelBase *item
             activateScreen(item);
             onActivationProcessed(item, true);
         }
-        return true;
+        return;
     }
     setSelection(item);
     emit activeItemChanged();
@@ -105,17 +105,20 @@ bool ConductorCollectionOneActiveViewModelBase::activateItem(ViewModelBase *item
     if (isActive())
         activateScreen(item);
     onActivationProcessed(item, true);
-    return true;
+    return;
 }
 
-bool ConductorCollectionOneActiveViewModelBase::deactivateItem(ViewModelBase *item, bool close)
+void ConductorCollectionOneActiveViewModelBase::deactivateItem(ViewModelBase *item, bool close)
 {
-    if (!item || !m_items.contains(item))
-        return false;
-    if (close)
-        return closeMember(item);
-    deactivateScreen(item, false);
-    return true;
+    if (!item || !m_items.contains(item)) return;
+    if (!close) { deactivateScreen(item, false); return; }
+    QPointer<ViewModelBase> target = item;
+    checkClose({item}, [this, target](bool allowed) {
+        if (!allowed || !target || !m_items.contains(target.data())) return;
+        if (!prepareCloseItem(target.data())) return;
+        // 准备钩子可能补入成员，重新定位目标并沿用相邻项规则。
+        if (target && m_items.contains(target.data())) closeMember(target.data());
+    });
 }
 
 bool ConductorCollectionOneActiveViewModelBase::closeMember(ViewModelBase *item)

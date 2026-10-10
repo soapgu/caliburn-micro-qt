@@ -294,13 +294,45 @@ private slots:
         QTRY_VERIFY(!windows->busy());
         QCOMPARE(shell->home()->count(), 2);
         shell->home()->reset();
-        QVERIFY(shell->showDetail());
+        shell->showDetail();
         QTRY_VERIFY(!windows->busy());
         QVERIFY(!shell->home()->resetPending());
-        QVERIFY(shell->detail()->goBack());
+        shell->detail()->goBack();
         QCOMPARE(shell->home()->count(), 2);
         window->close(); shell->deactivate(true);
     }
+    void detailConfirmationAndFocus() {
+        auto windows = std::make_shared<WindowManager>();
+        auto shell = buildShell(windows); shell->activate(); shell->home()->add(2);
+        QQmlApplicationEngine engine;
+        auto *window = loadShell(engine, *shell, *windows); QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        window->requestActivate(); QVERIFY(QTest::qWaitForWindowActive(window));
+        shell->showDetail();
+        auto *detail = shell->detail();
+        QTRY_VERIFY(window->findChild<QQuickItem *>("goBack"));
+        QPointer<QQuickItem> back = window->findChild<QQuickItem *>("goBack");
+        back->forceActiveFocus(); click(window, back.data());
+        QTRY_VERIFY(windows->busy());
+        auto *cancel = window->findChild<QQuickItem *>("dialogCancel");
+        QVERIFY(cancel); QTRY_VERIFY(cancel->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_2); QCOMPARE(detail->count(), 2);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!windows->busy()); QCOMPARE(shell->activeItem(), detail);
+        QTRY_VERIFY(back->hasActiveFocus());
+        click(window, back.data()); QTRY_VERIFY(windows->busy());
+        cancel = window->findChild<QQuickItem *>("dialogCancel"); QVERIFY(cancel);
+        click(window, cancel); QTRY_VERIFY(!windows->busy()); QCOMPARE(shell->activeItem(), detail);
+        QSignalSpy closed(detail, &ScreenViewModel::deactivated);
+        click(window, back.data()); QTRY_VERIFY(windows->busy());
+        auto *accept = window->findChild<QQuickItem *>("dialogAccept"); QVERIFY(accept);
+        click(window, accept);
+        QTRY_VERIFY(shell->activeItem() == shell->home()); QCOMPARE(closed.count(), 1);
+        QCOMPARE(shell->home()->count(), 2); QTRY_VERIFY(!back);
+        QTest::keyClick(window, Qt::Key_2); QTRY_COMPARE(shell->home()->count(), 4);
+        window->close(); shell->deactivate(true);
+    }
+
     void customVmAndViewBeforeVmDestruction() {
         auto windows = std::make_shared<WindowManager>();
         auto shell = buildShell(windows); shell->activate();

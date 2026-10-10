@@ -8,7 +8,8 @@ ShellViewModel::ShellViewModel(HomeViewModelFactory homeFactory, DetailViewModel
     if (!m_homeFactory || !m_detailFactory)
         throw std::invalid_argument("Shell 要求非空的 Home 与 Detail 工厂");
     auto *initial = ensureHome();
-    if (!activateItem(initial))
+    activateItem(initial);
+    if (activeItem() != initial)
         throw std::invalid_argument("Shell 无法选择初始 Home");
     connect(this, &ShellViewModel::itemsChanged, this, &ShellViewModel::navigationChanged);
     connect(this, &ShellViewModel::activeItemChanged, this, &ShellViewModel::navigationChanged);
@@ -42,31 +43,30 @@ HomeViewModel *ShellViewModel::ensureHome()
     return raw;
 }
 
-bool ShellViewModel::showDetail()
+void ShellViewModel::showDetail()
 {
-    if (!canShowDetail())
-        return false;
-    if (auto *existing = detail())
-        return activateItem(existing);
+    if (!canShowDetail()) return;
+    if (auto *existing = detail()) { activateItem(existing); return; }
     auto next = m_detailFactory();
-    if (!next || !activateItem(std::move(next)))
+    auto *raw = next.get();
+    if (!next) throw std::invalid_argument("Shell 工厂必须返回可接管的非空 Detail");
+    activateItem(std::move(next));
+    if (activeItem() != raw)
         throw std::invalid_argument("Shell 工厂必须返回可接管的非空 Detail");
-    return true;
 }
 
-bool ShellViewModel::deactivateItem(ViewModelBase *item, bool close)
+bool ShellViewModel::prepareCloseItem(ViewModelBase *item)
 {
-    // 先补齐返回目标；工厂失败时尚未移除或关闭 Detail。
-    if (close && item && item == detail() && item == activeItem())
-        ensureHome();
-    return ConductorCollectionOneActiveViewModelBase::deactivateItem(item, close);
+    if (item && item == detail() && item == activeItem()) ensureHome();
+    return true;
 }
 
 void ShellViewModel::onActivate()
 {
     auto *availableHome = ensureHome();
     if (!activeItem()) {
-        if (!activateItem(availableHome))
+        activateItem(availableHome);
+        if (activeItem() != availableHome)
             throw std::invalid_argument("Shell 无法选择 Home");
         // Shell 已活动，集合选择入口已经完成子项激活。
         return;

@@ -19,6 +19,14 @@ public:
     QFuture<DialogResult> showDialogAsync(std::unique_ptr<ScreenViewModel> vm, QObject *requester) override
     {
         ++requests;
+        if (m_promise) {
+            QPromise<DialogResult> rejected;
+            rejected.start();
+            auto result = rejected.future();
+            rejected.setException(std::make_exception_ptr(std::runtime_error("测试窗口忙")));
+            rejected.finish();
+            return result;
+        }
         m_vm = std::move(vm);
         m_requester = requester;
         m_promise = std::make_unique<QPromise<DialogResult>>();
