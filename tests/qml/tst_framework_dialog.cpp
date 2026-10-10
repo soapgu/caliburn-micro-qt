@@ -1,3 +1,4 @@
+#include "../support/DialogWindowSupport.h"
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
 #include <CaliburnMicroQt/ViewRegistry.h>
 #include <CaliburnMicroQt/WindowManager.h>
@@ -14,23 +15,6 @@
 
 Q_IMPORT_QML_PLUGIN(CaliburnMicroQtPlugin)
 
-static std::unique_ptr<QQuickWindow> createWindow(QQmlEngine &engine)
-{
-    QQmlComponent component(&engine);
-    component.setData(R"(
-        import QtQuick
-        import QtQuick.Controls
-        ApplicationWindow {
-            width: 480; height: 360
-            Column { objectName: "businessLayout"; Item { width: 20; height: 30 } }
-        }
-    )", QUrl());
-    std::unique_ptr<QQuickWindow> window(qobject_cast<QQuickWindow *>(component.create()));
-    if (!window)
-        qWarning().noquote() << component.errorString();
-    return window;
-}
-
 static std::unique_ptr<ConfirmActionViewModel> confirmation(WindowManager &manager)
 {
     return std::make_unique<ConfirmActionViewModel>(
@@ -41,10 +25,14 @@ class FrameworkDialogTests : public QObject
 {
     Q_OBJECT
 private slots:
-    void initTestCase() { QQuickStyle::setStyle(QStringLiteral("Basic")); }
+    void initTestCase() {
+        QQuickStyle::setStyle(QStringLiteral("Basic"));
+        QVERIFY(ViewRegistry::registerView<ScreenViewModel>(QUrl("qrc:/tests/fixtures/FrameworkWindow.qml")));
+    }
 
     void registryMapping()
     {
+        ScreenViewModel root;
         WindowManager manager;
         auto model = confirmation(manager);
         const QUrl defaultUrl(QStringLiteral("qrc:/qt/qml/Caliburn/Micro/Qt/ConfirmActionView.qml"));
@@ -63,9 +51,8 @@ private slots:
         QVERIFY(ViewRegistry::freeze());
         QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：配置已冻结，拒绝登记");
         QVERIFY(!ViewRegistry::registerView<ConfirmActionViewModel>(defaultUrl));
-        QQmlEngine engine;
-        auto window = createWindow(engine);
-        QVERIFY(window && manager.attachToWindow(window.get()));
+        auto *window = showManagedWindow(manager, &root);
+        QVERIFY(window);
         QObject requester;
         auto *vm = model.get();
         auto future = manager.showDialogAsync(std::move(model), &requester);
@@ -75,7 +62,7 @@ private slots:
             QVERIFY(!manager.busy());
             return;
         }
-        auto *host = window->findChild<QQuickItem *>(QStringLiteral("dialogHost"));
+        auto *host = dialogWindow(window);
         QVERIFY(host);
         auto *view = host->property("dialogItem").value<QQuickItem *>();
         QVERIFY(view);
@@ -92,95 +79,67 @@ private slots:
         QCOMPARE(canceled.result(), DialogResult(false));
     }
 
-    void mountingValidationAndLayout()
+    void managedWindowsKeepBusinessLayout()
     {
-        QQmlEngine engine;
-        auto first = createWindow(engine);
-        auto second = createWindow(engine);
-        QVERIFY(first && second);
-        WindowManager manager;
-        QQuickWindow nativeWindow;
-        QTest::ignoreMessage(QtWarningMsg, "WindowManager：窗口没有可用的 QML 引擎");
-        QVERIFY(!manager.attachToWindow(&nativeWindow));
-        QTest::ignoreMessage(QtWarningMsg, "WindowManager：宿主窗口或线程无效");
-        QVERIFY(!manager.attachToWindow(nullptr));
-        QTest::ignoreMessage(QtWarningMsg, "WindowManager：后备焦点必须属于宿主窗口");
-        QVERIFY(!manager.attachToWindow(first.get(), second->contentItem()));
+        ScreenViewModel firstModel, secondModel, rejectedModel;
+        WindowManager manager, other;
+        auto *first = showManagedWindow(manager, &firstModel);
+        auto *second = showManagedWindow(other, &secondModel);
+        QVERIFY(first && second && first != second);
         auto *layout = first->findChild<QQuickItem *>(QStringLiteral("businessLayout"));
         QVERIFY(layout);
         const QSizeF businessSize(layout->width(), layout->height());
-        QVERIFY(manager.attachToWindow(first.get()));
-        auto *host = first->findChild<QQuickItem *>(QStringLiteral("dialogHost"));
-        QVERIFY(host && host->parentItem() == first->contentItem());
-        QVERIFY(host->parentItem() != layout);
-        QCOMPARE(QSizeF(layout->width(), layout->height()), businessSize);
-        QCOMPARE(host->width(), first->contentItem()->width());
-        first->setWidth(620);
-        QTRY_COMPARE(host->width(), first->contentItem()->width());
-        QVERIFY(manager.attachToWindow(first.get()));
-        QCOMPARE(first->findChildren<QQuickItem *>(QStringLiteral("dialogHost")).size(), 1);
-        QTest::ignoreMessage(QtWarningMsg, "WindowManager：已有宿主或尚未完成的请求，须先解除挂载");
-        QVERIFY(!manager.attachToWindow(second.get()));
-        WindowManager other;
-        QTest::ignoreMessage(QtWarningMsg, "WindowManager：目标窗口已有弹窗宿主");
-        QVERIFY(!other.attachToWindow(first.get()));
-        QTest::ignoreMessage(QtWarningMsg, "WindowManager：宿主窗口或线程无效");
-        auto worker = std::unique_ptr<QThread>(QThread::create([&] {
-            QVERIFY(!manager.attachToWindow(first.get()));
-        }));
-        worker->start();
-        QVERIFY(worker->wait(5000));
-        manager.detachFromWindow();
         QVERIFY(!first->findChild<QQuickItem *>(QStringLiteral("dialogHost")));
-        QVERIFY(manager.attachToWindow(second.get()));
-        QVERIFY(other.attachToWindow(first.get())); // 独立窗口具有独立服务。
+        QVERIFY(!manager.showWindow(QVariant::fromValue(&rejectedModel)));
+        QVERIFY(!rejectedModel.isInitialized());
+        QObject requester;
+        auto future = manager.showDialogAsync(confirmation(manager), &requester);
+        QVERIFY(dialogWindow(first));
+        QVERIFY(!dialogWindow(second) && !other.busy());
+        QCOMPARE(QSizeF(layout->width(), layout->height()), businessSize);
+        manager.cancelDialogsFor(&requester);
+        QCOMPARE(future.result(), DialogResult{});
+        QCOMPARE(QSizeF(layout->width(), layout->height()), businessSize);
+        manager.releaseWindows();
+        QVERIFY(second->isVisible() && secondModel.isActive());
     }
 
-    void existingManualHostIsNotReplaced()
+    void oldManualHostIsUnavailable()
     {
-        WindowManager manager;
         QQmlEngine engine;
-        auto window = createWindow(engine);
-        QVERIFY(window);
         QQmlComponent component(&engine);
         component.setData("import Caliburn.Micro.Qt 1.0; DialogHostState {}", QUrl());
-        std::unique_ptr<QObject> state(component.create());
-        QVERIFY(state);
-        QVERIFY(state->setProperty("manager", QVariant::fromValue(static_cast<IWindowManager *>(&manager))));
-        QTest::ignoreMessage(QtWarningMsg, "WindowManager：已有宿主或尚未完成的请求，须先解除挂载");
-        QVERIFY(!manager.attachToWindow(window.get()));
-        state.reset();
-        QVERIFY(manager.attachToWindow(window.get()));
+        QVERIFY(component.isError());
     }
 
     void destructionCompletesRequest_data()
     {
         QTest::addColumn<QString>("kind");
-        for (const auto *kind : {"detach", "window", "engine", "manager", "requester"})
+        for (const auto *kind : {"prepare", "release", "window", "manager", "requester"})
             QTest::newRow(kind) << QString::fromLatin1(kind);
     }
 
     void destructionCompletesRequest()
     {
         QFETCH(QString, kind);
+        ScreenViewModel root;
         auto manager = std::make_unique<WindowManager>();
-        auto engine = std::make_unique<QQmlEngine>();
-        auto window = createWindow(*engine);
+        QPointer<QQuickWindow> window = showManagedWindow(*manager, &root);
         auto requester = std::make_unique<QObject>();
-        QVERIFY(window && manager->attachToWindow(window.get()));
+        QVERIFY(window);
         auto model = confirmation(*manager);
         QPointer<ConfirmActionViewModel> weak = model.get();
         auto future = manager->showDialogAsync(std::move(model), requester.get());
-        auto *host = window->findChild<QQuickItem *>(QStringLiteral("dialogHost"));
+        auto *host = dialogWindow(window);
         QVERIFY(host);
         QPointer<QQuickItem> view = host->property("dialogItem").value<QQuickItem *>();
         QVERIFY(view);
         QStringList order;
         connect(view, &QObject::destroyed, this, [&] { order << "view"; });
         connect(weak, &QObject::destroyed, this, [&] { order << "vm"; });
-        if (kind == "detach") manager->detachFromWindow();
-        if (kind == "window") window.reset();
-        if (kind == "engine") engine.reset(); // 窗口由 C++ 持有，引擎单独销毁。
+        if (kind == "prepare") manager->prepareForShutdown();
+        if (kind == "release") manager->releaseWindows();
+        if (kind == "window") delete window.data();
         if (kind == "manager") manager.reset();
         if (kind == "requester") requester.reset();
         QTRY_VERIFY(future.isFinished());

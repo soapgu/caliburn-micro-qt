@@ -2,6 +2,7 @@
 
 #include <CaliburnMicroQt/ScreenViewModel.h>
 #include <QFuture>
+#include <QVariant>
 #include <memory>
 #include <optional>
 
@@ -17,6 +18,8 @@ class IWindowManager : public QObject
     Q_PROPERTY(ScreenViewModel *currentDialog READ currentDialog NOTIFY currentDialogChanged)
 public:
     using QObject::QObject;
+    // 借用普通窗口 VM；保留 QVariant 中的具体指针类型供 QML 初始属性注入。
+    [[nodiscard]] virtual bool showWindow(const QVariant &viewModel) = 0;
     virtual bool busy() const = 0;
     virtual ScreenViewModel *currentDialog() const = 0;
     virtual QFuture<DialogResult> showDialogAsync(std::unique_ptr<ScreenViewModel> viewModel,

@@ -1,6 +1,6 @@
 set_source_files_properties(qml/ViewHost.qml PROPERTIES QT_RESOURCE_ALIAS ViewHost.qml)
 find_package(Qt6 6.8.3 REQUIRED COMPONENTS QuickControls2)
-set_source_files_properties(qml/DialogHost.qml PROPERTIES QT_RESOURCE_ALIAS DialogHost.qml)
+set_source_files_properties(qml/DialogWindow.qml PROPERTIES QT_RESOURCE_ALIAS DialogWindow.qml QT_QML_INTERNAL_TYPE TRUE)
 set_source_files_properties(qml/ConfirmActionView.qml PROPERTIES QT_RESOURCE_ALIAS ConfirmActionView.qml)
 qt_add_qml_module(CaliburnMicroQt
     STATIC
@@ -42,9 +42,7 @@ qt_add_qml_module(CaliburnMicroQt
         include/CaliburnMicroQt/ConfirmActionViewModel.h
         src/WindowManager.cpp
         src/ConfirmActionViewModel.cpp
-        src/DialogHostState.h
-        src/DialogHostState.cpp
-    QML_FILES qml/ViewHost.qml qml/DialogHost.qml qml/ConfirmActionView.qml
+    QML_FILES qml/ViewHost.qml qml/DialogWindow.qml qml/ConfirmActionView.qml
 )
 add_library(Caliburn::MicroQt ALIAS CaliburnMicroQt)
 target_include_directories(CaliburnMicroQt

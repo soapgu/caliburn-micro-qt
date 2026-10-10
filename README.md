@@ -16,7 +16,7 @@ Qt 已有属性绑定、信号、元对象系统和动态加载等基础机制�
 
 这里的“严格遵循 MVVM”指本项目的设计约定。目前没有自动强制检查架构的能力；是否遵守这些边界，仍需要应用设计、代码评审和后续测试共同保证。
 
-框架自动创建窗口服务并挂载根窗口 DialogHost，内置确认视图无需应用登记。根工厂可接收 `std::shared_ptr<IWindowManager>` 并注入业务 VM；Shell 只描述业务界面。手动宿主与独立窗口用法见 [Bootstrapper](docs/Bootstrapper.md) 和 [WindowManager](docs/WindowManager.md)，本轮验证见 [弹窗基础设施验收记录](docs/弹窗基础设施验收记录.md)。
+框架自动创建窗口服务并登记根窗口，以独立应用级模态窗口承载弹窗 View，内置确认视图无需应用登记。根工厂可接收 `std::shared_ptr<IWindowManager>` 并注入业务 VM；Shell 只描述业务界面。窗口登记与独立模态窗口用法见 [Bootstrapper](docs/Bootstrapper.md) 和 [WindowManager](docs/WindowManager.md)，本轮验证见 [独立模态窗口验收记录](docs/独立模态窗口验收记录.md)。
 
 ## 架构原则
 
@@ -51,7 +51,7 @@ flowchart LR
 | Conductor<T> | Conductor<T> + ConductorViewModelBase | 已实现泛型单项导航；切换关闭旧项并延迟释放。4B 已接入 Shell，4C 已实现 Collection.OneActive，切换保留旧项。 |
 | ViewLocator / ViewModelBinder | ViewRegistry、ViewHost | 按应用提供的 VM 类型映射定位 View，创建前注入 viewModel。 |
 | ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
-| IWindowManager / WindowManager 的模态职责 | IWindowManager、WindowManager、DialogHost | 5A 已实现接受自定义 VM 的通用模态弹窗，以 Home 重置确认为首个示例；普通窗口与 Popup 管理留待后续。 |
+| IWindowManager / WindowManager 的模态职责 | IWindowManager、WindowManager、内部 DialogWindow | 已实现独立 QQuickWindow 模态弹窗及关闭守卫，保留 Future；普通窗口管理留待后续。 |
 | IGuardClose / 关闭策略 | Conductor 关闭守卫与直接许可回调 | 5B 已实现 Detail 退出确认，覆盖成员关闭、单项替换及普通停用、父级关闭许可；保留同步生命周期。 |
 | IoC / 构造注入 | 应用组合根 + Boost.Ext.DI v1.3.2 | 创建与长期持有分开，框架 VM 不依赖容器。 |
 | Bootstrapper | BootstrapperBase + AppBootstrapper | Configure 配置映射和根工厂，OnStartup 显示根窗口，Run 统一生命周期与清理。 |
@@ -74,8 +74,7 @@ flowchart LR
 | BootstrapperBase | C++ 应用启动基类 | 编排配置、根对象创建、窗口加载、生命周期及退出清理，不依赖 DI 库。 |
 | IWindowManager | 抽象 QObject 服务（5A 已实现） | 声明接受自定义 VM 的 showDialogAsync 通用模态弹窗入口，异步交付结果。 |
 | WindowManager | C++ 服务（5A 已实现） | 协调临时弹窗 VM 的生命周期、一次结果和请求失效；所有权与完成顺序见窗口服务专题。 |
-| DialogHost | QML 组件（5A 已实现） | 显示当前弹窗，处理模态隔离、关闭和焦点恢复。 |
-| DialogHostState | 公开、可创建的 QML 辅助类型（5A 已实现） | 关联窗口服务并协调请求释放；标准展示优先使用 DialogHost，见 [公开接口](docs/WindowManager.md#dialoghoststate公开-qml-宿主协调接口)。 |
+| DialogWindow | 模块内部 QML 窗口 | 承载 Item View，设置应用级模态；服务负责守卫、清理与焦点恢复。 |
 | ConfirmActionViewModel | C++ Screen 子类（5A 已实现） | 提供确认文案、accept / cancel 操作与一次完成结果。 |
 | ConfirmActionView | QML View（5A 已实现） | 展示确认 VM，通过手写事件处理器调用接受或取消方法。 |
 | IGuardClose / 关闭策略 | C++ 回调协议（5B 已实现） | canClose(callback) 立即或延后交付许可；适用场景包括关闭及单项成员普通停用，拒绝时保留成员、选择和页面。 |
@@ -103,7 +102,7 @@ ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected �
 | 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 已实现基类、Screen 生命周期、注册表、ViewHost 和单项 Conductor；集合型 Conductor 和 5A 通用模态弹窗已实现。 |
 | 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | 已实现 Shell 根窗口和 Home 计数页、参数按钮、键盘输入及生命周期状态；共享计数服务及 Home 重建；Detail 只读详情导航、退出确认和根窗口关闭守卫已实现。 |
 | 示例装配库 | `CaliburnExampleComposition` | 无独立 QML URI | Boost.Ext.DI 绑定共享服务及 Home/Detail 工厂，创建 Shell 并设置根 CppOwnership；子项由 Conductor 接管。 |
-| 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | AppBootstrapper 配置映射与根工厂，框架 Bootstrapper 统一启动、根生命周期、类型化注入及有序退出。 |
+| 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | AppBootstrapper 配置映射与根工厂，框架 Bootstrapper 编排启动退出，WindowManager 负责窗口创建、类型化注入和正常关窗生命周期。 |
 
 框架和用户模块均采用静态库，通过 `qt_add_qml_module` 组织各自的 C++ 与 QML；应用的两个插件由 Qt 导入扫描链接，QML 测试仅显式补充动态 URL 加载所需的示例插件，并保留 Q_IMPORT_QML_PLUGIN 导入。静态类型注册及内嵌资源加载已验证，重复库警告的清理与检查见 [链接依赖清理验收记录](docs/链接依赖清理验收记录.md)。示例装配库采用 Boost.Ext.DI，Shell 通过构造注入工厂，由 Conductor 接管 Home；两个 QML 模块和 VM 头文件不包含 DI。
 
@@ -156,7 +155,8 @@ Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由�
 - [tryClose 验收记录](docs/tryClose验收记录.md)
 - [后续版本 ToDoList：View 保留、Action 与根窗口衔接](docs/后续版本ToDoList.md)
 - [Conductor 核心验收记录](docs/Conductor核心验收记录.md)
-- [WindowManager：通用模态弹窗与重置确认](docs/WindowManager.md)
+- [WindowManager：普通窗口、通用模态弹窗与重置确认](docs/WindowManager.md)
+- [根窗口职责迁移验收记录](docs/根窗口职责迁移验收记录.md)
 - [5A 验收记录](docs/5A验收记录.md)
 - [ScreenViewModel：同步生命周期](docs/ScreenViewModel.md)
 - [ViewModelBase：类型基础、完整成员与通知辅助](docs/ViewModelBase.md)
@@ -239,7 +239,7 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 | 2．参数与键盘 | Shell 同页演示 int 参数按钮与原生键盘事件，直接调用 VM，不增加框架输入组件。 | 已完成，macOS arm64 验收通过 |
 | 3．生命周期与视图装配 | Screen、注册表与 ViewHost；Shell 根入口、Home 计数页面及 VM 替换。 | 已完成，macOS arm64 验收通过 |
 | 4．页面组合与导航 | 4A 单项核心、4B 共享服务、4C 集合型与 Detail 均已完成。 | 第四批本机验收完成；麒麟待验证 |
-| 5A．重置确认 | IWindowManager / WindowManager 通用模态弹窗、确认 VM/View 与 DialogHost；Home 重置确认、请求失效及焦点。 | 已实现，macOS arm64 验收通过；麒麟待验证 |
+| 5A．重置确认 | IWindowManager / WindowManager 通用模态弹窗、确认 VM/View；当前已迁移为独立模态窗口，Home 重置确认、请求失效及焦点。 | 已实现，macOS arm64 验收通过；麒麟待验证 |
 | 5B．Detail 退出确认与关闭守卫 | Detail 确认、关闭策略、父级当前项/集合成员许可、直接回调及 void 入口。 | 已实现；本机验收通过，麒麟待验证 |
 | 6．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
 

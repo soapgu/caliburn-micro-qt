@@ -27,7 +27,7 @@ Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，保存两个页
 
 ## 创建与所有权
 
-[ViewModelComposition.cpp](../examples/minimal/app/ViewModelComposition.cpp) 在应用启动时接收 Bootstrapper 创建的 WindowManager，每次 buildShell 创建独立 CounterService，以 shared_ptr 持有并装配 Home/Detail 工厂。无参 buildShell 供独立装配使用，自行创建窗口服务；调用方若需要弹窗，应使用接收服务的重载，显式保留服务并调用其挂载接口。Home 工厂按值捕获计数和窗口服务，Detail 工厂同样捕获计数和窗口服务，每次调用局部 Boost.Ext.DI 注入器，绑定同一服务并创建对应 unique_ptr 页面。根注入器只绑定两个页面工厂、创建 Shell，返回根 unique_ptr。
+[ViewModelComposition.cpp](../examples/minimal/app/ViewModelComposition.cpp) 在应用启动时接收 Bootstrapper 创建的 WindowManager，每次 buildShell 创建独立 CounterService，以 shared_ptr 持有并装配 Home/Detail 工厂。无参 buildShell 供独立装配使用，自行创建窗口服务；调用方若需要弹窗，应使用接收服务的重载，显式保留服务，通过 showWindow 显示根窗口；窗口关联由服务内部维护，不支持登记已有外部窗口。Home 工厂按值捕获计数和窗口服务，Detail 工厂同样捕获计数和窗口服务，每次调用局部 Boost.Ext.DI 注入器，绑定同一服务并创建对应 unique_ptr 页面。根注入器只绑定两个页面工厂、创建 Shell，返回根 unique_ptr。
 
 DI 仍为装配库私有依赖。工厂不捕获注入器或 Shell；局部注入器离开作用域后，工厂和页面的 shared_ptr 保持服务寿命。Conductor 接管页面时设置 QObject 父关系和 CppOwnership，释放临时 unique_ptr。根 Shell 由 unique_ptr 管理，服务没有 QObject 父对象。不同 buildShell 的计数相互隔离。
 
@@ -50,7 +50,7 @@ DI 仍为装配库私有依赖。工厂不捕获注入器或 Shell；局部注�
 
 Shell 重写 onActivate：补齐缺失 Home，已有选择时调用集合型基类激活当前项；没有选择时通过 activateItem 选择 Home 并由集合入口完成激活，随后直接返回，不再重复调用基类激活同一项。这是页面选择与重建逻辑，不操作 Shell 自身生命周期。初始化、普通停用和关闭由框架管理。操作在应用主线程同步执行；生命周期钩子应正常返回，转换回调不得重入修改生命周期、集合或销毁参与对象。
 
-Bootstrapper 在根 QML 加载前只调用 Shell.activate()，不额外调用 initialize；首次初始化由 Screen 自动完成。Home/Detail 不在钩子中自行激活或关闭。状态通知先于钩子执行，不表示整个父子转换完成；钩子抛异常时已提交状态不回滚。
+WindowManager::showWindow 在根 QML 加载前只调用 Shell.activate()，不额外调用 initialize；首次初始化由 Screen 自动完成。Home/Detail 不在钩子中自行激活或关闭。状态通知先于钩子执行，不表示整个父子转换完成；钩子抛异常时已提交状态不回滚。
 
 ## View 与后续边界
 
@@ -76,4 +76,4 @@ DetailView 返回按钮仍绑定页面活动状态与非空逻辑 Parent。showD
 
 5A、5B 均已实现并完成本机验收，见 [5A](5A验收记录.md)、[5B](5B验收记录.md)。Home 和 Detail 使用同一 shared_ptr<IWindowManager>；两个工厂都按值捕获计数及窗口服务，每次调用在局部注入器中绑定二者。不同 buildShell 实例仍相互隔离。
 
-窗口服务与 DialogHost 由框架创建、挂载，Shell 不声明宿主或接线属性。ConfirmationRequest 只保存文案；重置由 Home 完成，关闭由 Conductor 完成。主窗口关闭与根请求由 Bootstrapper 的私有窗口桥接接入守卫；缓存继续留待后续，麒麟待验证。
+窗口服务由框架创建并登记所属窗口，按需创建独立 ApplicationModal 窗口，Shell 不声明宿主或接线属性。ConfirmationRequest 只保存文案；重置由 Home 完成，成员关闭由 Conductor 完成，弹窗关闭由 WindowConductor 与窗口服务完成。主窗口关闭与根请求由 WindowManager 创建的私有窗口桥接接入守卫；Bootstrapper 只委托显示并编排应用退出；缓存继续留待后续，麒麟待验证。

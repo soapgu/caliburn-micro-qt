@@ -44,7 +44,7 @@ void canClose(CloseCallback callback) override;
 
 ## 框架自动驱动生命周期
 
-普通业务 Screen 无需在构造、QML Loaded 或生命周期钩子中调用自身 activate。Bootstrapper 在加载根 QML 前调用根 activate，自动完成根初始化；WindowManager 在装配弹窗 View 前激活弹窗；活动 Conductor 在选择子项时自动初始化并激活它，尚未活动的 Conductor 则在自身激活时驱动当前子项。构造或只加载、绑定 View 本身不保证激活。ViewHost 不驱动生命周期，窗口焦点也不驱动生命周期。
+普通业务 Screen 无需在构造、QML Loaded 或生命周期钩子中调用自身 activate。Bootstrapper 委托 WindowManager::showWindow 在加载根 QML 前调用根 activate，自动完成根初始化；WindowManager 在装配弹窗 View 前激活弹窗；活动 Conductor 在选择子项时自动初始化并激活它，尚未活动的 Conductor 则在自身激活时驱动当前子项。构造或只加载、绑定 View 本身不保证激活。ViewHost 不驱动生命周期，窗口焦点也不驱动生命周期。
 
 业务导航选择由 Conductor 的 activateItem 入口处理；页面按钮请求关闭由 tryClose 或窗口服务处理，不在关闭钩子中再次请求关闭。
 
@@ -56,7 +56,7 @@ Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，Home 和 Detail
 
 已初始化 Shell 关闭清空全部成员及选择，关闭 Home/Detail 并延迟删除；再激活创建新 Home，服务和计数保留。未初始化 Shell 关闭仍无操作。页面意外销毁不自动导航，下次 Shell 停用后激活补 Home，在空选择时选 Home。
 
-Screen 自身关闭不删除的契约不变；集合成员移除、延迟回收属于 Conductor。Bootstrapper 只驱动根生命周期，ViewHost 不驱动生命周期，窗口失焦不自动停用。退出时当前 View 先于对应 VM 释放，根 View 先于根 VM 释放。
+Screen 自身关闭不删除的契约不变；集合成员移除、延迟回收属于 Conductor。WindowManager 驱动窗口 VM 的正常生命周期，Bootstrapper 兜底根退出，ViewHost 不驱动生命周期，窗口失焦不自动停用。退出时当前 View 先于对应 VM 释放，根 View 先于根 VM 释放。
 
 基础历史结果见 [第三批验收记录](第三批验收记录.md) 和 [4B 验收记录](4B验收记录.md)。当前集合生命周期、异常恢复、单次回收及导航验收见 [4C 验收记录](4C验收记录.md)；装配接口见 [IoC 与应用装配](IoC与应用装配.md)。
 
@@ -72,7 +72,7 @@ ScreenViewModel 实现 IChild 并声明 Q_INTERFACES(IChild IGuardClose)。C++ g
 
 ## tryClose：受管页面请求关闭自己
 
-void tryClose() 是普通 C++ 方法，不声明 Q_INVOKABLE。每次读取逻辑 Parent，转换为 IConductor 并请求 deactivateItem(this, true)；无逻辑 Parent 时发送 closeRequested()，由关联的根窗口桥接处理。存在非 Conductor 的逻辑 Parent 时无操作，不使用 QObject 父对象兜底，不直接删除自身。单项只处理当前项的请求，普通停用后的非当前旧对象请求无操作。
+void tryClose() 是普通 C++ 方法，不声明 Q_INVOKABLE。每次读取逻辑 Parent，转换为 IConductor 并请求 deactivateItem(this, true)；无逻辑 Parent 时发送 closeRequested()，由关联的窗口桥接处理（根窗口或独立弹窗）。存在非 Conductor 的逻辑 Parent 时无操作，不使用 QObject 父对象兜底，不直接删除自身。单项只处理当前项的请求，普通停用后的非当前旧对象请求无操作。
 
 5B 已将请求入口迁移为 void，不带完成回调。Detail 的 Q_INVOKABLE void goBack() 仅活动时发起 tryClose；守卫拒绝时保留页面，接受后关闭返回 Home。方法返回不能表示关闭完成。
 
@@ -80,4 +80,6 @@ Screen 新增 attemptingDeactivation(bool close) 与 deactivated(bool close)，�
 
 Screen 默认 canClose(callback) 立即同意；Conductor 聚合当前子项快照，单项仅当前项、集合为全部成员，Detail 使用窗口 Future 转接许可。同步生命周期异常原样传播且不回滚，延后请求执行异常在 Qt 边界记录。完整规则见 [关闭守卫](关闭守卫.md) 和 [Conductor](Conductor.md)，本机证据见 [5B 验收](5B验收记录.md)。
 
-closeRequested() 仅表达关闭请求，不是许可或完成通知；没有窗口桥接时不执行关闭。根 Shell.tryClose 经窗口关闭入口询问根 canClose，根直接完成 deactivate(true) 后则反向关闭窗口。窗口成功关闭后的根生命周期由 Bootstrapper 单次执行；普通停用不关闭窗口。见 [Bootstrapper](Bootstrapper.md) 与 [根窗口验收](根窗口关闭守卫与生命周期验收记录.md)。
+closeRequested() 仅表达关闭请求，不是许可或完成通知；没有窗口桥接时不执行关闭。根 Shell.tryClose 经窗口关闭入口询问根 canClose，根直接完成 deactivate(true) 后则反向关闭窗口。窗口成功关闭后的根生命周期由 WindowManager 单次执行，Bootstrapper 兜底未完成的根退出；普通停用不关闭窗口。见 [Bootstrapper](Bootstrapper.md) 与 [根窗口验收](根窗口关闭守卫与生命周期验收记录.md)。
+
+独立弹窗也关联 WindowConductor，tryClose 会检查弹窗 VM 的 canClose。弹窗关闭后的 View 卸载、一次性生命周期及结果交付由 WindowManager 完成；cancelDialogsFor 等强制清理不询问守卫。见 [窗口服务](WindowManager.md)。

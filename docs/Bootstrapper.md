@@ -20,7 +20,7 @@ int main(int argc, char *argv[])
 | `int Run()` | 编排配置、启动、事件循环和清理。同一实例只能调用一次；重复调用返回 1，不重复执行退出钩子。 |
 | `bool Configure()` | 应用设置样式、登记业务 View 映射和根工厂；返回 false 则停止启动，不自动冻结注册表。成功后由 Bootstrapper 显式冻结，再进入 OnStartup。 |
 | `void OnStartup()` | 默认空实现的虚方法；在 Configure 成功并冻结映射后调用。应用显示根窗口，显示失败、重复显示或未显示均判定启动失败。 |
-| `void OnExit()` | 默认空实现的虚方法。正常退出在 aboutToQuit 中、根关闭之后调用；失败清理补调。最多调用一次，调用时根 VM 与 QML 对象尚未释放，须兼容部分初始化。 |
+| `void OnExit()` | 默认空实现的虚方法。正常退出在 aboutToQuit 中、根关闭之后调用；失败清理补调。最多调用一次，成功展示后的根 VM 与 View 在钩子中仍存活；展示失败的部分窗口资源已经回收，须兼容部分初始化。 |
 | `bool RegisterRootFactory<T>(std::function<std::unique_ptr<T>(std::shared_ptr<IWindowManager>)> factory)` | 只允许在 Configure 中登记，每个类型只能登记一次；拒绝空工厂，登记时不创建对象。工厂统一接收框架窗口服务并返回 unique_ptr<T>。 |
 | `bool DisplayRootViewFor<T>(RootViewOptions options = {})` | 只允许在 OnStartup 中调用；每个 Bootstrapper 只允许一次显示尝试，T 必须继承 ScreenViewModel。RootViewOptions 当前为空，预留根窗口设置扩展。 |
 
@@ -30,30 +30,30 @@ int main(int argc, char *argv[])
 
 Bootstrapper 保存按 VM 元对象地址索引的根工厂；在 Configure 前创建并持有独立 WindowManager，调用根工厂时提供同一服务。不提供应用级服务定位或窗口服务实现替换入口；业务服务与子 VM 的依赖仍由应用装配层解决。
 
-RegisterRootFactory 直接把工厂保存为统一返回 unique_ptr<ScreenViewModel> 的 std::function，使用标准类型转换，不增加包装函数。DisplayRootViewFor 先查表调用工厂，校验并把 VM 保存到 m_root；然后取出具体 T* 构造 QVariant，再交给窗口加载步骤。
+RegisterRootFactory 直接把工厂保存为统一返回 unique_ptr<ScreenViewModel> 的 std::function，使用标准类型转换，不增加包装函数。DisplayRootViewFor 先查表调用工厂，校验并把 VM 保存到 m_root；然后取出具体 T* 构造 QVariant，委托 IWindowManager::showWindow。DisplayRootView 只记录显示结果，不创建引擎、窗口或 WindowConductor。
 
-m_root 负责根 VM 生命周期及最终删除；QVariant 保留具体指针类型供 QML required 属性注入，不接管对象。RootViewOptions 只在显示入口接收，当前不保存、不影响行为。
+m_root 负责根 VM 最终删除及失败/强制退出时的生命周期兜底；正常窗口关闭后的 VM 停用由 WindowManager 执行。窗口服务借用根 VM，并持有自己的引擎、窗口和私有桥接，不强持有根 VM，避免与业务持有的共享窗口服务形成所有权环。QVariant 保留具体指针类型供 QML required 属性注入，不接管对象。RootViewOptions 只在显示入口接收，当前不保存、不影响行为。
 
 根对象必须无 QObject 父对象，并位于应用主线程。Bootstrapper 在暴露根 VM 前设置 CppOwnership；子对象所有权由 Conductor 接管流程设置，Bootstrapper 不递归猜测对象图。
 
-## 自动宿主与独立窗口接入
+## 自动关联与独立窗口展示
 
-Bootstrapper 始终自动把标准 DialogHost 挂到 `QQuickWindow::contentItem()`，与业务布局并列，弹窗实际显示在 Overlay；ShellView 不需要声明 DialogHost，ShellViewModel 不需要暴露窗口服务。确认视图默认映射由 ViewRegistry 提供，应用只登记业务映射。
+WindowManager::showWindow 创建根 QQuickWindow 后自行登记所属窗口，并显式显示窗口，不修改业务内容树；服务按需创建独立的 ApplicationModal 窗口。ShellView 不需要声明弹窗宿主，ShellViewModel 不需要暴露窗口服务。确认视图默认映射由 ViewRegistry 提供，应用只登记业务映射。
 
-不经过 Bootstrapper 的独立 QML 窗口可以持有 WindowManager，并调用 attachToWindow / detachFromWindow 管理宿主关联。Bootstrapper 的根工厂统一接收框架窗口服务。
+不经过 Bootstrapper 时，同样通过 showWindow 显示借用 VM 的普通窗口，再展示弹窗。attachToWindow / detachFromWindow 是 WindowManager 私有的内部关联机制，不再支持外部 QML 窗口手动接入。Bootstrapper 的根工厂统一接收框架窗口服务。
 
-根 VM 激活仍早于根 View 加载。激活钩子中立即弹窗没有可用宿主，不在支持范围内；应在根窗口显示成功后发起。自动挂载失败按启动失败清理，窗口服务在宿主和业务 VM 清理后才释放框架引用。
+根 VM 激活仍早于根 View 加载。激活钩子中立即弹窗没有可用宿主，不在支持范围内；应在根窗口显示成功后发起。已有所属窗口时在激活前拒绝根显示；加载失败时服务立即回收部分创建资源并兜底关闭 VM。窗口服务在窗口和业务 VM 清理后才释放框架引用。
 
 ## 启动与退出顺序
 
 1. Run 在应用主线程创建框架 WindowManager，再显式执行 Configure，不在构造函数里调用虚方法。
 2. Configure 成功后调用 ViewRegistry::freeze()，然后进入 OnStartup 并调用根工厂。所有映射登记必须在 Configure 中完成；配置阶段查询不会提前冻结。
-3. 查询根 View 地址，拒绝空映射与远程 URL。
-4. 初始化并激活根 Screen；Shell 的 Conductor 基类驱动 Home。
-5. 创建 QQmlApplicationEngine，类型化注入 viewModel，加载根 View。
-6. 验证加载结果恰有一个 QQuickWindow，自动挂载 DialogHost 和私有 WindowConductor，成功后才进入应用事件循环。
-7. 窗口关闭先询问根 canClose；实际关闭后执行一次根生命周期。aboutToQuit 先停用桥接，再兜底关闭根并调用 OnExit，不销毁引擎。
-8. 事件循环返回后，未通知退出时补调 OnExit，然后销毁桥接、引擎与 View，最后释放根 VM、子对象树、工厂与框架持有的窗口服务。
+3. DisplayRootView 委托 showWindow，由服务校验 VM、所属窗口和 View 地址，拒绝空映射与远程 URL。
+4. 服务初始化并激活根 Screen；Shell 的 Conductor 基类驱动 Home。
+5. 服务创建 QQmlApplicationEngine，类型化注入 viewModel，加载根 View。
+6. 服务验证加载结果恰有一个 QQuickWindow，登记所属窗口并创建私有 WindowConductor，显式显示窗口；成功后 Bootstrapper 才进入应用事件循环。
+7. 窗口关闭先询问根 canClose；实际关闭后服务执行一次根生命周期，并把捕获的关闭异常通知 Bootstrapper。aboutToQuit 调用 prepareForShutdown 停用桥接并强制清理弹窗，再兜底关闭根并调用 OnExit，不销毁普通窗口引擎。
+8. 事件循环返回后，未通知退出时补调 OnExit，然后显式调用 releaseWindows 销毁桥接、View 与引擎，最后释放根 VM、子对象树、工厂与框架持有的窗口服务。外部仍持有服务 shared_ptr 也不会延长根 View 的寿命。
 
 根对象关闭最多尝试一次，包括业务直接执行根 deactivate(true) 的情况；退出钩子调用一次。基类析构只兜底清理，不调用派生类 OnExit。Run 的清理路径捕获关闭钩子和 OnExit 的异常，继续释放剩余资源；异常不会从 aboutToQuit 回调逸出。
 
@@ -72,6 +72,8 @@ DisplayRootViewFor 接收当前为空的 RootViewOptions，Run 接口不变；bu
 ## 验证
 
 窗口服务、自动宿主和默认视图映射的当前验证见 [弹窗基础设施验收记录](弹窗基础设施验收记录.md)。
+
+showWindow 职责迁移及新增所有权/失败清理回归见 [根窗口职责迁移验收记录](根窗口职责迁移验收记录.md)；早期验证过程见 [可行性评估](根窗口职责迁移可行性评估.md)。本次保留当前激活时序，CM 的创建/绑定/激活顺序及普通 Item 窗口包装留待独立变更。
 
 CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周期、View 先于 VM 释放、重复运行保护、失败清理和异常退出，并覆盖 Configure 中查询后继续登记、进入 OnStartup 前已经冻结以及 Configure 失败不自动冻结。各场景由 CTest 在独立进程运行：注册表的映射和冻结状态均为进程级，不同场景需要为同一类型使用不同映射或保留空表；显式冻结不消除这项隔离需求。实际 AppBootstrapper 另有窗口关闭退出的集成场景。
 
@@ -93,3 +95,5 @@ CaliburnBootstrapperTests 验证具体类型注入、Home 装载、根生命周�
 Screen 的 tryClose 有 Parent 时委托 IConductor；无逻辑 Parent 时发送 closeRequested，由根 WindowConductor 请求窗口关闭。桥接先拒绝原关闭事件，在调用栈退出后询问根 canClose，获准后恢复关闭；其他 QML 关闭处理仍可拒绝。根直接完成 deactivate(true) 时反向关闭窗口，不重复守卫。普通停用不关闭窗口。未关联窗口的 Screen 发送请求后无操作。
 
 5A/5B 的能力及历史验收继续保留。当前增量补齐根窗口双向桥接及 CM 风格 void 启动、退出钩子，见 [根窗口验收记录](根窗口关闭守卫与生命周期验收记录.md)。旧 bool OnStartup 重写需迁移为 void；OnExit 从事件循环返回后前移到 aboutToQuit。配置和启动失败仍补调退出通知。直接 exit 或强制清理不询问守卫，多窗口和系统强制终止交互不在范围内。
+
+独立模态窗口改造后，aboutToQuit 和最终 Shutdown 都在根生命周期之前解除窗口服务关联，强制完成弹窗 Future，并保证弹窗 View/窗口先于引擎释放。OnExit 时根 VM 和根 View 仍存活。见 [独立模态窗口验收](独立模态窗口验收记录.md)。

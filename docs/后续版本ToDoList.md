@@ -20,6 +20,8 @@
 
 ## 根窗口关闭请求与 tryClose 衔接（已实现）
 
-根窗口与根 VM 通过 Bootstrapper 创建的私有 WindowConductor 双向关联。窗口关闭先检查根 canClose，根 tryClose 请求关联窗口关闭；根直接完成关闭生命周期后反向关闭窗口。Bootstrapper 协调一次性根清理和 OnExit，完整契约见 [Bootstrapper](Bootstrapper.md)、[关闭守卫](关闭守卫.md)，结果见 [根窗口验收](根窗口关闭守卫与生命周期验收记录.md)。
+根窗口与根 VM 通过 WindowManager::showWindow 创建的私有 WindowConductor 双向关联。窗口关闭先检查根 canClose，根 tryClose 请求关联窗口关闭；根直接完成关闭生命周期后反向关闭窗口。WindowManager 执行正常关窗后的根停用，Bootstrapper 协调根兜底清理和 OnExit，完整契约见 [Bootstrapper](Bootstrapper.md)、[关闭守卫](关闭守卫.md)，结果见 [根窗口验收](根窗口关闭守卫与生命周期验收记录.md)。
 
 后续仍不包含多窗口退出协调、系统强制终止交互拦截及 View 缓存；麒麟与外部消费工程待验证。
+
+独立应用级模态窗口及弹窗关闭守卫已实现，保留 Future 异步返回和单弹窗限制。嵌套弹窗、同步 ShowDialog 返回方式仍不在当前接口内，见 [窗口服务](WindowManager.md) 与 [独立模态窗口验收](独立模态窗口验收记录.md)。

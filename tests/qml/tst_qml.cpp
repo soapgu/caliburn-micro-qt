@@ -1,3 +1,4 @@
+#include "../support/DialogWindowSupport.h"
 #include "../support/TestWindowManager.h"
 #include <CaliburnMicroQt/Conductor.h>
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
@@ -66,10 +67,12 @@ static bool displaysHome(QQuickWindow *window, HomeViewModel *model)
 
 static void acceptDialog(QQuickWindow *window)
 {
-    auto *button = window->findChild<QQuickItem *>(QStringLiteral("dialogAccept"));
+    auto *button = dialogControl(window, QStringLiteral("dialogAccept"));
     QVERIFY(button);
-    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+    QTest::mouseClick(button->window(), Qt::LeftButton, Qt::NoModifier,
                      button->mapToScene(QPointF(button->width()/2, button->height()/2)).toPoint());
+    QTRY_VERIFY(!dialogWindow(window));
+    QCoreApplication::processEvents(); // 执行排队的所属窗口焦点恢复。
 }
 
 class QmlTests : public QObject
@@ -124,7 +127,7 @@ private slots:
         QTest::addColumn<QByteArray>("source");
         QTest::addColumn<bool>("dialog");
         QTest::newRow("view") << QByteArray("import Caliburn.Micro.Qt 1.0; ViewHostState {}") << false;
-        QTest::newRow("dialog") << QByteArray("import Caliburn.Micro.Qt 1.0; DialogHostState {}") << true;
+
     }
 
     void hostStatesAreCreatable()
@@ -542,13 +545,11 @@ private slots:
         auto *home = shell->home();
         home->add(3);
         QCOMPARE(home->parentViewModel(), shell.get());
-        QQmlApplicationEngine engine;
-        useEmbeddedModules(engine);
+        WindowCleanup cleanup{*windows};
+        auto *window = showManagedWindow(*windows, shell.get());
+        QVERIFY(window);
+        auto &engine = *qmlEngine(window);
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
-        engine.setInitialProperties({{"viewModel", QVariant::fromValue(shell.get())}});
-        engine.load(ViewRegistry::viewUrl(shell.get()));
-        QCOMPARE(engine.rootObjects().size(), 1);
-        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         QVERIFY(window && QTest::qWaitForWindowExposed(window));
         // 窗口显示不代表已激活；无头平台需要处理激活事件后才能验证键盘焦点。
         window->requestActivate();
@@ -562,9 +563,9 @@ private slots:
         QVERIFY(show && show->isEnabled());
         QVERIFY(!window->findChild<QQuickItem *>(QStringLiteral("goHome")));
         QVERIFY(!window->findChild<QQuickItem *>(QStringLiteral("goBack")));
-        shell->tryClose(); QVERIFY(window->isVisible());
+        QVERIFY(window->isVisible()); // 根窗口关闭行为由独立守卫测试覆盖。
         const auto click = [window](QQuickItem *button) {
-            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+            QTest::mouseClick(button->window(), Qt::LeftButton, Qt::NoModifier,
                               button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
         };
         // 显式模拟导航按钮已获焦点，避免依赖平台是否默认让鼠标点击聚焦按钮。
@@ -589,11 +590,10 @@ private slots:
         QStringList destruction;
         connect(firstDetailView.data(), &QObject::destroyed, &engine, [&] { destruction << "view"; });
         connect(detail, &QObject::destroyed, &engine, [&] { destruction << "vm"; });
-        QVERIFY(windows->attachToWindow(window));
         click(back.data());
         QTRY_VERIFY(windows->busy());
         QCOMPARE(shell->activeItem(), detail);
-        auto *accept = window->findChild<QQuickItem *>("dialogAccept");
+        auto *accept = dialogControl(window, "dialogAccept");
         QVERIFY(accept); click(accept);
         QTRY_VERIFY(displaysHome(window, home));
         QTRY_VERIFY(!firstDetailView && !oldDetail && !back);
@@ -619,9 +619,9 @@ private slots:
         QTRY_VERIFY(back->hasActiveFocus());
         QTest::keyClick(window, Qt::Key_Space);
         QTRY_VERIFY(windows->busy());
-        auto *confirm = window->findChild<QQuickItem *>("dialogAccept");
+        auto *confirm = dialogControl(window, "dialogAccept");
         QVERIFY(confirm); confirm->forceActiveFocus();
-        QTest::keyClick(window, Qt::Key_Return);
+        QTest::keyClick(dialogWindow(window), Qt::Key_Return);
         QTRY_VERIFY(displaysHome(window, home));
         QTRY_VERIFY(!back);
         QCOMPARE(home->count(), 5);
@@ -727,16 +727,12 @@ private slots:
         shell->activate();
         QPointer<HomeViewModel> weak = vm;
         {
-            QQmlApplicationEngine engine;
-            useEmbeddedModules(engine);
-            QSignalSpy warnings(&engine, &QQmlEngine::warnings);
             QVERIFY(QFile::exists(QStringLiteral(":/qt/qml/CaliburnExample/views/ShellView.qml")));
-            engine.setInitialProperties({{"viewModel", QVariant::fromValue(shell.get())}});
-            engine.load(ViewRegistry::viewUrl(shell.get()));
-            QCOMPARE(engine.rootObjects().size(), 1);
-            auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().front());
+            WindowCleanup cleanup{*windows};
+            auto *window = showManagedWindow(*windows, shell.get());
             QVERIFY(window);
-            QVERIFY(windows->attachToWindow(window));
+            auto &engine = *qmlEngine(window);
+            QSignalSpy warnings(&engine, &QQmlEngine::warnings);
             QCOMPARE(window->property("viewModel").value<QObject *>(), shell.get());
             auto *label = window->findChild<QQuickItem *>(QStringLiteral("messageLabel"));
             auto *increase = window->findChild<QQuickItem *>(QStringLiteral("increment"));
@@ -749,7 +745,7 @@ private slots:
             QTRY_VERIFY(!reset->isEnabled());
             const auto click = [window](QQuickItem *item) {
                 const QPoint position = item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
-                QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, position);
+                QTest::mouseClick(item->window(), Qt::LeftButton, Qt::NoModifier, position);
             };
             for (int i = 1; i <= 5; ++i) {
                 click(increase);
@@ -762,7 +758,7 @@ private slots:
             QVERIFY(reset->isEnabled());
             click(reset);
             QTRY_VERIFY(windows->currentDialog());
-            auto *accept = window->findChild<QQuickItem *>(QStringLiteral("dialogAccept"));
+            auto *accept = dialogControl(window, QStringLiteral("dialogAccept"));
             QVERIFY(accept);
             click(accept);
             QTRY_COMPARE(vm->count(), 0);
@@ -783,9 +779,8 @@ private slots:
     void shellBindingsFollowReplacement()
     {
         auto windows = std::make_shared<WindowManager>();
-        auto replacementWindows = std::make_shared<WindowManager>();
         auto originalTree = buildShell(windows);
-        auto replacementTree = buildShell(replacementWindows);
+        auto replacementTree = buildShell(windows);
         auto &shell = *originalTree;
         auto &replacementShell = *replacementTree;
         shell.activate();
@@ -799,15 +794,11 @@ private slots:
         for (int i = 0; i < 5; ++i)
             replacement.increment();
 
-        QQmlApplicationEngine engine;
-        useEmbeddedModules(engine);
-        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
-        engine.setInitialProperties({{"viewModel", QVariant::fromValue(&shell)}});
-        engine.load(ViewRegistry::viewUrl(&shell));
-        QCOMPARE(engine.rootObjects().size(), 1);
-        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().front());
+        WindowCleanup cleanup{*windows};
+        auto *window = showManagedWindow(*windows, &shell);
         QVERIFY(window);
-        QVERIFY(windows->attachToWindow(window));
+        auto &engine = *qmlEngine(window);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
         auto *label = window->findChild<QQuickItem *>(QStringLiteral("messageLabel"));
         auto *increase = window->findChild<QQuickItem *>(QStringLiteral("increment"));
         auto *reset = window->findChild<QQuickItem *>(QStringLiteral("reset"));
@@ -815,9 +806,8 @@ private slots:
         QVERIFY(QTest::qWaitForWindowExposed(window));
         QVERIFY(increase->isEnabled());
         QVERIFY(!reset->isEnabled());
-        windows->detachFromWindow();
+        // 仅替换 View 绑定；两个 VM 共用同一窗口服务，不切换窗口关联。
         QVERIFY(window->setProperty("viewModel", QVariant::fromValue(&replacementShell)));
-        QVERIFY(replacementWindows->attachToWindow(window));
         QTRY_VERIFY(displaysHome(window, &replacement));
         label = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("messageLabel"));
         increase = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("increment"));
@@ -833,11 +823,11 @@ private slots:
         QVERIFY(!increase->isEnabled());
         const auto click = [window](QQuickItem *item) {
             const QPoint position = item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
-            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, position);
+            QTest::mouseClick(item->window(), Qt::LeftButton, Qt::NoModifier, position);
         };
         click(reset);
-        QTRY_VERIFY(replacementWindows->currentDialog());
-        auto *accept = window->findChild<QQuickItem *>(QStringLiteral("dialogAccept"));
+        QTRY_VERIFY(windows->currentDialog());
+        auto *accept = dialogControl(window, QStringLiteral("dialogAccept"));
         QVERIFY(accept);
         click(accept);
         QTRY_COMPARE(replacement.count(), 0);
@@ -857,9 +847,8 @@ private slots:
     void shellParameterButton()
     {
         auto windows = std::make_shared<WindowManager>();
-        auto replacementWindows = std::make_shared<WindowManager>();
         auto originalTree = buildShell(windows);
-        auto replacementTree = buildShell(replacementWindows);
+        auto replacementTree = buildShell(windows);
         auto &shell = *originalTree;
         auto &replacementShell = *replacementTree;
         shell.activate();
@@ -870,15 +859,11 @@ private slots:
         QQmlEngine::setObjectOwnership(&replacementShell, QQmlEngine::CppOwnership);
         QQmlEngine::setObjectOwnership(&original, QQmlEngine::CppOwnership);
         QQmlEngine::setObjectOwnership(&replacement, QQmlEngine::CppOwnership);
-        QQmlApplicationEngine engine;
-        useEmbeddedModules(engine);
-        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
-        engine.setInitialProperties({{"viewModel", QVariant::fromValue(&shell)}});
-        engine.load(ViewRegistry::viewUrl(&shell));
-        QCOMPARE(engine.rootObjects().size(), 1);
-        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().front());
+        WindowCleanup cleanup{*windows};
+        auto *window = showManagedWindow(*windows, &shell);
         QVERIFY(window);
-        QVERIFY(windows->attachToWindow(window));
+        auto &engine = *qmlEngine(window);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
         auto *button = window->findChild<QQuickItem *>(QStringLiteral("addTwo"));
         auto *label = window->findChild<QQuickItem *>(QStringLiteral("messageLabel"));
         QVERIFY(button && label);
@@ -900,9 +885,7 @@ private slots:
         QCOMPARE(original.count(), 4);
         QCOMPARE(originalCount.count(), 2);
 
-        windows->detachFromWindow();
         QVERIFY(window->setProperty("viewModel", QVariant::fromValue(&replacementShell)));
-        QVERIFY(replacementWindows->attachToWindow(window));
         QTRY_VERIFY(displaysHome(window, &replacement));
         button = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("addTwo"));
         label = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("messageLabel"));
@@ -930,9 +913,8 @@ private slots:
     void shellKeyboardAndFocus()
     {
         auto windows = std::make_shared<WindowManager>();
-        auto replacementWindows = std::make_shared<WindowManager>();
         auto originalTree = buildShell(windows);
-        auto replacementTree = buildShell(replacementWindows);
+        auto replacementTree = buildShell(windows);
         auto &shell = *originalTree;
         auto &replacementShell = *replacementTree;
         shell.activate();
@@ -943,15 +925,11 @@ private slots:
         QQmlEngine::setObjectOwnership(&replacementShell, QQmlEngine::CppOwnership);
         QQmlEngine::setObjectOwnership(&original, QQmlEngine::CppOwnership);
         QQmlEngine::setObjectOwnership(&replacement, QQmlEngine::CppOwnership);
-        QQmlApplicationEngine engine;
-        useEmbeddedModules(engine);
-        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
-        engine.setInitialProperties({{"viewModel", QVariant::fromValue(&shell)}});
-        engine.load(ViewRegistry::viewUrl(&shell));
-        QCOMPARE(engine.rootObjects().size(), 1);
-        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().front());
+        WindowCleanup cleanup{*windows};
+        auto *window = showManagedWindow(*windows, &shell);
         QVERIFY(window);
-        QVERIFY(windows->attachToWindow(window));
+        auto &engine = *qmlEngine(window);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
         auto *page = window->findChild<QQuickItem *>(QStringLiteral("inputScope"));
         auto *input = window->findChild<QQuickItem *>(QStringLiteral("focusInput"));
         auto *increase = window->findChild<QQuickItem *>(QStringLiteral("increment"));
@@ -1027,9 +1005,7 @@ private slots:
         QTRY_VERIFY(reset->hasActiveFocus());
         increase->forceActiveFocus();
 
-        windows->detachFromWindow();
         QVERIFY(window->setProperty("viewModel", QVariant::fromValue(&replacementShell)));
-        QVERIFY(replacementWindows->attachToWindow(window));
         QTRY_VERIFY(displaysHome(window, &replacement));
         page = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("inputScope"));
         label = homeItem(window)->findChild<QQuickItem *>(QStringLiteral("messageLabel"));

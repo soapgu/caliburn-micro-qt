@@ -4,7 +4,7 @@
 #include <QPointer>
 #include <QPromise>
 
-class DialogHostState;
+class QQmlEngine;
 class QQuickWindow;
 class QQuickItem;
 class WindowManager : public IWindowManager
@@ -15,32 +15,37 @@ class WindowManager : public IWindowManager
 public:
     explicit WindowManager(QObject *parent = nullptr);
     ~WindowManager() override;
+    [[nodiscard]] bool showWindow(const QVariant &viewModel) override;
+    // 停用普通窗口桥接并结束弹窗；保留普通 View 供应用退出钩子使用。
+    void prepareForShutdown();
+    // 释放自建窗口/引擎并兜底关闭借用 VM；不删除 VM。
+    void releaseWindows();
     bool busy() const override;
     ScreenViewModel *currentDialog() const override;
     QFuture<DialogResult> showDialogAsync(std::unique_ptr<ScreenViewModel> viewModel,
                                          QObject *requester) override;
     void closeDialog(ScreenViewModel *viewModel, DialogResult result = std::nullopt) override;
     void cancelDialogsFor(QObject *requester) override;
-    // 自动创建标准宿主；独立 QML 窗口也可显式挂载。
-    [[nodiscard]] bool attachToWindow(QQuickWindow *window, QQuickItem *fallbackFocusItem = nullptr);
-    // 仅删除本服务自动创建的宿主，手动宿主由调用方管理。
-    void detachFromWindow();
+signals:
+    // 普通窗口关闭生命周期异常已捕获；应用可据此保留失败退出码。
+    void windowCleanupFailed();
 private:
-    friend class DialogHostState;
+    // 登记独立模态窗口的所属窗口、引擎和后备焦点，不修改业务内容树。
+    [[nodiscard]] bool attachToWindow(QQuickWindow *window, QQuickItem *fallbackFocusItem = nullptr);
+    // 强制结束当前弹窗并解除所属窗口关联。
+    void detachFromWindow();
+    struct ManagedWindow;
+    std::unique_ptr<ManagedWindow> m_managedWindow;
+    void closeManagedWindow() noexcept;
     struct Request;
-    bool attachHost(DialogHostState *host);
-    void detachHost(DialogHostState *host);
-    void fail(const QString &id, const QString &message);
-    void release(const QString &id);
     void complete(DialogResult result, std::exception_ptr error = {});
-    void finish();
-    QString requestId() const;
-    QPointer<DialogHostState> m_host;
-    QPointer<QQuickItem> m_ownedHost;
+    void finish(bool restoreFocus = false);
     QPointer<QQuickWindow> m_window;
+    QPointer<QQmlEngine> m_engine; // 借用所属窗口引擎；自建引擎归 ManagedWindow。
+    QPointer<QQuickItem> m_fallbackFocus;
     QMetaObject::Connection m_engineDestroyed;
+    QMetaObject::Connection m_windowDestroyed;
     std::unique_ptr<Request> m_request;
-    quint64 m_nextId = 0;
     bool m_finishing = false;
     bool m_starting = false;
     bool m_destroying = false;

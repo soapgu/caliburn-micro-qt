@@ -1,3 +1,4 @@
+#include "../support/DialogWindowSupport.h"
 #include "../support/TestWindowManager.h"
 #include <AppBootstrapper.h>
 #include <ViewModelComposition.h>
@@ -44,6 +45,7 @@ struct Observation {
     bool exitReturned = false;
     bool exitBeforeReturn = false;
     QPointer<IWindowManager> windows;
+    std::shared_ptr<IWindowManager> retainedWindows;
 };
 
 static DetailViewModelFactory makeDetailFactory(
@@ -90,13 +92,11 @@ protected:
             if (!RegisterRootFactory<ShellViewModel>([this](std::shared_ptr<IWindowManager> windows) {
                 m_observation.serviceInjected = bool(windows);
                 m_observation.windows = windows.get();
+                if (m_scenario == "retainedService") m_observation.retainedWindows = windows;
                 m_windows = qobject_cast<WindowManager *>(windows.get());
                 if (m_scenario == "hostFailure") {
-                    m_hostEngine = std::make_unique<QQmlEngine>();
-                    QQmlComponent component(m_hostEngine.get());
-                    component.setData("import Caliburn.Micro.Qt 1.0; DialogHostState {}", QUrl());
-                    m_conflictingHost.reset(component.create());
-                    if (!m_conflictingHost || !m_conflictingHost->setProperty("manager", QVariant::fromValue(windows.get())))
+                    m_conflictingRoot = std::make_unique<ShellViewModel>(makeHomeFactory(), makeDetailFactory());
+                    if (!m_windows->showWindow(QVariant::fromValue(m_conflictingRoot.get())))
                         return std::unique_ptr<ShellViewModel>{};
                 }
                 return CreateShell(std::move(windows));
@@ -139,11 +139,12 @@ protected:
                 if (!root || root->property("viewModel").value<ShellViewModel *>() != m_observation.shell)
                     continue;
                 m_observation.window = root;
+                if (m_scenario == "hiddenWindow") QVERIFY(root->isVisible());
                 if (m_scenario == "injectedService" || m_scenario == "explicitOptions") {
                     m_observation.home->add(2);
                     m_observation.home->reset();
                     m_observation.dialogOpened = m_windows->currentDialog()
-                        && root->findChild<QQuickItem *>(QStringLiteral("dialogAccept"));
+                        && dialogControl(root, QStringLiteral("dialogAccept"));
                     m_windows->cancelDialogsFor(m_observation.home);
                 }
                 m_observation.typedInjection = root->property("viewModel").metaType()
@@ -184,6 +185,8 @@ private:
     bool RegisterMappings()
     {
         QUrl url(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"));
+        if (m_scenario == "hiddenWindow")
+            url = QUrl(QStringLiteral("qrc:/tests/fixtures/HiddenShell.qml"));
         if (m_scenario == "missingResource" || m_scenario == "ignoredLoadFailure")
             url = QUrl(QStringLiteral("qrc:/tests/missing.qml"));
         if (m_scenario == "nonWindow")
@@ -228,8 +231,7 @@ private:
     }
 
     QPointer<WindowManager> m_windows;
-    std::unique_ptr<QQmlEngine> m_hostEngine;
-    std::unique_ptr<QObject> m_conflictingHost;
+    std::unique_ptr<ShellViewModel> m_conflictingRoot;
     QString m_scenario;
     Observation &m_observation;
 };
@@ -239,6 +241,7 @@ class WindowCloseBootstrapper : public BootstrapperBase
 public:
     using BootstrapperBase::BootstrapperBase;
     std::function<void()> exercise;
+    std::function<void()> exitCheck;
     std::shared_ptr<WindowManager> windows;
     QPointer<ShellViewModel> shell;
     QPointer<QQuickWindow> window;
@@ -284,6 +287,7 @@ protected:
     }
     void OnExit() override
     {
+        if (exitCheck) exitCheck();
         ++exits;
         aliveAtExit = shell && window && !shell->isActive();
     }
@@ -318,7 +322,10 @@ private slots:
         QTest::newRow("injectedService") << QString("injectedService") << 0 << true << 1 << 1 << true;
         QTest::newRow("explicitOptions") << QString("explicitOptions") << 0 << true << 1 << 1 << true;
         QTest::newRow("emptyFactory") << QString("emptyFactory") << 1 << false << 0 << 0 << false;
-        QTest::newRow("hostFailure") << QString("hostFailure") << 1 << false << 1 << 1 << true;
+        // 服务已有自建普通窗口时，在激活根 VM 前拒绝显示。
+        QTest::newRow("hostFailure") << QString("hostFailure") << 1 << false << 1 << 0 << true;
+        QTest::newRow("hiddenWindow") << QString("hiddenWindow") << 0 << true << 1 << 1 << true;
+        QTest::newRow("retainedService") << QString("retainedService") << 0 << true << 1 << 1 << true;
         QTest::newRow("success") << QString("success") << 0 << true << 1 << 1 << true;
         QTest::newRow("configureQuery") << QString("configureQuery") << 0 << true << 1 << 1 << true;
         QTest::newRow("lateRegistration") << QString("lateRegistration") << 0 << true << 1 << 1 << true;
@@ -364,6 +371,13 @@ private slots:
             QCOMPARE(observation.exitCalls, 1);
             if (factoryCalls > 0) {
                 QVERIFY(observation.serviceInjected);
+                if (scenario == "retainedService") {
+                    QVERIFY(observation.windows);
+                    QVERIFY(!observation.windows->busy());
+                    QVERIFY(!observation.windows->currentDialog());
+                    QVERIFY(QGuiApplication::allWindows().isEmpty());
+                    observation.retainedWindows.reset();
+                }
                 QVERIFY(!observation.windows);
                 if (scenario == "injectedService" || scenario == "explicitOptions")
                     QVERIFY(observation.dialogOpened);
@@ -399,7 +413,7 @@ private slots:
     {
         QTest::addColumn<QString>("scenario");
         for (const auto *name : {"home", "accept", "cancel", "escape", "rootTryClose", "modelClose",
-                                 "ordinaryDeactivate", "quit", "forcedExit", "inactiveDetail", "busy", "missingHome", "showFailure"})
+                                 "ordinaryDeactivate", "quit", "forcedExit", "forcedExitDialog", "inactiveDetail", "busy", "missingHome", "showFailure"})
             QTest::newRow(name) << QString::fromLatin1(name);
     }
 
@@ -435,6 +449,23 @@ private slots:
             if (scenario == "home") { window->close(); exercised = true; return; }
             if (scenario == "modelClose") { shell->deactivate(true); exercised = true; return; }
             if (scenario == "forcedExit") { exercised = true; QCoreApplication::exit(0); return; }
+            if (scenario == "forcedExitDialog") {
+                auto future = windows->showDialogAsync(std::make_unique<ConfirmActionViewModel>(
+                    ConfirmationRequest{"退出时仍在展示", "测试强制清理"}, *windows), shell);
+                QPointer<QQuickWindow> dialog = dialogWindow(window);
+                QVERIFY(dialog && windows->busy());
+                connect(windows, &IWindowManager::busyChanged, &bootstrapper, [&, future, dialog, windows] {
+                    if (!windows->busy()) {
+                        QVERIFY(!dialog);
+                        // Future 在清理通知之后完成，在 OnExit 中继续检查。
+                    }
+                });
+                bootstrapper.exitCheck = [future, dialog, windows] {
+                    QVERIFY(future.isFinished()); QCOMPARE(future.result(), DialogResult{});
+                    QVERIFY(!dialog && !windows->busy());
+                };
+                exercised = true; QCoreApplication::exit(0); return;
+            }
             if (scenario == "showFailure") {
                 window->close();
                 QCoreApplication::processEvents();
@@ -477,7 +508,7 @@ private slots:
             QCOMPARE(confirmation->message(), QString("确定离开当前详情吗？"));
             if (scenario == "cancel" || scenario == "escape") {
                 if (scenario == "cancel") confirmation->cancel();
-                else QTest::keyClick(window, Qt::Key_Escape);
+                else QTest::keyClick(dialogWindow(window), Qt::Key_Escape);
                 QTRY_VERIFY(!windows->busy());
                 QVERIFY(window->isVisible() && detail && detail->isActive());
                 QCOMPARE(shell->activeItem(), detail.data());
@@ -501,6 +532,7 @@ private slots:
         QCOMPARE(bootstrapper.homesCreated, 1);
         if (scenario != "home") QVERIFY(viewBeforeVm);
         if (scenario == "home" || scenario == "modelClose" || scenario == "forcedExit") QCOMPARE(prompts, 0);
+        else if (scenario == "forcedExitDialog") QCOMPARE(prompts, 1);
         else if (scenario != "showFailure")
             QCOMPARE(prompts, (scenario == "cancel" || scenario == "escape" || scenario == "busy") ? 2 : 1);
     }
@@ -535,8 +567,8 @@ private slots:
                 // 验证从 Detail 关闭窗口也能清理集合，而非仅测试直接 exit。
                 root->close();
                 QTimer::singleShot(0, &bootstrapper, [root] {
-                    auto *host = root->findChild<QQuickItem *>("dialogHost");
-                    auto *manager = host ? host->property("windowManager").value<IWindowManager *>() : nullptr;
+                    auto *host = dialogWindow(root);
+                    auto *manager = host ? qobject_cast<IWindowManager *>(root->property("_caliburnWindowManager").value<QObject *>()) : nullptr;
                     auto *confirmation = manager
                         ? qobject_cast<ConfirmActionViewModel *>(manager->currentDialog()) : nullptr;
                     QVERIFY(confirmation);

@@ -9,10 +9,8 @@
 #include <utility>
 
 class QGuiApplication;
-class QQmlApplicationEngine;
 class IWindowManager;
 class WindowManager;
-class WindowConductor;
 
 // 根窗口设置的扩展位置，目前不影响显示行为。
 struct RootViewOptions {};
@@ -82,9 +80,7 @@ private:
     State m_state = State::Ready;
     QHash<const QMetaObject *, RootFactory> m_factories;
     std::unique_ptr<ScreenViewModel> m_root;
-    std::unique_ptr<QQmlApplicationEngine> m_engine;
     std::shared_ptr<WindowManager> m_windowManager;
-    std::unique_ptr<WindowConductor> m_windowConductor;
     bool m_displayAttempted = false;
     bool m_rootDisplayed = false;
     bool m_rootDisplayFailed = false;

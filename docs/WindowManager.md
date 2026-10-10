@@ -1,80 +1,83 @@
-# WindowManager 与模态弹窗
+# WindowManager、普通窗口与独立模态窗口
 
-5A 已实现通用模态弹窗与 Home 重置确认，本机验证见 [5A 验收记录](5A验收记录.md)。5B 的回调守卫、void 请求接口迁移和 Detail 退出确认已实现并完成本机验收。
+窗口服务使用独立 QQuickWindow 承载 Item View，设置 Qt::Dialog、所属窗口 transientParent 和 Qt::ApplicationModal。保留 QFuture 异步返回，不引入 Widgets 或嵌套事件循环。验收状态见 [独立模态窗口验收记录](独立模态窗口验收记录.md)；历史记录保持原样。
 
 ## C++ 接口与结果
 
 ```cpp
 using DialogResult = std::optional<bool>;
+bool showWindow(const QVariant &viewModel);
 QFuture<DialogResult> showDialogAsync(std::unique_ptr<ScreenViewModel> viewModel,
                                     QObject *requester);
 void closeDialog(ScreenViewModel *viewModel, DialogResult result = std::nullopt);
 void cancelDialogsFor(QObject *requester);
 ```
 
-IWindowManager 是抽象 QObject 服务，WindowManager 提供具体实现，两者均不可由 QML 创建。只读 busy/currentDialog 属性及通知用于宿主展示。普通 ScreenViewModel 即可作为弹窗，不要求继承确认 VM；自定义 VM 注入窗口服务，通过 closeDialog(this, result) 提交结果，5A 不使用 Screen.tryClose 关闭弹窗。
+IWindowManager 是抽象 QObject 服务，WindowManager 提供具体实现，均不可由 QML 创建。普通 ScreenViewModel 即可作为弹窗；不要求继承确认 VM。busy 表示服务持有弹窗或正在清理，currentDialog 返回尚未进入最终清理的 VM，守卫等待和拒绝期间保持不变。
 
-true 表示接受，false 表示明确取消，空值表示 Escape、显式取消、请求者失效或宿主卸载等未作决定的关闭。无效参数通过 Future 交付 std::invalid_argument；忙、宿主不可用、缺少映射或 View 加载失败交付 std::runtime_error。生命周期异常同样交付至 Future，不跨越 Qt 信号边界。调用方应使用带 QObject 上下文的 then/onFailed，不在 UI 线程阻塞等待；QFuture.cancel 不作为关闭 UI 的协议。
+true 表示接受，false 表示明确取消；空值表示 Escape、标题栏关闭、无结果 tryClose 或强制取消。无效参数通过 Future 交付 std::invalid_argument；忙、所属窗口不可用、映射或展示失败交付 std::runtime_error。激活与关闭生命周期异常通过 Future 交付。调用方应使用带 QObject 上下文的 then/onFailed，不在 GUI 线程阻塞等待；QFuture.cancel 不作为关闭窗口的协议。
 
-## 窗口挂载
+## 普通窗口职责与所有权
 
-具体 `WindowManager` 提供以下 C++ 接口，Bootstrapper 在根窗口加载成功后自动调用，独立 QML 窗口也可使用：
+showWindow 借用一个同线程、无逻辑 Parent 的 ScreenViewModel，参数以 `QVariant::fromValue(具体类型指针)` 构造，保留具体类型供 QML required 属性注入。调用方持有 VM，服务设置 CppOwnership 并管理窗口资源；不会删除或接管普通窗口 VM。Bootstrapper 的 DisplayRootView 只委托此入口并记录结果。
+
+单服务支持一个自建普通窗口。已有普通窗口或弹窗请求尚未结束时，在激活候选 VM 前拒绝。仅接纳本地或 qrc 映射，普通 View 必须直接为 QQuickWindow；不包装 Item。当前仍先激活 VM，再创建 QQmlApplicationEngine、注入、加载、登记所属窗口并创建 WindowConductor，最后显式 show，不要求 QML 自行设置 visible: true。打开普通窗口不占用 busy/currentDialog，普通窗口显示后可继续展示确认弹窗。
+
+参数、映射和加载失败诊断后返回 false；加载失败立即释放部分创建资源并关闭已激活 VM，服务可以再次显示。激活异常清理后原样传播。关闭守卫及双向桥接沿用弹窗规则，实际窗口关闭后的普通 VM 停用由服务执行；已尝试关闭的生命周期不重复。关闭异常在 Qt 回调中捕获并发出 windowCleanupFailed，Bootstrapper 据此保留失败退出码。
+
+成功显示后的普通窗口关闭仅隐藏窗口，窗口、View 与引擎保留到显式释放，供应用 OnExit 使用。调用方须让借用 VM 活到资源释放；VM 或窗口意外销毁时，在当前析构栈退出后排队清理剩余自建资源，旧清理随旧桥接销毁而取消。服务不保留对 Bootstrapper、根工厂或业务类型的依赖。
+
+具体 WindowManager 提供两阶段清理：
 
 ```cpp
-bool attachToWindow(QQuickWindow *window, QQuickItem *fallbackFocusItem = nullptr);
-void detachFromWindow();
+void prepareForShutdown(); // 停用桥接、结束弹窗，保留普通窗口及 View。
+void releaseWindows();     // 释放自建窗口与引擎，兜底关闭仍未关闭的普通 VM。
 ```
 
-挂载通过窗口自己的 QML 引擎创建标准 DialogHost，设置 CppOwnership、QObject 父对象及视觉父项为窗口场景根 contentItem。宿主填满场景区域，与业务布局并列，不参与页面布局；实际 Popup 使用 Overlay 展示。默认恢复有效的原焦点，无效时使用指定的后备焦点或窗口内容项。
+所有操作在应用主线程执行。Bootstrapper 在 aboutToQuit 中准备退出、关闭根并执行 OnExit，在事件循环返回后显式释放窗口，最后删除根 VM；不依赖共享服务的析构时机。独立使用时须在删除 VM 前调用 releaseWindows；服务析构同样兜底释放。强制释放先销毁普通 View，再执行尚未尝试的 VM 关闭，不询问交互守卫。两阶段接口属于具体资源管理，不加入业务 IWindowManager 的请求协议。
 
-同服务重复挂到同一窗口幂等成功；服务或目标窗口已有其他宿主、尚未完成的旧请求、非法线程、空窗口或窗口无 QML 引擎时返回 false 并诊断。后备焦点须属于同一窗口。切换窗口先 detachFromWindow；新挂载不替换现有手动宿主。两个独立服务可分别挂到两个独立窗口，但 Bootstrapper 仍只管理一个根窗口。
+根 VM/引擎/桥接拆分与验证见 [职责迁移验收](根窗口职责迁移验收记录.md)。本次对齐 CM 3.2.0 的 Bootstrapper → IWindowManager.ShowWindow 委托方向，创建/绑定/激活时序及通用 CreateWindow/EnsureWindow 仍留待独立变更。
 
-解除挂载会删除框架创建的宿主，先释放弹窗 View，再结束请求。窗口或引擎销毁时也清理宿主；服务析构完成剩余请求，不能留下未完成 Future。detachFromWindow 不删除调用方手动创建的宿主；独立窗口中自行创建宿主时，由调用方管理其寿命。Bootstrapper 始终自动挂载标准宿主。
+## 内部窗口关联
 
-## 所有权与完成顺序
+`showWindow`、`showDialogAsync` 是公开展示入口。showWindow 在普通窗口加载后自动关联所属窗口、其 QML 引擎及后备焦点，不向业务内容树或 Overlay 插入宿主。
 
-showDialogAsync 按值消费候选 unique_ptr，拒绝也会回收候选，不影响正在展示的请求。只接纳无 QObject 父对象、无逻辑 Parent、未激活且与服务同线程的 Screen；请求者必须非空且同线程。错误线程的候选通过 deleteLater 在其所属线程回收，调用方负责该线程的事件循环和寿命。所有服务调用均由应用保证在主线程执行。
+`attachToWindow`、`detachFromWindow` 为 private，只供 WindowManager 内部建立和解除关联；不支持外部窗口手动接入，也不支持在普通窗口继续显示时由调用方单独解除弹窗关联。窗口资源及其关联状态由同一服务维护。
 
-接纳后设置 QObject 父对象为 WindowManager 和 CppOwnership，保持逻辑 Parent 为空，同步初始化和激活，再装配 View。管理者以 QObject 父树持有弹窗 VM；确认 VM 通过 QPointer 借用服务，不形成 shared_ptr 环。Bootstrapper 在 Configure 前创建独立窗口服务，通过根工厂传给装配层；框架、Home 工厂和 Home 的 shared_ptr 持有同一实例，服务本身不设置 QObject 父对象，Shell 不保存或暴露该服务。独立使用无参 buildShell 时仍创建独立服务。
+不经过 Bootstrapper 时，同样先调用 showWindow 显示普通窗口，再通过 showDialogAsync 展示弹窗。切换普通窗口须先 releaseWindows，再调用 showWindow；不同服务分别管理各自创建的窗口。prepareForShutdown 是应用退出准备入口，执行后不能继续使用该窗口展示弹窗；恢复展示须释放旧窗口并重新创建。
 
-同一管理者只登记一个 DialogHost，且只允许一个当前请求。关闭中仍 busy，currentDialog 已为空；先关闭 Popup 并卸载 View，再同步关闭 VM、安排 deleteLater、清空请求，最后完成 QPromise。请求标识保护加载、失败和释放通知；旧通知、重复关闭或重复按钮操作不提交第二次完成。VM 意外销毁时不再调用其生命周期。
+退出准备、所属窗口或引擎销毁会强制清理弹窗并结束 Future，不询问交互守卫。普通窗口及引擎由服务持有，普通窗口 VM 仍由调用方持有。
 
-请求者销毁、页面停用取消、宿主窗口失效、宿主卸载和管理者析构均清理当前请求。宿主必须关联窗口才能接纳请求，避免无窗口时 Future 悬挂。Qt 对象失效通过 QPointer 保护，实际 View 回收先于 VM。
+## 展示与关闭守卫
 
-## QML 展示与输入
+每次请求创建内部 DialogWindow 与新的业务 View，沿用所属窗口的 QML 引擎、ViewRegistry 和 ViewHost，业务 View 仍须以 Item 为根并声明匹配的 typed viewModel。缺失资源、非 Item、语法错误或注入不匹配均结束请求并交付异常。初始窗口尺寸取业务 View 隐式尺寸加 20 像素内容边距，并限制在所属屏幕可用区域内。
 
-DialogHost 使用 Qt Quick Controls 的 Item 型 Popup，复用 ViewRegistry/ViewHost 创建带 typed viewModel 的 Item。缺失映射、加载失败、非 Item 和注入不匹配均结束请求并交付异常。
+closeDialog(vm, result)、Escape、标题栏关闭和无逻辑 Parent 的弹窗 tryClose 都经私有 WindowConductor 调用 canClose。原关闭事件立即拒绝，排队检查许可；许可通过后恢复关闭，跳过本桥接的重复询问，原有 QML onClosing 仍可拒绝。
 
-Popup 模态隔离底层鼠标和键盘输入，外部点击不关闭，Escape 交付空值。Tab/Shift+Tab 限制在弹窗内，确认框默认聚焦取消；Return、Enter 和 Space 只执行当前焦点按钮。关闭动画禁用，关闭后恢复仍有效、可见且启用的原焦点，否则使用 fallbackFocusItem；宿主销毁或窗口不可见时跳过恢复。
+等待及提交期间重复关闭不重新检查、不覆盖首次结果。守卫拒绝、抛异常或 QML 拒绝时保留窗口和 VM、丢弃本次结果，Future 保持未完成；以后可重新请求关闭。守卫异常在 Qt 边界记录。守卫按主线程回调一次的现有契约执行，不增加通用请求队列或代次协调。
 
-ConfirmationRequest 仅保存 title/message/confirmText/cancelText。ConfirmActionViewModel 只表达接受和取消，ConfirmActionView 只展示文案及调用操作，业务重置由 Home 决定。
+直接完成 deactivate(true) 会反向请求关闭窗口并跳过守卫；普通停用不关闭窗口。已尝试的关闭生命周期不自动重试，已完成的关闭不再执行一次。其他关闭处理仍可拒绝窗口关闭；直接提交的 VM 状态不会回滚。
 
-## DialogHostState：公开 QML 宿主协调接口
+## 所有权与清理顺序
 
-DialogHostState 是 `Caliburn.Micro.Qt 1.0` 公开、可创建的 QML 弹窗宿主协调类型。应用导入模块后可以直接使用 `DialogHostState {}`；标准展示优先使用 DialogHost，自定义宿主可以使用该辅助类型。业务请求通过 IWindowManager 发起，宿主通过下列公开接口协调展示与释放。其头文件位于 src，不作为公开 C++ SDK 头文件提供；这不限制它的公开 QML 接口，与 [ViewHostState](ViewHost.md#4-借用与所有权) 的定位一致。
+showDialogAsync 按值消费 unique_ptr，拒绝时同样回收候选。只接纳无 QObject 父对象、无逻辑 Parent、未激活且与服务同线程的 Screen；请求者须非空且同线程。错误线程候选通过 deleteLater 在所属线程回收，调用方负责其事件循环和寿命。
 
-| QML 接口 | 契约 |
-| --- | --- |
-| available: bool | 可读写，默认 false；由宿主声明是否具备展示条件，标准 DialogHost 绑定是否关联窗口。相同值不通知；设为 false 时以空结果请求关闭当前弹窗，仍需完成宿主释放协议。 |
-| manager: IWindowManager | 可读写，默认 null；借用服务，不接管服务或弹窗 VM 的所有权。当前只接受具体 WindowManager 及其子类，且一个管理者同时只关联一个宿主；不支持的服务或重复宿主输出诊断，属性归一为 null。替换或清空管理者时先取消旧请求并解除旧关联；同一管理者重复赋值无操作。 |
-| model: ScreenViewModel | 只读，默认 null；投影管理者的 currentDialog。关闭阶段即为空，此时请求仍可能等待宿主释放。 |
-| requestId: string | 只读，默认空字符串；投影当前请求标识，关闭等待释放期间仍有效，完成后为空。不要仅凭 model 为空判断 Future 已完成。 |
-| failed(id: string, message: string) | 报告匹配请求的展示失败，通过 Future 交付 std::runtime_error；开始关闭流程，不代替 View 卸载和释放报告。 |
-| dismiss(id: string) | 请求匹配弹窗无决定关闭，结果为空值；不代表明确取消 false，不创建新请求。 |
-| released(id: string) | 宿主关闭并卸载 View 后报告释放完成；只处理匹配、关闭中且不处于启动阶段的请求，随后停用关闭 VM、安排延迟回收并完成 Future。提前释放报告忽略，不作为关闭请求。 |
-| availableChanged() | available 实际变化时通知。 |
-| managerChanged() | 管理者赋值处理结束或服务销毁时通知；被拒绝的赋值也可能通知，不保证属性值实际变化。 |
-| modelChanged() | model 和 requestId 共用通知；管理者关联变化、服务销毁或管理者的 currentDialogChanged 到达时发出。应重新读取两个属性，不将通知次数等同于请求次数。 |
-| hideRequested(id: string) | 管理者请求宿主隐藏对应弹窗。宿主按 id 匹配当前展示，关闭 Popup、卸载 View 后调用 released(id)。 |
+接纳后由 WindowManager 的 QObject 父树持有 VM，设置 CppOwnership，逻辑 Parent 保持为空，同步初始化和激活，再装配窗口。窗口同样由服务持有，transientParent 仅表达所属关系。确认 VM 通过 QPointer 借用服务，避免 shared_ptr 环。
 
-三个方法在未关联管理者时无操作；旧请求标识、已完成请求标识不影响新请求，关闭中的重复 failed/dismiss 不覆盖已经确定的结果。所有赋值和方法调用由调用方保证在应用主线程执行；DialogHostState 不增加逐次线程检查。
+实际关闭成功后先断开桥接并释放窗口父树，同步卸载、销毁 View/Loader；再执行一次 VM 关闭生命周期、安排 VM deleteLater，最后完成 Future。整个清理过程保持 busy。请求者销毁、cancelDialogsFor、解除关联、窗口/引擎失效及服务析构直接清理，不等待许可。VM 意外销毁时先完成其销毁通知，再结束窗口与 Future，不调用失效对象生命周期。外部直接销毁窗口时，等待窗口及子 View 析构完成后再执行 VM 生命周期。迟到许可通过桥接 QPointer 检查，不访问已销毁对象。
 
-自定义宿主的正常协议是：设置 manager 和 available → model 通知后按 requestId 装配 View → 收到 hideRequested(id) 后关闭展示并卸载 View → released(id)。标准 DialogHost 已实现此协议及模态输入、焦点恢复，应用通常无需手写它。QML 契约测试覆盖直接创建、默认值、属性读写权限、方法调用、服务关联、过期通知及释放时序。
+## 输入、焦点与业务接入
 
-## Home 接入与版本边界
+独立窗口以 ApplicationModal 限制应用其他窗口的用户输入；事件循环和程序调用继续执行。外部点击不关闭；Tab/Shift+Tab 在弹窗窗口内遍历，确认框默认聚焦取消。Escape 提交空结果，Return、Enter 和 Space 保持焦点控件的正常行为。
 
-Home.reset 设置 resetPending 后发起确认；canReset 要求计数大于零且没有待处理重置。仅接受结果且 Home 仍活动时执行 CounterService.reset；取消、无决定关闭或异常保留计数。普通停用和关闭取消该 Home 的请求，代次标识防止旧结果修改恢复后的页面。reset 仍是 QML 业务入口，没有另留同步绕过确认的 Home 方法。
+打开前保存所属窗口焦点，显示后激活弹窗并聚焦业务 View。正常关闭后排队激活所属窗口、恢复有效且可见启用的原焦点，否则使用后备焦点。已有新弹窗、强制清理、所属窗口不可见或销毁时跳过恢复。
 
-ViewRegistry 自动提供确认视图的默认映射，应用可在冻结前显式注册替换视图；显式映射加载失败不会回退。Bootstrapper 在根窗口加载后自动挂载 DialogHost，Shell 不参与宿主装配。框架现在需要 Core/Qml/Quick/QuickControls2；不依赖业务模块或 Boost.Ext.DI。
+ConfirmationRequest 保存文案，ConfirmActionViewModel 通过 closeDialog 提交接受或取消。确认视图默认映射由 ViewRegistry 提供，可在冻结前显式覆盖；覆盖加载失败不回退。Home 重置和 Detail 离开确认保留 Future 业务续接，只有 true 授权业务操作。
 
-CM 3.2 WPF 使用同步 [WindowManager.ShowDialog](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro.Platform/net40/WindowManager.cs)，本项目保留 QFuture/QPromise 是明确的 Qt 适配差异，不通过嵌套事件循环复刻阻塞返回。Screen 与 Conductor 生命周期仍同步；5B 已将请求接口迁移为 void，实际完成看生命周期通知，见 [关闭守卫](关闭守卫.md)。
+## 迁移与 CM 对齐边界
+
+自定义实现 IWindowManager 的类须补充 showWindow；继承 WindowManager 的弹窗测试替身可沿用默认实现。普通窗口传入 typed QVariant 并借用 VM，不能复用 showDialogAsync 的 unique_ptr 接管约定。
+
+旧 DialogHost、DialogHostState 及其 manager/available/requestId/failed/dismiss/released 手动宿主协议已移除。应用应删除旧 QML 宿主声明，由 Bootstrapper 委托 showWindow 创建窗口，或在独立用法中直接调用 showWindow。原公开 attachToWindow / detachFromWindow 已收为 private，外部窗口手动接入不再支持。内部 DialogWindow 不作为公开可创建的 QML 类型，测试和业务不得依赖其内部属性作为 SDK。
+
+与 CM 3.2.0 对齐：独立窗口包装普通 View；窗口与 VM 统一守卫及双向关闭桥接。保留的适配差异是 QFuture 异步结果、Qt 对象所有权与延迟回收。单服务只允许一个弹窗；弹窗守卫中再次打开弹窗仍按忙状态失败，不支持嵌套模态窗口。系统强制退出与资源清理不等待交互许可。

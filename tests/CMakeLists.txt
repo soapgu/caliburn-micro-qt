@@ -48,7 +48,7 @@ qt_add_executable(CaliburnBootstrapperTests
 )
 qt_add_resources(CaliburnBootstrapperTests bootstrapper_fixtures
     PREFIX /tests
-    FILES fixtures/NonVisual.qml
+    FILES fixtures/NonVisual.qml fixtures/HiddenShell.qml
 )
 target_link_libraries(CaliburnBootstrapperTests PRIVATE
     CaliburnExampleComposition CaliburnExampleModuleplugin
@@ -56,7 +56,7 @@ target_link_libraries(CaliburnBootstrapperTests PRIVATE
 )
 # 注册表映射与冻结状态均为进程级；各场景需要不同映射或空表，独立进程验收。
 foreach(scenario IN ITEMS
-    success injectedService explicitOptions emptyFactory hostFailure configureQuery lateRegistration exitCode configureFailure missingFactory factoryException nullRoot
+    hiddenWindow retainedService success injectedService explicitOptions emptyFactory hostFailure configureQuery lateRegistration exitCode configureFailure missingFactory factoryException nullRoot
     missingMapping remoteView missingResource nonWindow noRoot ignoredLoadFailure
     duplicateRoot exitException closeException startupException windowCloseException externalCloseException
 )
@@ -75,18 +75,22 @@ set_tests_properties(bootstrapper_example PROPERTIES
 add_test(NAME bootstrapper_defaultStartup COMMAND CaliburnBootstrapperTests defaultStartup)
 set_tests_properties(bootstrapper_defaultStartup PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 15)
-foreach(scenario IN ITEMS home accept cancel escape rootTryClose modelClose ordinaryDeactivate quit forcedExit inactiveDetail busy missingHome showFailure)
+foreach(scenario IN ITEMS home accept cancel escape rootTryClose modelClose ordinaryDeactivate quit forcedExit forcedExitDialog inactiveDetail busy missingHome showFailure)
     add_test(NAME rootwindow_${scenario} COMMAND CaliburnBootstrapperTests "rootWindowClose:${scenario}")
     set_tests_properties(rootwindow_${scenario} PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 15)
 endforeach()
 
-qt_add_executable(CaliburnWindowManagerTests cpp/tst_windowmanager.cpp)
+add_executable(CaliburnWindowManagerTests cpp/tst_windowmanager.cpp)
+qt_add_resources(CaliburnWindowManagerTests probe_fixture PREFIX /tests
+    FILES fixtures/Probe.qml fixtures/WindowProbe.qml fixtures/NonVisual.qml)
 target_include_directories(CaliburnWindowManagerTests PRIVATE
     "${PROJECT_SOURCE_DIR}/modules/Caliburn/Micro/Qt/src")
-target_link_libraries(CaliburnWindowManagerTests PRIVATE CaliburnExampleModule Qt6::Test)
+target_link_libraries(CaliburnWindowManagerTests PRIVATE
+    CaliburnMicroQtplugin CaliburnExampleModule Qt6::Test Qt6::Quick Qt6::QuickControls2)
 add_test(NAME windowmanager COMMAND CaliburnWindowManagerTests)
-set_tests_properties(windowmanager PROPERTIES TIMEOUT 30)
+set_tests_properties(windowmanager PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 60)
 
 qt_add_executable(CaliburnDialogTests qml/tst_dialog.cpp)
 qt_add_resources(CaliburnDialogTests dialog_fixtures
@@ -108,7 +112,7 @@ set_tests_properties(dialog PROPERTIES
 # 测试通过 Q_IMPORT_QML_PLUGIN 注册框架插件，普通目标避免 Qt 再次自动链接。
 add_executable(CaliburnFrameworkDialogTests qml/tst_framework_dialog.cpp)
 qt_add_resources(CaliburnFrameworkDialogTests framework_dialog_fixtures
-    PREFIX /tests FILES fixtures/OverrideConfirm.qml)
+    PREFIX /tests FILES fixtures/OverrideConfirm.qml fixtures/FrameworkWindow.qml)
 # 插件依赖框架库，按插件在前、框架库在后的顺序链接，避免重复静态库。
 target_link_libraries(CaliburnFrameworkDialogTests PRIVATE
     CaliburnMicroQtplugin Caliburn::MicroQt Qt6::Test Qt6::Quick Qt6::QuickControls2)

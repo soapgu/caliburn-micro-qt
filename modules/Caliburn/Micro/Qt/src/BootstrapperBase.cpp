@@ -1,11 +1,9 @@
 #include <CaliburnMicroQt/BootstrapperBase.h>
 #include <CaliburnMicroQt/ViewRegistry.h>
+#include <QQmlEngine>
 #include <CaliburnMicroQt/WindowManager.h>
-#include "WindowConductor.h"
 #include <QDebug>
 #include <QGuiApplication>
-#include <QQmlApplicationEngine>
-#include <QQuickWindow>
 #include <QThread>
 #include <exception>
 
@@ -29,7 +27,7 @@ bool tryCleanup(const char *stage, Action action) noexcept
 BootstrapperBase::BootstrapperBase(QGuiApplication &app) : m_app(app)
 {
     connect(&m_app, &QCoreApplication::aboutToQuit, this, [this] {
-        if (m_windowConductor) m_windowConductor->detach();
+        if (m_windowManager) m_windowManager->prepareForShutdown();
         CloseRoot();
         NotifyExit();
     });
@@ -72,6 +70,7 @@ bool BootstrapperBase::Initialize()
 {
     m_state = State::Configuring;
     m_windowManager = std::make_shared<WindowManager>();
+    connect(m_windowManager.get(), &WindowManager::windowCleanupFailed, this, [this] { m_cleanupFailed = true; });
     QQmlEngine::setObjectOwnership(m_windowManager.get(), QQmlEngine::CppOwnership);
     if (!Configure())
         return Fail(QStringLiteral("Configure 失败"));
@@ -111,26 +110,8 @@ bool BootstrapperBase::CreateRootViewModel(const QMetaObject *type)
 
 bool BootstrapperBase::DisplayRootView(const QVariant &viewModel)
 {
-    const QUrl url = ViewRegistry::viewUrl(m_root.get());
-    if (url.isEmpty())
-        return Fail(QStringLiteral("未找到根 View 映射"));
-    if (url.scheme() != QStringLiteral("qrc") && !url.isLocalFile())
-        return Fail(QStringLiteral("根 View 必须使用本地或 qrc 地址"));
-
-    m_root->activate();
-    m_engine = std::make_unique<QQmlApplicationEngine>();
-    m_engine->setInitialProperties({{QStringLiteral("viewModel"), viewModel}});
-    m_engine->load(url);
-    const auto roots = m_engine->rootObjects();
-    if (roots.size() != 1 || !qobject_cast<QQuickWindow *>(roots.first()))
-        return Fail(QStringLiteral("根 View 加载失败或根对象不是窗口"));
-    if (!m_windowManager->attachToWindow(qobject_cast<QQuickWindow *>(roots.first())))
-        return Fail(QStringLiteral("根窗口弹窗宿主挂载失败"));
-    m_windowConductor = std::make_unique<WindowConductor>(
-        qobject_cast<QQuickWindow *>(roots.first()), m_root.get());
-    connect(m_windowConductor.get(), &WindowConductor::windowClosed, this, [this] { CloseRoot(); });
-    m_rootDisplayed = true;
-    return true;
+    m_rootDisplayed = m_windowManager->showWindow(viewModel);
+    return m_rootDisplayed;
 }
 
 void BootstrapperBase::CloseRoot() noexcept
@@ -155,12 +136,11 @@ void BootstrapperBase::Shutdown(bool invokeExit) noexcept
     if (m_state == State::Stopping || m_state == State::Stopped)
         return;
     m_state = State::Stopping;
-    if (m_windowConductor) m_windowConductor->detach();
+    if (m_windowManager) m_windowManager->prepareForShutdown();
     CloseRoot();
     if (invokeExit) NotifyExit();
-    m_windowConductor.reset();
-    // View 先于其借用的 VM 销毁。
-    m_engine.reset();
+    // View 先于其借用的 VM 销毁。即使业务仍持有窗口服务，也显式释放窗口资源。
+    if (m_windowManager) m_windowManager->releaseWindows();
     m_root.reset();
     m_factories.clear();
     m_windowManager.reset();

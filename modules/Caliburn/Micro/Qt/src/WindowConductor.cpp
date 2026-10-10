@@ -9,10 +9,7 @@ WindowConductor::WindowConductor(QQuickWindow *window, ScreenViewModel *model, Q
     : QObject(parent), m_window(window), m_model(model)
 {
     window->installEventFilter(this);
-    connect(model, &ScreenViewModel::closeRequested, this, [this] {
-        if (m_enabled && m_window && !m_windowClosed)
-            m_window->close();
-    });
+    connect(model, &ScreenViewModel::closeRequested, this, &WindowConductor::requestClose);
     connect(model, &ScreenViewModel::deactivated, this, [this](bool close) {
         if (!close) return;
         m_modelClosed = true;
@@ -33,6 +30,19 @@ void WindowConductor::detach()
     m_enabled = false;
     if (m_window) m_window->removeEventFilter(this);
     if (m_model) disconnect(m_model, nullptr, this, nullptr);
+}
+
+void WindowConductor::requestClose()
+{
+    if (!m_enabled || !m_window || isClosing()) return;
+    try { m_window->close(); }
+    catch (const std::exception &error) {
+        qWarning().noquote() << "WindowConductor：关闭请求失败：" << error.what();
+        emit closeRejected();
+    } catch (...) {
+        qWarning("WindowConductor：关闭请求失败：未知异常");
+        emit closeRejected();
+    }
 }
 
 bool WindowConductor::eventFilter(QObject *watched, QEvent *event)
@@ -58,12 +68,13 @@ void WindowConductor::checkClose()
             if (!owner || !owner->m_enabled || owner->m_windowClosed || owner->m_modelClosed) return;
             owner->m_checking = false;
             if (allowed) owner->closeWindow();
+            else emit owner->closeRejected();
         });
     } catch (const std::exception &error) {
-        if (owner) owner->m_checking = false;
+        if (owner) { owner->m_checking = false; emit owner->closeRejected(); }
         qWarning().noquote() << "WindowConductor：关闭守卫失败：" << error.what();
     } catch (...) {
-        if (owner) owner->m_checking = false;
+        if (owner) { owner->m_checking = false; emit owner->closeRejected(); }
         qWarning("WindowConductor：关闭守卫失败：未知异常");
     }
 }
@@ -88,5 +99,7 @@ void WindowConductor::closeWindow()
     if (closed && (!window || !window->isVisible())) {
         m_windowClosed = true;
         emit windowClosed();
+    } else {
+        emit closeRejected();
     }
 }
