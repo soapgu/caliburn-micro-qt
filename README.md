@@ -48,7 +48,7 @@ flowchart LR
 | PropertyChangedBase | ViewModelBase + QObject 属性系统 | 派生 VM 声明 Q_PROPERTY / NOTIFY，基类提供类型化 setAndNotify；不提供字符串通知入口。 |
 | IChild / IParent / IConductor | 纯 C++ 协议与 ConductorBase | Screen 提供只读逻辑 Parent；统一子项快照和已接管对象的激活、停用接口。 |
 | Screen | ScreenViewModel | 框架自动驱动，先提交状态再执行钩子；初始化一次，激活与普通停用幂等，已初始化对象每次关闭都执行钩子；异常不回滚已提交状态。 |
-| Conductor<T> | Conductor<T> + ConductorViewModelBase | 已实现泛型单项导航；切换关闭旧项并延迟释放。4B 已接入 Shell，4C 已实现 Collection.OneActive，切换保留旧项。 |
+| Conductor<T> | Conductor<T> + ConductorSingleItem | 已实现公共活动项基类；按 CM 顺序关闭旧项、激活新项后提交选择，回收由所有者安排。4B 已接入 Shell，4C 已实现 Collection.OneActive，切换保留旧项。 |
 | ViewLocator / ViewModelBinder | ViewRegistry、ViewHost | 按应用提供的 VM 类型映射定位 View，创建前注入 viewModel。 |
 | ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
 | IWindowManager / WindowManager 的模态职责 | IWindowManager、WindowManager、内部 DialogWindow | 已实现独立 QQuickWindow 模态弹窗及关闭守卫，保留 Future；普通窗口管理留待后续。 |
@@ -65,9 +65,10 @@ flowchart LR
 | ViewModelBase | C++ QObject 基类 | 提供共同类型及 protected setAndNotify，不新增业务属性、状态或信号；完整成员见专题。 |
 | ScreenViewModel | C++ VM 基类、IChild | 同步生命周期及只读逻辑 parentViewModel。 |
 | IChild / IParent / IConductor | 纯 C++ 接口 | 逻辑父级、借用子项快照与统一管理接口。 |
-| ConductorBase | 抽象元对象基类 | 实现统一接口的元对象声明，提供 Parent 辅助逻辑和 activationProcessed 信号。 |
-| ConductorViewModelBase / Conductor<T> | C++ Screen 子类与模板层 | 一个当前项；子项普通停用清空选择并留存 VM，切换关闭旧当前项。 |
-| ConductorCollectionOneActiveViewModelBase / ConductorCollectionOneActive<T> | C++ Screen 子类与模板层 | 保留多个 VM，仅当前项激活；关闭当前项按前一项优先选择剩余成员。 |
+| ConductorBase | 抽象元对象基类 | 抽象管理接口、延迟关闭策略、ensureItem 和 activationProcessed。 |
+| ConductorBaseWithActiveItem | 公共活动项基类 | 可读写 activeItem、统一切换顺序和销毁通知。 |
+| ConductorSingleItem / Conductor<T> | C++ Screen 子类与模板层 | 一个当前项；子项普通停用清空选择并留存 VM，切换关闭旧当前项。 |
+| ConductorCollectionOneActiveBase / ConductorCollectionOneActive<T> | C++ Screen 子类与模板层 | 保留多个 VM，仅当前项激活；关闭当前项按前一项优先选择剩余成员。 |
 | ViewRegistry | C++，向 QML 提供单例入口 | 按应用登记的 VM 类型查询 QML View 地址，不拥有 VM。 |
 | ViewHost | QML 组件 | 使用 Loader 定位和加载 View，并注入唯一 viewModel 属性。 |
 | ViewHostState | 公开、可创建的 QML 辅助类型 | 保护 VM 借用并验证 View 注入；页面装配优先使用 ViewHost，见 [公开接口](docs/ViewHost.md#4-借用与所有权)。 |
@@ -85,9 +86,9 @@ ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected �
 
 已实现的 [Screen](docs/ScreenViewModel.md) 初始化一次、同步执行生命周期，提供只读逻辑 Parent。Screen 实现 IActivate、IDeactivate，两个 Conductor 通过共享 ScreenExtensions 按接口驱动子项生命周期；普通 VM 可独立实现其中一个或两个接口。普通 ViewModelBase 默认不实现 IChild；自行声明该接口的 VM 也能接入。QObject 父树负责所有权，逻辑 Parent 由 Conductor 独立维护。
 
-单项 `deactivateItem(item, false)` 清空选择并普通停用，保留 VM、Parent 和恢复资格；`activateItem(item)` 恢复原对象。切换新项关闭旧当前项，旧对象不登记为留存成员；`closeItem` 只处理当前项。已初始化父关闭只处理当前项，未初始化父关闭无操作；父普通停用仍保留选择。`getChildren()` 在单项只返回当前项，集合型返回全部成员，均为借用快照。详见 [Conductor](docs/Conductor.md) 和 [Parent 体系验收记录](docs/验收/Parent体系验收记录.md)。
+单项 `deactivateItem(item, false)` 清空选择并普通停用，保留 VM、Parent 和恢复资格；`activateItem(item)` 恢复原对象。切换新项关闭旧当前项，旧对象仍由 QObject 父树持有；`closeItem` 只处理当前项。已初始化单项父关闭只处理当前项并保留选择，集合父关闭清空成员但保留 ActiveItem；未初始化父关闭无操作；父普通停用仍保留选择。`getChildren()` 在单项只返回当前项，集合型返回全部成员，均为借用快照。详见 [Conductor](docs/Conductor.md) 和 [Parent 体系验收记录](docs/验收/Parent体系验收记录.md)。
 
-新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、IActivate 活动状态及逻辑 Parent。基础校验拒绝不移动调用方所有权；通过后单项请求暂存候选，许可拒绝或回调释放时回收，通过时接管并设置父对象；对象使用 CppOwnership。单项裸指针入口可重新选择本 Conductor 接管过的有效旧对象；调用方不得复用已提交关闭对象。集合裸指针入口只操作成员。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 已通过逻辑 Parent 委托 IConductor 关闭。关闭守卫已在 5B 实现；根窗口请求已接入双向桥接，Action 和 View 缓存继续留待后续。
+新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、IActivate 活动状态及逻辑 Parent。基础校验拒绝不移动调用方所有权；通过后单项请求暂存候选，许可拒绝或回调释放时回收，通过时接管并设置父对象；对象使用 CppOwnership。单项裸指针入口可重新选择本 Conductor 接管过的有效旧对象；关闭生命周期不自动删除对象；裸指针入口只接受本 Conductor 已接管的有效对象。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 已通过逻辑 Parent 委托 IConductor 关闭。关闭守卫已在 5B 实现；根窗口请求已接入双向桥接，Action 和 View 缓存继续留待后续。
 
 5A 与 5B 均已实现并完成本机验收。5A 的 showDialogAsync 接受自定义 VM，以 QFuture / QPromise 交付一次结果；只允许一个当前弹窗，忙时拒绝新请求，请求者失效后旧结果不能继续执行业务操作。结果为可空 bool，接受 true、明确取消 false、无决定关闭空值，忙和展示失败以异常交付，详见 [WindowManager](docs/WindowManager.md)。这是 Qt 适配差异：CM 3.2 WPF 使用同步 ShowDialog，本项目不为复刻阻塞返回引入嵌套事件循环。
 
@@ -139,7 +140,7 @@ Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名
 | 操作与输入 | QML 显式读取可用状态并直接调用方法；第一批演示无参数，第二批演示 int 参数和原生键盘事件。框架不规定方法名、返回值或自动守卫契约。 |
 | 视图映射 | 应用配置的类型到 View 映射，初始化阶段确定，不硬编码某个示例的页面数量。 |
 
-Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由服务保存。Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，注入两个页面工厂与 IWindowManager；Home.reset 通过确认后才重置，停用时使旧请求结果失效，并通过确认框 tryClose(std::nullopt) 请求关闭；请求者销毁时由窗口服务自动强制清理。进入 Detail 保留并停用 Home VM；Detail 内的返回按钮调用 goBack → tryClose，通过 Parent 委托 Shell 关闭自己，自动选回 Home。home/detail 从集合查找，ViewHost 绑定 activeItem。Home View 离开即卸载、返回重新创建，计数和 VM 保留，文本及焦点按新页面初始化。Shell 关闭清空全部成员，再激活新建 Home 并保留服务。DI 仅在装配层，每个 buildShell 的服务独立。详见 [应用装配](docs/IoC与应用装配.md)、[4C 历史记录](docs/验收/4C验收记录.md) 与 [tryClose 验收记录](docs/验收/tryClose验收记录.md)。
+Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由服务保存。Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，注入两个页面工厂与 IWindowManager；Home.reset 通过确认后才重置，停用时使旧请求结果失效，并通过确认框 tryClose(std::nullopt) 请求关闭；请求者销毁时由窗口服务自动强制清理。进入 Detail 保留并停用 Home VM；Detail 内的返回按钮调用 goBack → tryClose，通过 Parent 委托 Shell 关闭自己，自动选回 Home。home/detail 从集合查找，ViewHost 绑定 activeItem。Home View 离开即卸载、返回重新创建，计数和 VM 保留，文本及焦点按新页面初始化。Shell 关闭清空全部成员并保留旧 ActiveItem，再激活时识别非成员选择并新建 Home；旧 VM 由所有者回收。DI 仅在装配层，每个 buildShell 的服务独立。详见 [应用装配](docs/IoC与应用装配.md)、[4C 历史记录](docs/验收/4C验收记录.md) 与 [tryClose 验收记录](docs/验收/tryClose验收记录.md)。
 
 ## 阅读文档
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <CaliburnMicroQt/ConductorBase.h>
+#include <CaliburnMicroQt/ConductorBaseWithActiveItem.h>
 #include <QHash>
 #include <QList>
 #include <QPointer>
@@ -8,26 +8,24 @@
 #include <memory>
 
 // 集合只读；所有权变更通过 C++ 接口完成。
-class ConductorCollectionOneActiveViewModelBase : public ConductorBase
+class ConductorCollectionOneActiveBase : public ConductorBaseWithActiveItem
 {
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("集合型 Conductor 由 C++ 应用装配层创建")
-    Q_PROPERTY(ViewModelBase *activeItem READ activeItem NOTIFY activeItemChanged)
     Q_PROPERTY(QVariantList items READ items NOTIFY itemsChanged)
 
 public:
-    explicit ConductorCollectionOneActiveViewModelBase(QObject *parent = nullptr);
-    ~ConductorCollectionOneActiveViewModelBase() override;
-    ViewModelBase *activeItem() const { return m_activeItem.data(); }
+    explicit ConductorCollectionOneActiveBase(QObject *parent = nullptr);
+    ~ConductorCollectionOneActiveBase() override;
     QVariantList items() const;
     QList<ViewModelBase *> getChildren() const override { return m_items; }
     void activateItem(ViewModelBase *item) override;
     void deactivateItem(ViewModelBase *item, bool close) override;
+    void canClose(CloseCallback callback) override;
 
 signals:
     void itemsChanged();
-    void activeItemChanged();
 
 protected:
     const QList<ViewModelBase *> &itemPointers() const { return m_items; }
@@ -38,13 +36,13 @@ protected:
     virtual bool prepareCloseItem(ViewModelBase *item) { Q_UNUSED(item); return true; }
     void onActivate() override;
     void onDeactivate(bool close) override;
+    ViewModelBase *ensureItem(ViewModelBase *item) override;
+    virtual ViewModelBase *determineNextItemToActivate(const QList<ViewModelBase *> &items, int lastIndex);
 
 private:
-    void setSelection(ViewModelBase *item);
+    void addMember(ViewModelBase *item);
+    void removeMember(ViewModelBase *item);
     void memberDestroyed(ViewModelBase *identity);
     QList<ViewModelBase *> m_items;
     QHash<ViewModelBase *, QMetaObject::Connection> m_destroyed;
-    QPointer<ViewModelBase> m_activeItem;
-    // destroyed 回调到达时 QPointer 已清空，保留身份仅用于判断是否为当前项。
-    ViewModelBase *m_activeIdentity = nullptr;
 };

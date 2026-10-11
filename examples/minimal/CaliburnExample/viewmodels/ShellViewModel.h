@@ -11,7 +11,7 @@ using DetailViewModelFactory = std::function<std::unique_ptr<DetailViewModel>()>
 
 // 模板层没有自己的元对象；moc/QML 工具使用其实际元对象基类。
 #ifdef Q_MOC_RUN
-class ShellViewModel : public ConductorCollectionOneActiveViewModelBase
+class ShellViewModel : public ConductorCollectionOneActiveBase
 #else
 class ShellViewModel : public Conductor<ScreenViewModel>::Collection::OneActive
 #endif

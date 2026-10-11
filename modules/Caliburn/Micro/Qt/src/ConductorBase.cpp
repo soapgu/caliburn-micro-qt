@@ -2,28 +2,42 @@
 #include <CaliburnMicroQt/DefaultCloseStrategy.h>
 #include <utility>
 
-ConductorBase::ConductorBase(QObject *parent) : ScreenViewModel(parent),
-    m_closeStrategy(std::make_shared<DefaultCloseStrategy>()) {}
+ConductorBase::ConductorBase(QObject *parent) : ScreenViewModel(parent) {}
+
+std::shared_ptr<ICloseStrategy> ConductorBase::closeStrategy() const
+{
+    if (!m_closeStrategy)
+        m_closeStrategy = std::make_shared<DefaultCloseStrategy>();
+    return m_closeStrategy;
+}
 
 void ConductorBase::setCloseStrategy(std::shared_ptr<ICloseStrategy> strategy)
 {
-    m_closeStrategy = strategy ? std::move(strategy) : std::make_shared<DefaultCloseStrategy>();
+    m_closeStrategy = std::move(strategy);
 }
 
 void ConductorBase::checkClose(const QList<ViewModelBase *> &items, CloseCallback continuation)
 {
-    // 策略在 execute 调用期间保活；异步状态由策略实现自行持有。
-    auto strategy = m_closeStrategy;
-    QPointer<ConductorBase> owner = this;
-    strategy->execute(items, [owner, continuation = std::move(continuation)](bool allowed) mutable {
-        auto complete = std::move(continuation);
-        if (owner) complete(allowed);
+    checkCloseResult(items, [continuation = std::move(continuation)](bool allowed, const auto &) {
+        continuation(allowed);
     });
 }
 
-void ConductorBase::canClose(CloseCallback callback)
+void ConductorBase::checkCloseResult(const QList<ViewModelBase *> &items, CloseStrategyCallback continuation)
 {
-    checkClose(getChildren(), std::move(callback));
+    auto strategy = closeStrategy();
+    QPointer<ConductorBase> owner = this;
+    strategy->executeWithResult(items, [owner, continuation = std::move(continuation)](bool allowed, const auto &closable) mutable {
+        auto complete = std::move(continuation);
+        if (owner) complete(allowed, closable);
+    });
+}
+
+ViewModelBase *ConductorBase::ensureItem(ViewModelBase *item)
+{
+    if (auto *child = qobject_cast<IChild *>(item); child && child->parentViewModel() != this)
+        setLogicalParent(item, this);
+    return item;
 }
 
 bool ConductorBase::hasLogicalParent(ViewModelBase *item)

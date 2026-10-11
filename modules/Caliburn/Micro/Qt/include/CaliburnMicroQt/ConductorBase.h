@@ -14,18 +14,22 @@ class ConductorBase : public ScreenViewModel, public IConductor
 
 public:
     explicit ConductorBase(QObject *parent = nullptr);
-    std::shared_ptr<ICloseStrategy> closeStrategy() const { return m_closeStrategy; }
+    std::shared_ptr<ICloseStrategy> closeStrategy() const;
     void setCloseStrategy(std::shared_ptr<ICloseStrategy> strategy);
-    void canClose(CloseCallback callback) override;
+    QList<ViewModelBase *> getChildren() const override = 0;
+    void activateItem(ViewModelBase *item) override = 0;
+    void deactivateItem(ViewModelBase *item, bool close) override = 0;
 
 signals:
     void activationProcessed(ViewModelBase *item, bool success);
 
 protected:
     void checkClose(const QList<ViewModelBase *> &items, CloseCallback continuation);
+    void checkCloseResult(const QList<ViewModelBase *> &items, CloseStrategyCallback continuation);
+    virtual ViewModelBase *ensureItem(ViewModelBase *item);
     static bool hasLogicalParent(ViewModelBase *item);
     static void setLogicalParent(ViewModelBase *item, QObject *parent);
-    void onActivationProcessed(ViewModelBase *item, bool success);
+    virtual void onActivationProcessed(ViewModelBase *item, bool success);
 private:
-    std::shared_ptr<ICloseStrategy> m_closeStrategy;
+    mutable std::shared_ptr<ICloseStrategy> m_closeStrategy;
 };

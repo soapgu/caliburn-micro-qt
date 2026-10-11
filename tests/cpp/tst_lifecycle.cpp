@@ -1,6 +1,7 @@
 #include <CaliburnMicroQt/Conductor.h>
 #include <CaliburnMicroQt/ScreenExtensions.h>
 #include <QtTest>
+#include <stdexcept>
 
 class ActivateOnlyVm : public ViewModelBase, public IActivate
 {
@@ -57,10 +58,10 @@ class LifecycleTests : public QObject
         QPointer<LifecycleVm> weak = child;
         conductor.deactivate(true);
         QCOMPARE(child->closes, QList<bool>({false, true}));
-        QVERIFY(!conductor.activeItem());
+        QCOMPARE(conductor.activeItem(), child);
         QVERIFY(weak);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(!weak);
+        QVERIFY(weak);
     }
 
     template<class C>
@@ -103,7 +104,82 @@ class LifecycleTests : public QObject
         QCOMPARE(processed.first().at(1).toBool(), false);
     }
 
+    template<class C>
+    void checkActiveItemSetter()
+    {
+        C conductor;
+        conductor.activate();
+        conductor.activateItem(std::make_unique<LifecycleVm>());
+        auto *first = conductor.activeItem();
+        conductor.activateItem(std::make_unique<LifecycleVm>());
+        QVERIFY(conductor.setProperty("activeItem", QVariant::fromValue(first)));
+        QCOMPARE(conductor.activeItem(), first);
+        QVERIFY(qobject_cast<IActivate *>(first)->isActive());
+        ViewModelBase foreign;
+        QSignalSpy processed(&conductor, &ConductorBase::activationProcessed);
+        conductor.setActiveItem(&foreign);
+        QCOMPARE(conductor.activeItem(), first);
+        QCOMPARE(processed.count(), 1);
+        QCOMPARE(processed.first().at(1).toBool(), false);
+    }
+
 private slots:
+    void singleActiveItemSetter() { checkActiveItemSetter<Conductor<>>(); }
+    void collectionActiveItemSetter() { checkActiveItemSetter<Conductor<>::Collection::OneActive>(); }
+    void sharedBaseAndEnsureItemOrder()
+    {
+        class Probe : public Conductor<> {
+        public:
+            std::function<void()> duringEnsure;
+            ViewModelBase *ensureItem(ViewModelBase *item) override {
+                if (duringEnsure) duringEnsure();
+                return ConductorBase::ensureItem(item);
+            }
+        } conductor;
+        static_assert(std::is_abstract_v<ConductorBaseWithActiveItem>);
+        QCOMPARE(ConductorSingleItem::staticMetaObject.superClass(), &ConductorBaseWithActiveItem::staticMetaObject);
+        QCOMPARE(ConductorCollectionOneActiveBase::staticMetaObject.superClass(), &ConductorBaseWithActiveItem::staticMetaObject);
+        auto strategy = conductor.closeStrategy();
+        QCOMPARE(conductor.closeStrategy(), strategy);
+        conductor.setCloseStrategy(nullptr);
+        QVERIFY(conductor.closeStrategy() != strategy);
+        conductor.activate();
+        conductor.activateItem(std::make_unique<LifecycleVm>());
+        auto *old = static_cast<LifecycleVm *>(conductor.activeItem());
+        conductor.duringEnsure = [&] {
+            QCOMPARE(conductor.activeItem(), old);
+            QCOMPARE(old->closes, QList<bool>{true});
+            QVERIFY(!old->isActive());
+        };
+        auto next = std::make_unique<LifecycleVm>();
+        auto *raw = next.get();
+        connect(&conductor, &ConductorBaseWithActiveItem::activeItemChanged, &conductor, [&] {
+            QCOMPARE(conductor.activeItem(), raw);
+            QVERIFY(raw->isActive());
+        });
+        conductor.activateItem(std::move(next));
+    }
+
+    void failedActivationKeepsPreviousSelection()
+    {
+        class Throwing : public ScreenViewModel {
+            void onActivate() override { throw std::runtime_error("激活失败"); }
+        };
+        Conductor<> conductor;
+        conductor.activate();
+        conductor.activateItem(std::make_unique<LifecycleVm>());
+        auto *old = conductor.activeItem();
+        QSignalSpy changed(&conductor, &ConductorBaseWithActiveItem::activeItemChanged);
+        auto next = std::make_unique<Throwing>();
+        auto *raw = next.get();
+        QVERIFY_THROWS_EXCEPTION(std::runtime_error, conductor.activateItem(std::move(next)));
+        QCOMPARE(conductor.activeItem(), old);
+        QCOMPARE(changed.count(), 0);
+        QVERIFY(!qobject_cast<IActivate *>(old)->isActive());
+        QVERIFY(raw->isActive()); // Screen 已提交状态，但公共基类未提交选择。
+        QCOMPARE(raw->parentViewModel(), &conductor);
+    }
+
     void optionalCapabilities()
     {
         QObject plain;

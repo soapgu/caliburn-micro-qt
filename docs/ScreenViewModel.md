@@ -30,7 +30,7 @@ ScreenViewModel 同时实现 IActivate、IDeactivate；isActive、activate、dea
 | deactivate(true)，已初始化 | 先设非活动，再执行关闭钩子；包括已停用、已关闭或初始化后从未激活的对象，每次调用都执行钩子，活动状态实际改变才通知。 |
 | deactivate(true)，未初始化 | 无操作。 |
 
-初始化一生只执行一次。Screen 基类关闭不删除、不重置初始化或业务字段；关闭后可重新激活。初始化通知最多一次，活动通知只在 bool 改变时发送。停用条件与 [CM 3.2 Screen](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/Screen.cs) 一致：`isActive || (isInitialized && close)`；不维护额外关闭标记或待清理资源扩展。未初始化的 Conductor 同样跳过关闭生命周期，保留当前项及父树所有权；已初始化的 Conductor 在关闭钩子中清空选择与受管项并延迟回收，单项只处理当前项，集合处理全部成员。
+初始化一生只执行一次。Screen 基类关闭不删除、不重置初始化或业务字段；关闭后可重新激活。初始化通知最多一次，活动通知只在 bool 改变时发送。停用条件与 [CM 3.2 Screen](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/Screen.cs) 一致：`isActive || (isInitialized && close)`；不维护额外关闭标记或待清理资源扩展。未初始化的 Conductor 同样跳过关闭生命周期，保留当前项及父树所有权；已初始化单项 Conductor 只关闭当前项并保留选择；集合关闭全部成员并清空集合，但保留 ActiveItem 引用。关闭不自动删除 VM。
 
 5B 的有效停用还会在状态提交前发送 attemptingDeactivation(close)，钩子正常结束后发送 deactivated(close)。状态提交顺序同样对齐 CM 3.2.0：初始化、激活和停用均先提交状态，再调用对应钩子；Qt 适配保留值实际改变才通知的行为。状态通知只表示属性已改变，不表示钩子或子对象转换已经完成。生命周期钩子抛异常时原样传播，已提交状态不回滚；例如激活钩子失败后 isActive 仍为 true，后续重复 activate 不自动重试，需先 deactivate 再 activate。初始化钩子失败后 isInitialized 仍为 true，不重复执行初始化钩子。
 
@@ -56,9 +56,9 @@ Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，Home 和 Detail
 
 进入 Detail 普通停用 Home，Home VM 留在集合；返回关闭并移除 Detail、重新激活原 Home，Home 不重复初始化。Home View 离开时销毁、返回时新建，不能用 View 创建次数判断 VM 初始化次数。普通父停用保留当前选择，恢复时只激活当前页。
 
-已初始化 Shell 关闭清空全部成员及选择，关闭 Home/Detail 并延迟删除；再激活创建新 Home，服务和计数保留。未初始化 Shell 关闭仍无操作。页面意外销毁不自动导航，下次 Shell 停用后激活补 Home，在空选择时选 Home。
+已初始化 Shell 关闭 Home/Detail 后清空全部成员，保留旧 ActiveItem；再激活检测到它不在集合中，创建并选择新 Home，服务和计数保留。旧 VM 由所有者回收。未初始化 Shell 关闭仍无操作。页面意外销毁不自动导航，下次 Shell 停用后激活补 Home，在空选择时选 Home。
 
-Screen 自身关闭不删除的契约不变；集合成员移除、延迟回收属于 Conductor。WindowManager 驱动窗口 VM 的正常生命周期，Bootstrapper 兜底根退出，ViewHost 不驱动生命周期，窗口失焦不自动停用。退出时当前 View 先于对应 VM 释放，根 View 先于根 VM 释放。
+Screen 自身关闭不删除的契约不变；集合成员移除属于 Conductor；对象回收由所有者安排。WindowManager 驱动窗口 VM 的正常生命周期，Bootstrapper 兜底根退出，ViewHost 不驱动生命周期，窗口失焦不自动停用。退出时当前 View 先于对应 VM 释放，根 View 先于根 VM 释放。
 
 基础历史结果见 [第三批验收记录](验收/第三批验收记录.md) 和 [4B 验收记录](验收/4B验收记录.md)。当前集合生命周期、异常恢复、单次回收及导航验收见 [4C 验收记录](验收/4C验收记录.md)；装配接口见 [IoC 与应用装配](IoC与应用装配.md)。
 
@@ -66,7 +66,7 @@ Screen 自身关闭不删除的契约不变；集合成员移除、延迟回收�
 
 ScreenViewModel 实现 IChild 并声明 Q_INTERFACES(IChild IGuardClose IActivate IDeactivate)。C++ getter 为 `QObject *parentViewModel() const`，QML 同名属性只读，使用 parentViewModelChanged 通知；内部 QPointer 保存弱引用，只有实际改变才通知。受保护接口 setter 授权 ConductorBase 调用，Screen 的具体实现为私有，业务不能公开赋值。
 
-逻辑 Parent 与 QObject::parent() 分开：构造函数的 QObject 父对象不会自动建立逻辑 Parent。Conductor 接管时建立两者；单项普通停用和集合切换保留 Parent，显式关闭和父关闭清理时先清空 Parent，再执行关闭钩子。直接调用 Screen.deactivate(true) 只执行生命周期，不清理 Conductor 关系、不删除对象；受管项的关闭应通过 Conductor。
+逻辑 Parent 与 QObject::parent() 分开：构造函数的 QObject 父对象不会自动建立逻辑 Parent。Conductor 接管时建立两者；单项普通停用和集合切换保留 Parent，单项关闭继续保留 Parent；集合显式成员关闭先执行钩子和选择通知，再移除成员并清空 Parent；集合父关闭的 Reset 路径不逐项清空 Parent。直接调用 Screen.deactivate(true) 只执行生命周期，不清理 Conductor 关系、不删除对象；受管项的关闭应通过 Conductor。
 
 根 Shell 的逻辑 Parent 为空，Home/Detail 为 Shell，嵌套 Conductor 向上指向其管理者；CounterService 不属于该逻辑树。普通 ViewModelBase 默认不实现 IChild。
 

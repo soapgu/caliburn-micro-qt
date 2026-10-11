@@ -45,6 +45,28 @@ class GuardCloseTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void optionalPartialCloseSelectsRejectedNeighbor()
+    {
+        Conductor<GuardScreen>::Collection::OneActive c;
+        c.activate();
+        c.activateItem(std::make_unique<GuardScreen>());
+        auto *closableInactive = c.activeItem();
+        c.activateItem(std::make_unique<GuardScreen>());
+        auto *rejected = c.activeItem(); rejected->answer = false;
+        c.activateItem(std::make_unique<GuardScreen>());
+        auto *closableActive = c.activeItem();
+        bool allowed = true;
+        c.setCloseStrategy(std::make_shared<DefaultCloseStrategy>(true));
+        c.canClose([&](bool result) { allowed = result; });
+        QVERIFY(!allowed);
+        QCOMPARE(c.items(), QList<GuardScreen *>{rejected});
+        QCOMPARE(c.activeItem(), rejected);
+        QVERIFY(rejected->isActive());
+        QCOMPARE(closableInactive->closes, 1); QCOMPARE(closableActive->closes, 1);
+        QVERIFY(!closableInactive->parentViewModel() && !closableActive->parentViewModel());
+        QCOMPARE(rejected->closes, 0);
+    }
+
     void defaultScreenAndLifecycleSignals()
     {
         ScreenViewModel screen;
@@ -119,10 +141,10 @@ private slots:
     void singleReplacement()
     {
         QFETCH(bool, deferred); QFETCH(bool, allowed);
+        int destroyed = 0;
         Conductor<GuardScreen> c; c.activate();
         auto owned = std::make_unique<GuardScreen>(); auto *old = owned.get();
         c.activateItem(std::move(owned)); old->deferred = deferred; old->answer = allowed;
-        int destroyed = 0;
         auto next = std::make_unique<GuardScreen>(); next->destroyed = &destroyed;
         QPointer<GuardScreen> candidate = next.get();
         QSignalSpy completed(&c, &ConductorBase::activationProcessed);
@@ -234,11 +256,11 @@ private slots:
         class Throwing : public ScreenViewModel { void onActivate() override { throw std::runtime_error("激活失败"); } };
         Conductor<ScreenViewModel> c; c.activate();
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, c.activateItem(std::make_unique<Throwing>()));
-        QVERIFY(c.activeItem() && c.activeItem()->isActive());
+        QVERIFY(!c.activeItem());
         auto strategy = std::make_shared<DeferredStrategy>(); c.setCloseStrategy(strategy);
         c.activateItem(std::make_unique<Throwing>());
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, strategy->result(true));
-        QVERIFY(c.activeItem() && c.activeItem()->isActive());
+        QVERIFY(!c.activeItem());
     }
 };
 

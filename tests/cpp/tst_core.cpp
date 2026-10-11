@@ -318,7 +318,7 @@ private slots:
         QVERIFY(weak);
         QCOMPARE(weak->parent(), shell.get());
         QCOMPARE(shell->activeItem(), static_cast<ScreenViewModel *>(weak.data()));
-        QCOMPARE(shell->metaObject()->superClass(), &ConductorCollectionOneActiveViewModelBase::staticMetaObject);
+        QCOMPARE(shell->metaObject()->superClass(), &ConductorCollectionOneActiveBase::staticMetaObject);
         const auto homeProperty = shell->metaObject()->property(shell->metaObject()->indexOfProperty("home"));
         QCOMPARE(homeProperty.notifySignal().name(), QByteArray("itemsChanged"));
         shell->initialize();
@@ -336,7 +336,7 @@ private slots:
 
         ShellViewModel owner(makeHomeFactory(), makeDetailFactory());
         owner.activate();
-        QSignalSpy changed(&owner, &ConductorCollectionOneActiveViewModelBase::activeItemChanged);
+        QSignalSpy changed(&owner, &ConductorCollectionOneActiveBase::activeItemChanged);
         delete owner.home();
         QVERIFY(!owner.home());
         QCOMPARE(changed.count(), 1);

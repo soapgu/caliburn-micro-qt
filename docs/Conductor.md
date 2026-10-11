@@ -1,98 +1,93 @@
-# Conductor：单项与 Collection.OneActive
+# Conductor：CM 3.2.0 基类与活动项行为
 
-前四批及 5B 已实现并完成本机验收，见 [5B 验收记录](验收/5B验收记录.md)。本轮 CM 精简已完成本机复验，见 [精简记录](验收/CM关闭守卫精简验收记录.md)。历史第四批、Parent 与 tryClose 验收记录保留原样；麒麟待验证。
+本轮以 CM 3.2.0 源码为依据统一单项和 Collection.OneActive 的分层、切换顺序、父级关闭及扩展点。历史验收记录保留当时结果，当前行为以本文为准。
 
-## 统一协议与逻辑 Parent
+## 基类结构
 
-IChild、IParent、IConductor 均为带虚析构的纯 C++ 接口。IID 分别为 `Caliburn.Micro.Qt.IChild/1.0`、`Caliburn.Micro.Qt.IParent/1.0`、`Caliburn.Micro.Qt.IConductor/2.0`。5B 将 IConductor 请求返回值改为 void，消费工程须重新编译。
-
-```cpp
-virtual void activateItem(ViewModelBase *item) = 0;
-virtual void deactivateItem(ViewModelBase *item, bool close) = 0;
+```text
+ScreenViewModel
+└── ConductorBase
+    └── ConductorBaseWithActiveItem
+        ├── ConductorSingleItem → Conductor<T>
+        └── ConductorCollectionOneActiveBase → ConductorCollectionOneActive<T>
 ```
 
-ConductorBase 继承 ScreenViewModel，声明 Q_INTERFACES(IParent IConductor)，提供 activationProcessed 信号、关闭策略及直接许可回调。具体元对象基类向 QML 暴露只读 activeItem；集合型另有只读 items。模板仅提供 C++ 类型约束，无独立元对象。
-
-Screen 的 parentViewModel 为只读逻辑 Parent，使用 QPointer 保存，与 QObject 父树分开。Conductor 接管时建立 QObject 所有权及逻辑 Parent；单项普通停用和集合切换保留 Parent，关闭时先清空逻辑 Parent，QObject 父关系保留到回收。普通 VM 可自行实现 IChild，服务不属于逻辑 VM 树。
-
-## 单项类型与使用
-
-Conductor<T> 的 T 必须是非 const/volatile 的 ViewModelBase 派生类，默认 ViewModelBase。生命周期按 IActivate、IDeactivate 接口分别分派，不要求继承 Screen。
-
-```cpp
-Conductor<ScreenViewModel> conductor;
-conductor.activate();
-auto owned = std::make_unique<MyScreen>();
-auto *page = owned.get();
-conductor.activateItem(std::move(owned));
-// 立即许可可同步完成；延后许可须通过信号观察完成，不能根据方法返回推断。
-conductor.deactivateItem(page, false);
-conductor.activateItem(page);
-conductor.closeItem(page);
-```
-
-上例要求各请求立即完成，真实延后守卫应由界面操作或完成信号接续。请求均为普通 C++ void 方法，不是 Q_INVOKABLE，不带完成回调，不提供另一套 Async 入口。
-
-| 操作 | 许可及提交行为 |
+| Qt 类型 | CM 3.2.0 对应职责 |
 | --- | --- |
-| activateItem(unique_ptr<U>&&) | 基础校验后暂存候选；旧当前项许可通过才接管新项并关闭旧项。 |
-| activateItem(T*) | 选择本 Conductor 已接管、仍有效且未关闭的对象；替换当前项前检查旧项许可。 |
-| activateItem(nullptr) | 请求关闭当前项；没有当前项时无操作。 |
-| deactivateItem(item, false) | 仅处理当前项并检查许可；同意后清空选择，普通停用，保留 QObject 所有权和 Parent。 |
-| deactivateItem(item, true) / closeItem(item) | 只处理当前项；检查许可后清空选择和 Parent、关闭并 deleteLater；closeItem 经 IConductor 虚调用委托。 |
-| getChildren() | 只枚举当前项。 |
+| ConductorBase | ConductorBase<T>：关闭策略、抽象管理接口、activationProcessed 和 ensureItem。 |
+| ConductorBaseWithActiveItem | ConductorBaseWithActiveItem<T>：活动项属性及公共 changeActiveItem。 |
+| ConductorSingleItem + Conductor<T> | Conductor<T>：单项替换、停用、守卫和父级生命周期。 |
+| ConductorCollectionOneActiveBase + ConductorCollectionOneActive<T> | Conductor<T>.Collection.OneActive：成员、相邻项和集合关闭。 |
 
-内部只记录当前项及其销毁通知。父级 canClose 和生命周期只处理当前项；普通停用后的旧对象不再登记为受管成员，但业务可重新选择仍有效且未关闭的旧对象。旧对象保留父关系，由 QObject 父树兜底回收；非当前旧对象的停用/关闭请求无操作。已提交关闭的对象不得再使用，没有跨 Conductor 转移接口。
+Qt 元对象必须放在非模板层；模板层提供类型约束和类型化 C++ 入口。T 为非 const/volatile 的 ViewModelBase 派生类。两个具体类继承同一个 activeItem 属性和 activeItemChanged 信号，不再分别保存活动项。
+
+## 名称迁移
+
+| 原名称 | 当前名称 |
+| --- | --- |
+| `ConductorViewModelBase` | `ConductorSingleItem` |
+| `ConductorCollectionOneActiveViewModelBase` | `ConductorCollectionOneActiveBase` |
+
+`SingleItem` 表达只管理当前项的策略；集合实现保留 `Base` 后缀，以区别模板类 `ConductorCollectionOneActive<T>`。对应头文件、源文件和 QML 注册类型同步改名，不保留旧头文件、C++ 别名或 QML 类型别名。两个新 QML 类型继续不可直接创建。
+
+直接使用旧实现类的消费工程须迁移名称及包含路径并重新编译。`ConductorBase`、`ConductorBaseWithActiveItem`、`Conductor<T>` 和 `ConductorCollectionOneActive<T>` 名称及模板调用形式不变。本次改名保留已有生命周期、关闭策略和所有权行为；历史验收记录继续使用当时的名称。
+
+## 公共基类
+
+ConductorBase 的 getChildren、activateItem、deactivateItem 为抽象方法。canClose 的聚合由具体单项和集合实现；自定义基类派生对象默认沿用 Screen 的立即同意。
+
+closeStrategy 首次读取时创建默认策略；setCloseStrategy(nullptr) 清空缓存，下一次读取重新创建。onActivationProcessed 和 ensureItem 为受保护虚方法。默认 ensureItem 为实现 IChild 的新项设置逻辑 Parent，已经指向本对象时不重复设置。
+
+ConductorBaseWithActiveItem 提供可读写 activeItem；setActiveItem 委托虚 activateItem，仍经过具体策略和守卫，不直接写成员。QML 属性可赋为已由本 Conductor 接管的对象或 null；所有权接管继续走 C++ unique_ptr。
+
+changeActiveItem(item, closePrevious) 按原版顺序执行：
+
+1. tryDeactivate(旧 ActiveItem, closePrevious)。
+2. item = ensureItem(item)。
+3. 父级活动时 tryActivate(item)。
+4. 提交新 ActiveItem，发送 activeItemChanged。
+5. 发送非空项的 activationProcessed(item, true)。
+
+旧项停用、新项准备和激活钩子执行时，ActiveItem 仍为旧项。任何前置步骤抛异常都不提交新选择，也不回滚已完成的生命周期或 Parent 变化；例如新 Screen 激活钩子抛异常后它的 isActive 可能已为 true，但 ActiveItem 仍是旧项。通知不做同值过滤；非空同项请求由具体 ActivateItem 的分支处理。
+
+## 接口分派
+
+两个 Conductor 统一使用 ScreenExtensions::tryActivate(QObject *) 和 tryDeactivate(QObject *, bool)，分别查询 IActivate、IDeactivate。空对象或没有对应接口时跳过；辅助函数不判断活动状态，不补初始化，不捕获异常。具体对象负责状态与幂等性，Screen 保留原实现。方法和 Qt 信号的契约见 [Screen](ScreenViewModel.md)。
+
+## 单项 Conductor
+
+新项接管和当前项停用均先询问关闭策略；拒绝时保留当前选择。activateItem 的非空同项分支在父活动时再次调用激活接口并公布成功，父非活动时无操作。空项请求仍进入策略与公共切换流程。
+
+切换新项传 closePrevious=true；旧项关闭后保留逻辑 Parent。deactivateItem(current, false) 普通停用并清空选择，旧项仍可恢复；closeItem(current) 关闭并清空选择。非当前项的停用/关闭请求无操作。getChildren 返回只含当前项的快照；没有当前项时包含一个空指针，与 CM 的单元素枚举对应。
+
+父 activate 激活当前项；父 deactivate(false/true) 只传播对应动作，保留 ActiveItem 和 Parent。父初始化不初始化子项；未初始化父关闭沿用 Screen 的无操作。重复父关闭会再次调用已初始化当前 Screen 的关闭钩子。
 
 ## Collection.OneActive
 
-ConductorCollectionOneActive<T> 也可写作 Conductor<T>::Collection::OneActive；独立实现集合算法，不复用单项切换关闭路径。items/getChildren 按加入顺序返回借用快照，修改快照不会修改集合。
+addItem(unique_ptr) 只添加成员和设置 Parent。选择新对象时先停用旧项，再由 ensureItem 添加新成员并设置 Parent，然后激活及提交选择。成员和选择通知是不同阶段，itemsChanged 观察者可能仍看到旧 ActiveItem。
 
-| 操作 | 行为 |
-| --- | --- |
-| bool addItem(unique_ptr<U>&&) | 同步校验并接管，添加但不选择、不初始化；拒绝不移动 unique_ptr。 |
-| void activateItem(unique_ptr<U>&&) | 接管、加入并选择；旧项普通停用，保留成员，不检查关闭守卫。 |
-| void activateItem(T*) | 选择已有成员，外部对象拒绝；切换不检查关闭守卫。 |
-| void activateItem(nullptr) | 清空选择，普通停用旧项，集合保留。 |
-| void deactivateItem(T*, false) | 普通停用目标，保留成员、Parent 和选择，不检查守卫。 |
-| void deactivateItem(T*, true) / closeItem(T*) | 许可通过后移除并关闭；当前项优先选前一项，否则后一项。 |
+ensureItem(nullptr) 调用 determineNextItemToActivate：优先前一项，关闭/选择首项时若存在第二项则选第二项，否则为空。因此 activateItem(nullptr) 会尝试选择相邻项，不保证清空选择。determineNextItemToActivate 为受保护虚方法，应用可覆盖选择规则。
 
-无效停用目标和已关闭对象无操作；非空激活目标被拒绝时发送 activationProcessed(item, false)。未实现对应生命周期接口的普通 VM 不执行该动作。
+普通 deactivateItem(item, false) 不询问守卫，不修改选择。关闭成员先询问守卫和 prepareCloseItem；当前项先执行公共切换及结果通知，再移除旧成员并清空其 Parent；非当前项先关闭再移除。关闭钩子执行时旧 Parent 和成员记录仍在。
 
-## 接管、通知与回收
+父普通停用只停用当前项。父关闭先关闭全部成员，再清空 Items；保留 ActiveItem 引用，不发送 activeItemChanged。与原版集合 Reset 一致，此路径不逐项执行 Remove 的 Parent 清理。重复父关闭时集合已空，不再重复关闭原成员。恢复激活默认只激活保留的 ActiveItem，不会自动重新加入 Items。
 
-新对象须无 QObject 父对象、同线程、不是自身或祖先、实现 IActivate 的对象尚未活动，且逻辑 Parent 为空。基础校验失败不移动调用方 unique_ptr；通过后单项以回调捕获的标准 RAII 容器持有候选，拒绝或回调释放时回收，许可通过前不加入成员或建立 Parent。等待期间禁止外部删除候选；不提供候选提前销毁保护或管理者销毁时立即回收的保证。
+默认 canClose 检查全部成员且不部分关闭。DefaultCloseStrategy(true) 或自定义 executeWithResult 可返回允许部分关闭的成员；整体拒绝时，OneActive 关闭并移除这些成员，必要时跳过它们选择未关闭的相邻项，最后交付 false。见 [关闭守卫](关闭守卫.md)。
 
-提交继续沿用先成员/选择、再生命周期的顺序：单项 A → B 先接管 B、提交记录和选择、清空 A Parent、设置 B Parent，再通知选择、关闭 A、按父活动状态激活 B、安排 A.deleteLater、发布激活结果。集合加入并选择先更新 Parent，再依次通知 itemsChanged、activeItemChanged；关闭当前项先移除及选择相邻项，再通知、执行生命周期及延迟删除。关闭时旧 View 先于 VM 卸载。
+## Qt 所有权与适配边界
 
-当前项意外销毁清空选择；集合成员销毁清理成员记录，不自动导航。QObject 父树兜底回收旧对象和等待删除对象。QPointer 只保护延后回调的借用对象寿命，不实现请求代次或过期协调。
+unique_ptr 接管仍校验父对象、线程、自身/祖先、IActivate 活动状态和逻辑 Parent。基础拒绝不移动所有权；单项通过校验后由守卫回调持有候选，许可拒绝或回调释放时回收。接管成功使用 QObject 父树与 CppOwnership。裸指针只接受本 Conductor 已拥有的对象，这是 C++ 内存管理边界。
 
-## 生命周期能力分派
+关闭生命周期和移出集合不再自动 deleteLater。已接管对象保留到所有者销毁，调用方也可在生命周期及 View 卸载完成后显式释放；Qt 不提供 .NET GC，长期存活的 Conductor 需要由应用明确安排不再使用对象的回收。意外销毁当前项时公共基类清空 QPointer 并通知；集合成员销毁同时移除记录，不自动导航。
 
-单项和集合型 Conductor 统一调用 ScreenExtensions::tryActivate(QObject *) 与 tryDeactivate(QObject *, bool)。它们分别通过 qobject_cast 查询 IActivate 和 IDeactivate，空对象或未实现对应接口时无操作；不检查 isActive、不补初始化、不捕获异常，原样传递 close。具体对象负责生命周期状态与幂等性，Screen 保持既有行为。
+prepareCloseItem 是本项目为 Shell 保留的业务准备钩子，不属于 CM 原版。Shell 在父关闭后恢复时，检测 ActiveItem 是否仍为集合成员；失效选择则选新建 Home，保留计数服务。普通切换仍保留 Home VM、重建 View。
 
-IActivate 提供 isActive() const、activate()，IDeactivate 提供 deactivate(bool close)。自定义 VM 可分别或同时实现接口，声明 Q_OBJECT 和对应的 Q_INTERFACES；不必继承 Screen，也不必实现 IChild 或 IGuardClose。接口 IID 分别为 Caliburn.Micro.Qt.IActivate/1.0 与 Caliburn.Micro.Qt.IDeactivate/1.0。Screen 的 Qt 状态通知及停用信号保留在具体类中，接口此次仅对齐 CM 3.2.0 的方法分派语义。
+所有调用在主线程执行；同步钩子和通知不得重入修改或销毁参与对象。守卫等待期间不支持重叠请求或修改参与成员。QPointer 检查只用于内存安全，不提供通用取消协议。
 
-## 父生命周期
+新增基类、虚方法、属性 setter 和策略入口改变 C++ ABI，消费工程须重新编译。
 
-父 activate 通过 IActivate 激活当前项；initialize 不初始化子项。父 deactivate(false) 同步停用当前项，保留选择及全部成员，不增加许可检查。已初始化父 deactivate(true) 清空选择和受管记录、清空 Parent、通知并关闭及安排删除；单项仅处理当前项，集合处理全部成员。未初始化父关闭仍无操作。
+## 源码与历史记录
 
-父级 canClose 检查 getChildren 快照并交付许可：单项只检查当前项，集合检查全部成员，递归支持嵌套 Conductor，不自行关闭成员。任一拒绝时整体拒绝，不移除已同意的成员。直接生命周期用于执行与强制清理，不能代替受管成员请求；Bootstrapper 的退出清理不等待守卫。
+依据 [ConductorBase](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/ConductorBase.cs)、[ConductorBaseWithActiveItem](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/ConductorBaseWithActiveItem.cs)、[单项 Conductor](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/Conductor.cs)、[OneActive](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/ConductorWithCollectionOneActive.cs)。
 
-## 激活与关闭完成通知
-
-activationProcessed(item, success) 保留既有规则：非空新选择及有效恢复完成时成功，失败时 false；父活动时重复同项激活成功，非活动时重复同项无通知。nullptr、添加、普通停用及父生命周期传播不发送；集合关闭当前项并自动选择非空相邻项时发布新项激活成功。
-
-Screen.attemptingDeactivation(close) 在有效停用执行前发出；deactivated(close) 在同步钩子正常结束后发出，close=true 表示关闭生命周期完成，实际删除仍可延后。拒绝或失效不发送成功关闭通知，未初始化对象不伪造生命周期通知。普通 VM 的成员变化通过 items/activeItem/Parent 观察。
-
-## Screen.tryClose 与公共协议
-
-void tryClose() 每次通过逻辑 Parent 获取 IConductor，调用 deactivateItem(this, true)，不使用 QObject 父对象兜底。没有 Parent 或接口不匹配时无操作。Detail.goBack 是 QML void 入口，仅活动时发起请求，完成依靠生命周期及页面状态观察。
-
-集合型 prepareCloseItem 是受保护虚钩子，仅在许可通过后、关闭提交前调用。Shell 在当前 Detail 关闭时补齐缺失 Home；取消不补建，补建失败保留 Detail。基类在准备后重新校验成员，再按相邻项规则关闭。此业务策略不进入通用算法。
-
-## 5B 关闭守卫与回调式请求规划
-
-本节标题保留旧锚点，当前能力已经实现。完整接口、直接回调、使用约定、异常与 CM 3.2.0 对齐差异见 [关闭守卫](关闭守卫.md)，验收见 [5B 记录](验收/5B验收记录.md)。根窗口请求已由 [Bootstrapper](Bootstrapper.md) 接入守卫；Action 与 View 缓存继续见 [后续事项](计划/后续版本ToDoList.md)。
-
-所有操作及守卫回调由应用保证在主线程执行；同步转换、钩子和通知观察者不得重入修改参与对象或将其销毁。守卫必须回调一次，等待期间不支持重叠请求、修改参与成员或替换策略。没有 Request、取消上下文、去重或代次保护。守卫、策略和生命周期异常直接传播且不回滚；异步调用方在自己的 Qt 边界处理异常。
+历史证据：[Parent 体系验收](验收/Parent体系验收记录.md)、[CM 关闭守卫精简验收](验收/CM关闭守卫精简验收记录.md)。

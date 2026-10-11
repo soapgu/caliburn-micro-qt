@@ -64,7 +64,7 @@ bool ShellViewModel::prepareCloseItem(ViewModelBase *item)
 void ShellViewModel::onActivate()
 {
     auto *availableHome = ensureHome();
-    if (!activeItem()) {
+    if (!activeItem() || !items().contains(activeItem())) {
         activateItem(availableHome);
         if (activeItem() != availableHome)
             throw std::invalid_argument("Shell 无法选择 Home");

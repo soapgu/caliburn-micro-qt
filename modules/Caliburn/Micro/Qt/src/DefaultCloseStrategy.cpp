@@ -7,7 +7,9 @@ namespace {
 struct Evaluation : std::enable_shared_from_this<Evaluation>
 {
     QList<QPointer<ViewModelBase>> items;
-    CloseCallback callback;
+    CloseStrategyCallback callback;
+    QList<QPointer<ViewModelBase>> closable;
+    bool partialClose = false;
     int index = 0;
     bool result = true;
     bool waiting = false;
@@ -20,17 +22,22 @@ struct Evaluation : std::enable_shared_from_this<Evaluation>
         while (!waiting) {
             if (index == items.size()) {
                 auto complete = std::move(callback);
-                complete(result);
+                QList<ViewModelBase *> available;
+                if (partialClose)
+                    for (const auto &item : closable)
+                        if (item) available.append(item.data());
+                complete(result, available);
                 break;
             }
             auto current = items.at(index++);
             if (!current) { result = false; continue; }
             auto *guard = qobject_cast<IGuardClose *>(current.data());
-            if (!guard) continue;
+            if (!guard) { closable.append(current); continue; }
             waiting = true;
             auto self = shared_from_this();
             guard->canClose([self, current](bool allowed) {
                 self->result = self->result && current && allowed;
+                if (current && allowed) self->closable.append(current);
                 self->waiting = false;
                 self->advance();
             });
@@ -42,8 +49,14 @@ struct Evaluation : std::enable_shared_from_this<Evaluation>
 
 void DefaultCloseStrategy::execute(const QList<ViewModelBase *> &items, CloseCallback callback)
 {
+    executeWithResult(items, [callback = std::move(callback)](bool allowed, const auto &) { callback(allowed); });
+}
+
+void DefaultCloseStrategy::executeWithResult(const QList<ViewModelBase *> &items, CloseStrategyCallback callback)
+{
     auto state = std::make_shared<Evaluation>();
     state->callback = std::move(callback);
+    state->partialClose = m_partialClose;
     for (auto *item : items)
         if (item) state->items.append(item);
     state->advance();

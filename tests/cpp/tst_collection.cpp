@@ -42,14 +42,14 @@ private slots:
     {
         Conductor<>::Collection::OneActive c;
         QVERIFY(c.items().isEmpty() && !c.activeItem());
-        QSignalSpy items(&c, &ConductorCollectionOneActiveViewModelBase::itemsChanged);
-        QSignalSpy active(&c, &ConductorCollectionOneActiveViewModelBase::activeItemChanged);
+        QSignalSpy items(&c, &ConductorCollectionOneActiveBase::itemsChanged);
+        QSignalSpy active(&c, &ConductorCollectionOneActiveBase::activeItemChanged);
         std::unique_ptr<PlainVm> empty;
         QVERIFY(!c.addItem(std::move(empty)));
         c.activateItem(std::move(empty));
         c.activateItem(nullptr);
         QCOMPARE(items.count(), 0);
-        QCOMPARE(active.count(), 0);
+        QCOMPARE(active.count(), 2);
         auto owned = std::make_unique<PlainVm>();
         auto *first = owned.get();
         QQmlEngine::setObjectOwnership(first, QQmlEngine::JavaScriptOwnership);
@@ -68,14 +68,14 @@ private slots:
         c.activateItem(std::make_unique<PlainVm>());
         QCOMPARE(c.items().size(), 2);
         QCOMPARE(items.count(), 2);
-        QCOMPARE(active.count(), 2);
+        QCOMPARE(active.count(), 4);
         PlainVm foreign;
         c.activateItem(&foreign);
         c.closeItem(&foreign);
         c.closeItem(nullptr);
         c.activateItem(nullptr);
         QCOMPARE(c.items().size(), 2);
-        QCOMPARE(active.count(), 3);
+        QCOMPARE(active.count(), 5);
         c.closeItem(first);
         QCOMPARE(c.items().size(), 1);
     }
@@ -93,19 +93,19 @@ private slots:
         c.activate();
         QCOMPARE(events, QStringList({"a:initialize", "a:activate"}));
         connect(&c, &Collection::itemsChanged, this, [&] {
-            QVERIFY(c.items().contains(c.activeItem()));
+            QVERIFY(!c.activeItem() || c.items().contains(c.activeItem()));
             events << "items";
         });
         connect(&c, &Collection::activeItemChanged, this, [&] { events << "active"; });
         events.clear();
         c.activateItem(std::make_unique<TrackedScreen>("b", &events));
         auto *second = c.activeItem();
-        QCOMPARE(events, QStringList({"items", "active", "a:deactivate", "b:initialize", "b:activate"}));
+        QCOMPARE(events, QStringList({"a:deactivate", "items", "b:initialize", "b:activate", "active"}));
         QVERIFY(!first->isActive() && second->isActive());
         QCOMPARE(c.items().size(), 2);
         events.clear();
         c.activateItem(first);
-        QCOMPARE(events, QStringList({"active", "b:deactivate", "a:activate"}));
+        QCOMPARE(events, QStringList({"b:deactivate", "a:activate", "active"}));
         events.clear();
         c.activateItem(first);
         QVERIFY(events.isEmpty());
@@ -183,17 +183,18 @@ private slots:
         connect(&c, &Collection::activeItemChanged, this, [&] { events << "active"; });
         events.clear();
         c.closeItem(old);
-        QStringList wanted{"items", "active"};
+        QStringList wanted;
         if (parentActive)
             wanted << QString::number(index) + ":close";
         if (parentActive && expected >= 0)
             wanted << QString::number(expected) + ":initialize" << QString::number(expected) + ":activate";
+        wanted << "active" << "items";
         QCOMPARE(events, wanted);
         QVERIFY(weak);
         c.closeItem(old);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(!weak);
-        QCOMPARE(destroyed, 1);
+        QVERIFY(weak);
+        QCOMPARE(destroyed, 0);
         QCOMPARE(c.activeItem(), expected < 0 ? nullptr : original[expected]);
     }
 
@@ -220,14 +221,16 @@ private slots:
         events.clear();
         c.deactivate(true);
         c.deactivate(true);
-        QVERIFY(c.items().isEmpty() && !c.activeItem());
+        QVERIFY(c.items().isEmpty());
+        QCOMPARE(c.activeItem(), second);
         QCOMPARE(events, QStringList({"b:close"})); // 从未初始化的项仍沿用 Screen 关闭无操作。
-        QCOMPARE(membership.count(), 1);
-        QCOMPARE(selection.count(), 1);
+        QCOMPARE(membership.count(), 2);
+        QCOMPARE(selection.count(), 0);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QCOMPARE(destroyed, 3);
+        QCOMPARE(destroyed, 0);
         c.activate();
-        QVERIFY(!c.activeItem());
+        QCOMPARE(c.activeItem(), second);
+        QVERIFY(second->isActive());
     }
 
     void parentClosesAllInitializedScreensOnce()
@@ -245,10 +248,11 @@ private slots:
         c.deactivate(true);
         c.deactivate(true);
         QCOMPARE(events, QStringList({"a:close", "b:close"}));
-        QCOMPARE(members.count(), 1);
-        QCOMPARE(selected.count(), 1);
+        QCOMPARE(members.count(), 2);
+        QCOMPARE(selected.count(), 0);
         QVERIFY(!a->isActive() && !b->isActive());
-        QVERIFY(c.items().isEmpty() && !c.activeItem());
+        QVERIFY(c.items().isEmpty());
+        QCOMPARE(c.activeItem(), b);
     }
 
     void unexpectedDeletionDoesNotNavigate()

@@ -27,14 +27,16 @@ qt_add_qml_module(CaliburnMicroQt
         include/CaliburnMicroQt/IConductor.h
         include/CaliburnMicroQt/ConductorBase.h
         src/ConductorBase.cpp
+        include/CaliburnMicroQt/ConductorBaseWithActiveItem.h
+        src/ConductorBaseWithActiveItem.cpp
         include/CaliburnMicroQt/ScreenViewModel.h
         src/ScreenViewModel.cpp
-        include/CaliburnMicroQt/ConductorViewModelBase.h
+        include/CaliburnMicroQt/ConductorSingleItem.h
         include/CaliburnMicroQt/Conductor.h
-        src/ConductorViewModelBase.cpp
-        include/CaliburnMicroQt/ConductorCollectionOneActiveViewModelBase.h
+        src/ConductorSingleItem.cpp
+        include/CaliburnMicroQt/ConductorCollectionOneActiveBase.h
         include/CaliburnMicroQt/ConductorCollectionOneActive.h
-        src/ConductorCollectionOneActiveViewModelBase.cpp
+        src/ConductorCollectionOneActiveBase.cpp
         include/CaliburnMicroQt/ViewRegistry.h
         src/ViewRegistry.cpp
         src/ViewHostState.h
