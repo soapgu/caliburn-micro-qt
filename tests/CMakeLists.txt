@@ -1,4 +1,15 @@
 # 纯 C++ 测试不加载 QML；普通目标避免 Qt 的导入扫描额外链接插件及模块库。
+add_executable(CaliburnLoggingProbe support/LoggingProbe.cpp
+    ../examples/minimal/CaliburnExample/services/ExampleLog.cpp)
+target_include_directories(CaliburnLoggingProbe PRIVATE
+    "${PROJECT_SOURCE_DIR}/examples/minimal/CaliburnExample/services")
+target_link_libraries(CaliburnLoggingProbe PRIVATE CaliburnExampleLogging Qt6::Gui Qt6::Qml)
+add_executable(CaliburnLoggingTests cpp/tst_logging.cpp)
+target_link_libraries(CaliburnLoggingTests PRIVATE Qt6::Test)
+add_dependencies(CaliburnLoggingTests CaliburnLoggingProbe)
+add_test(NAME logging COMMAND CaliburnLoggingTests)
+set_tests_properties(logging PROPERTIES TIMEOUT 120)
+
 add_executable(CaliburnLifecycleTests cpp/tst_lifecycle.cpp)
 target_link_libraries(CaliburnLifecycleTests PRIVATE Caliburn::MicroQt Qt6::Test)
 add_test(NAME lifecycle COMMAND CaliburnLifecycleTests)

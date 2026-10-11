@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Release 也保留日志调用位置；只作用于本项目及其子目录。
+add_compile_definitions(QT_MESSAGELOGCONTEXT)
+
 option(CALIBURN_BUILD_EXAMPLE "构建单页面示例" ${PROJECT_IS_TOP_LEVEL})
 option(CALIBURN_BUILD_TESTS "构建框架与示例测试" ${PROJECT_IS_TOP_LEVEL})
 

@@ -12,6 +12,7 @@ qt_add_qml_module(CaliburnExampleModule
             viewmodels/HomeViewModel.h viewmodels/HomeViewModel.cpp
             viewmodels/DetailViewModel.h viewmodels/DetailViewModel.cpp
             services/CounterService.h services/CounterService.cpp
+            services/ExampleLog.h services/ExampleLog.cpp
     QML_FILES qml/views/ShellView.qml qml/views/HomeView.qml qml/views/DetailView.qml
 )
 target_include_directories(CaliburnExampleModule PUBLIC

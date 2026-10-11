@@ -75,9 +75,18 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
             -DCALIBURN_BUILD_EXAMPLE=OFF \
-            -DCALIBURN_BUILD_TESTS=OFF
+            -DCALIBURN_BUILD_TESTS=OFF \
+            -DFETCHCONTENT_FULLY_DISCONNECTED=ON
           cmake --build build/framework-only
           cmake --build build/framework-only --target all_qmllint
+
+      - name: 验证 Release 日志默认级别与调用位置
+        run: |
+          cmake -S . -B build/release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DCALIBURN_BUILD_EXAMPLE=OFF -DCALIBURN_BUILD_TESTS=ON
+          cmake --build build/release --target CaliburnLoggingTests
+          ctest --test-dir build/release -R '^logging$' --output-on-failure
 
       - name: 保存测试报告与配置日志
         if: ${{ !cancelled() }}
@@ -90,5 +99,6 @@ jobs:
             build/debug/Testing/Temporary/LastTest.log
             build/debug/CMakeFiles/CMakeConfigureLog.yaml
             build/framework-only/CMakeFiles/CMakeConfigureLog.yaml
+            build/release/Testing/Temporary/LastTest.log
           retention-days: 7
           if-no-files-found: warn

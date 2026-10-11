@@ -1,5 +1,11 @@
+include("${PROJECT_SOURCE_DIR}/cmake/ExampleDependencies.cmake")
 add_subdirectory(CaliburnExample)
-add_subdirectory("${PROJECT_SOURCE_DIR}/third_party/boost-di" "${CMAKE_CURRENT_BINARY_DIR}/boost-di")
+add_library(CaliburnExampleLogging STATIC
+    app/logging/LoggingRuntime.h
+    app/logging/LoggingRuntime.cpp
+)
+target_include_directories(CaliburnExampleLogging PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/app/logging")
+target_link_libraries(CaliburnExampleLogging PUBLIC Qt6::Core PRIVATE spdlog::spdlog)
 add_library(CaliburnExampleComposition STATIC
     app/ViewModelComposition.h
     app/ViewModelComposition.cpp
@@ -18,6 +24,7 @@ if(CALIBURN_BUILD_EXAMPLE)
     # Qt 导入扫描已加入两个静态 QML 插件，无需重复显式链接。
     target_link_libraries(CaliburnExampleApp PRIVATE
         CaliburnExampleComposition
+        CaliburnExampleLogging
         Qt6::QuickControls2
     )
     set_target_properties(CaliburnExampleApp PROPERTIES

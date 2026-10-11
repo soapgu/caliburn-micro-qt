@@ -117,7 +117,8 @@ caliburn-micro-qt/
 ├── examples/minimal/              # 已实现 Shell 根窗口与 Home 计数页面
 │   ├── app/                      # 示例启动与组合根
 │   └── CaliburnExample/           # 用户代码模块
-├── third_party/boost-di/          # 固定 v1.3.2 单头文件与许可证
+├── cmake/                        # FetchContent 依赖接入
+├── third_party/boost-di/          # 依赖来源说明与许可证
 ├── tests/                         # 已有核心、装配与 QML 集成测试
 ├── CMakeLists.txt                 # 已有模块及构建选项
 └── CMakePresets.json              # 已有可移植 debug 预设
@@ -136,7 +137,7 @@ Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名
 | Qt | 6.8.3，Qt Quick / QML；已验证 macOS arm64，麒麟待验证。 |
 | C++ | C++17，QObject 属性、信号与元对象系统。 |
 | 构建 | CMake 3.21 及以上、Ninja、qt_add_qml_module；框架/示例用户模块为静态库。 |
-| 应用装配 | 已采用 Boost.Ext.DI v1.3.2，固定源码及许可证随仓库提供，配置时校验头文件 SHA-256，构建不下载依赖。 |
+| 应用装配 | Boost.Ext.DI v1.3.2 由 FetchContent 获取，下载官方单头文件并校验 SHA-256；许可证随仓库保留。 |
 | 操作与输入 | QML 显式读取可用状态并直接调用方法；第一批演示无参数，第二批演示 int 参数和原生键盘事件。框架不规定方法名、返回值或自动守卫契约。 |
 | 视图映射 | 应用配置的类型到 View 映射，初始化阶段确定，不硬编码某个示例的页面数量。 |
 
@@ -152,6 +153,7 @@ Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由�
 - [IoC 与应用装配：构造注入、父所有权与根生命周期](docs/IoC与应用装配.md)
 - [IoC 装配验收记录](docs/验收/IoC装配验收记录.md)
 - [Bootstrapper：配置、根窗口启动与退出清理](docs/Bootstrapper.md)
+- [日志接入：Qt 分类、调用位置与 spdlog 输出](docs/日志接入.md)
 - [Conductor：单项与 Collection.OneActive](docs/Conductor.md)
 - [4B 验收记录](docs/验收/4B验收记录.md)
 - [4C 验收记录](docs/验收/4C验收记录.md)
@@ -170,6 +172,10 @@ Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由�
 设计起点来自 [qt-snake-lab](https://github.com/soapgu/qt-snake-lab) 中的 [Qt 实现方案](https://github.com/soapgu/qt-snake-lab/blob/main/docs/贪吃蛇Qt实现方案.md) 与 [源码结构设计](https://github.com/soapgu/qt-snake-lab/blob/main/docs/贪吃蛇Qt源码结构设计.md)。贪吃蛇用于解释页面、子 VM 与动态释放，是框架的使用场景，不是框架的业务边界。
 
 ## 构建、运行与测试
+
+example 与测试通过 CMake FetchContent 自动获取 spdlog v1.17.0 和 Boost.Ext.DI v1.3.2，固定版本并校验 SHA-256，无需系统安装或设置 `spdlog_DIR`。首次配置需访问官方 GitHub 归档及单头文件，源码及构建产物默认保存在构建目录的 `_deps` 中；仅框架构建不获取这两个依赖。离线使用方法见 [日志接入](docs/日志接入.md#依赖下载与离线构建)。
+
+example 使用 `caliburn.example` 分类，Debug 构建默认输出 Debug 及以上，其余构建默认输出 Info 及以上；包含类/函数与文件行号。控制台和轮转文件同步输出，启动时打印文件位置；Qt/QML 诊断也进入同一出口。过滤和格式仍使用 `QT_LOGGING_RULES`、`QT_MESSAGE_PATTERN`，详见 [日志接入](docs/日志接入.md)。
 
 需要 Qt 6.8.3 及以上（框架需要 Core/Qml/Quick/QuickControls2，测试另需 Test）、CMake 3.21 及以上、Ninja 和支持 C++17 的编译器。将 QT_ROOT 设置为本机 Qt kit 的根目录；公共预设不包含个人路径。
 
@@ -245,7 +251,10 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 | 4．页面组合与导航 | 4A 单项核心、4B 共享服务、4C 集合型与 Detail 均已完成。 | 第四批本机验收完成；麒麟待验证 |
 | 5A．重置确认 | IWindowManager / WindowManager 通用模态弹窗、确认 VM/View；当前已迁移为独立模态窗口，Home 重置确认、请求失效及焦点。 | 已实现，macOS arm64 验收通过；麒麟待验证 |
 | 5B．Detail 退出确认与关闭守卫 | Detail 确认、关闭策略、父级当前项/集合成员许可、直接回调及 void 入口。 | 已实现；本机验收通过，麒麟待验证 |
-| 6．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
+| 5C．重构 | 统一窗口管理、tryClose、生命周期分派及 Conductor 结构。 | 已完成，历史验收保留 |
+| 6A．搭建日志体系 | Qt 分类日志、应用层 spdlog 控制台与轮转文件输出；FetchContent 管理示例依赖。 | 已实现，验收状态见 [6A 记录](docs/验收/6A验收记录.md) |
+| 6B．打印框架层日志 | 统一框架诊断并增加关键流程日志。 | 未实施，依赖 6A |
+| 7．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
 
 第四批阶段与历史验收分别记录：
 
