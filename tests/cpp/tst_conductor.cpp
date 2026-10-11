@@ -336,7 +336,7 @@ private slots:
         QCOMPARE(parented->parent(), &parent);
         auto active = std::make_unique<TrackedScreen>();
         active->activate();
-        QTest::ignoreMessage(QtWarningMsg, "Conductor：不能接管已经激活的 Screen");
+        QTest::ignoreMessage(QtWarningMsg, "Conductor：不能接管已经激活的对象");
         conductor.activateItem(std::move(active));
         QVERIFY(active);
         QVERIFY(active->isActive());

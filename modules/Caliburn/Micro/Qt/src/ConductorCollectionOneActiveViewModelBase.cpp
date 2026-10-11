@@ -1,19 +1,7 @@
 #include <CaliburnMicroQt/ConductorCollectionOneActiveViewModelBase.h>
+#include <CaliburnMicroQt/ScreenExtensions.h>
 #include <QQmlEngine>
 #include <utility>
-
-namespace {
-void activateScreen(ViewModelBase *item)
-{
-    if (auto *screen = qobject_cast<ScreenViewModel *>(item))
-        screen->activate();
-}
-void deactivateScreen(ViewModelBase *item, bool close)
-{
-    if (auto *screen = qobject_cast<ScreenViewModel *>(item))
-        screen->deactivate(close);
-}
-}
 
 ConductorCollectionOneActiveViewModelBase::ConductorCollectionOneActiveViewModelBase(QObject *parent)
     : ConductorBase(parent) {}
@@ -44,8 +32,8 @@ bool ConductorCollectionOneActiveViewModelBase::validateItemChange(ViewModelBase
             return false;
         }
     }
-    if (auto *screen = qobject_cast<ScreenViewModel *>(item); screen && screen->isActive()) {
-        qWarning("Collection.OneActive：不能接管已经激活的 Screen");
+    if (auto *activator = qobject_cast<IActivate *>(item); activator && activator->isActive()) {
+        qWarning("Collection.OneActive：不能接管已经激活的对象");
         return false;
     }
     if (hasLogicalParent(item)) {
@@ -78,9 +66,9 @@ void ConductorCollectionOneActiveViewModelBase::adoptItem(std::unique_ptr<ViewMo
     emit itemsChanged();
     if (select) {
         emit activeItemChanged();
-        deactivateScreen(previous, false);
+        ScreenExtensions::tryDeactivate(previous, false);
         if (isActive())
-            activateScreen(next);
+            ScreenExtensions::tryActivate(next);
         onActivationProcessed(next, true);
     }
 }
@@ -94,16 +82,16 @@ void ConductorCollectionOneActiveViewModelBase::activateItem(ViewModelBase *item
     auto *previous = m_activeItem.data();
     if (previous == item) {
         if (isActive()) {
-            activateScreen(item);
+            ScreenExtensions::tryActivate(item);
             onActivationProcessed(item, true);
         }
         return;
     }
     setSelection(item);
     emit activeItemChanged();
-    deactivateScreen(previous, false);
+    ScreenExtensions::tryDeactivate(previous, false);
     if (isActive())
-        activateScreen(item);
+        ScreenExtensions::tryActivate(item);
     onActivationProcessed(item, true);
     return;
 }
@@ -111,7 +99,7 @@ void ConductorCollectionOneActiveViewModelBase::activateItem(ViewModelBase *item
 void ConductorCollectionOneActiveViewModelBase::deactivateItem(ViewModelBase *item, bool close)
 {
     if (!item || !m_items.contains(item)) return;
-    if (!close) { deactivateScreen(item, false); return; }
+    if (!close) { ScreenExtensions::tryDeactivate(item, false); return; }
     QPointer<ViewModelBase> target = item;
     checkClose({item}, [this, target](bool allowed) {
         if (!allowed || !target || !m_items.contains(target.data())) return;
@@ -142,9 +130,9 @@ bool ConductorCollectionOneActiveViewModelBase::closeMember(ViewModelBase *item)
     emit itemsChanged();
     if (selected)
         emit activeItemChanged();
-    deactivateScreen(item, true);
+    ScreenExtensions::tryDeactivate(item, true);
     if (selected && isActive())
-        activateScreen(next);
+        ScreenExtensions::tryActivate(next);
     item->deleteLater();
     if (selected)
         onActivationProcessed(next, true);
@@ -165,13 +153,13 @@ void ConductorCollectionOneActiveViewModelBase::memberDestroyed(ViewModelBase *i
 
 void ConductorCollectionOneActiveViewModelBase::onActivate()
 {
-    activateScreen(m_activeItem.data());
+    ScreenExtensions::tryActivate(m_activeItem.data());
 }
 
 void ConductorCollectionOneActiveViewModelBase::onDeactivate(bool close)
 {
     if (!close) {
-        deactivateScreen(m_activeItem.data(), false);
+        ScreenExtensions::tryDeactivate(m_activeItem.data(), false);
         return;
     }
     const auto previous = m_items;
@@ -188,7 +176,7 @@ void ConductorCollectionOneActiveViewModelBase::onDeactivate(bool close)
     if (hadSelection)
         emit activeItemChanged();
     for (auto *item : previous) {
-        deactivateScreen(item, true);
+        ScreenExtensions::tryDeactivate(item, true);
         item->deleteLater();
     }
 }

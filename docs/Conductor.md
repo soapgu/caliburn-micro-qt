@@ -17,7 +17,7 @@ Screen 的 parentViewModel 为只读逻辑 Parent，使用 QPointer 保存，与
 
 ## 单项类型与使用
 
-Conductor<T> 的 T 必须是非 const/volatile 的 ViewModelBase 派生类，默认 ViewModelBase。只有 Screen 执行生命周期。
+Conductor<T> 的 T 必须是非 const/volatile 的 ViewModelBase 派生类，默认 ViewModelBase。生命周期按 IActivate、IDeactivate 接口分别分派，不要求继承 Screen。
 
 ```cpp
 Conductor<ScreenViewModel> conductor;
@@ -57,19 +57,25 @@ ConductorCollectionOneActive<T> 也可写作 Conductor<T>::Collection::OneActive
 | void deactivateItem(T*, false) | 普通停用目标，保留成员、Parent 和选择，不检查守卫。 |
 | void deactivateItem(T*, true) / closeItem(T*) | 许可通过后移除并关闭；当前项优先选前一项，否则后一项。 |
 
-无效停用目标和已关闭对象无操作；非空激活目标被拒绝时发送 activationProcessed(item, false)。普通 VM 没有 Screen 生命周期动作。
+无效停用目标和已关闭对象无操作；非空激活目标被拒绝时发送 activationProcessed(item, false)。未实现对应生命周期接口的普通 VM 不执行该动作。
 
 ## 接管、通知与回收
 
-新对象须无 QObject 父对象、同线程、不是自身或祖先、Screen 尚未活动，且逻辑 Parent 为空。基础校验失败不移动调用方 unique_ptr；通过后单项以回调捕获的标准 RAII 容器持有候选，拒绝或回调释放时回收，许可通过前不加入成员或建立 Parent。等待期间禁止外部删除候选；不提供候选提前销毁保护或管理者销毁时立即回收的保证。
+新对象须无 QObject 父对象、同线程、不是自身或祖先、实现 IActivate 的对象尚未活动，且逻辑 Parent 为空。基础校验失败不移动调用方 unique_ptr；通过后单项以回调捕获的标准 RAII 容器持有候选，拒绝或回调释放时回收，许可通过前不加入成员或建立 Parent。等待期间禁止外部删除候选；不提供候选提前销毁保护或管理者销毁时立即回收的保证。
 
 提交继续沿用先成员/选择、再生命周期的顺序：单项 A → B 先接管 B、提交记录和选择、清空 A Parent、设置 B Parent，再通知选择、关闭 A、按父活动状态激活 B、安排 A.deleteLater、发布激活结果。集合加入并选择先更新 Parent，再依次通知 itemsChanged、activeItemChanged；关闭当前项先移除及选择相邻项，再通知、执行生命周期及延迟删除。关闭时旧 View 先于 VM 卸载。
 
 当前项意外销毁清空选择；集合成员销毁清理成员记录，不自动导航。QObject 父树兜底回收旧对象和等待删除对象。QPointer 只保护延后回调的借用对象寿命，不实现请求代次或过期协调。
 
+## 生命周期能力分派
+
+单项和集合型 Conductor 统一调用 ScreenExtensions::tryActivate(QObject *) 与 tryDeactivate(QObject *, bool)。它们分别通过 qobject_cast 查询 IActivate 和 IDeactivate，空对象或未实现对应接口时无操作；不检查 isActive、不补初始化、不捕获异常，原样传递 close。具体对象负责生命周期状态与幂等性，Screen 保持既有行为。
+
+IActivate 提供 isActive() const、activate()，IDeactivate 提供 deactivate(bool close)。自定义 VM 可分别或同时实现接口，声明 Q_OBJECT 和对应的 Q_INTERFACES；不必继承 Screen，也不必实现 IChild 或 IGuardClose。接口 IID 分别为 Caliburn.Micro.Qt.IActivate/1.0 与 Caliburn.Micro.Qt.IDeactivate/1.0。Screen 的 Qt 状态通知及停用信号保留在具体类中，接口此次仅对齐 CM 3.2.0 的方法分派语义。
+
 ## 父生命周期
 
-父 activate 只激活当前 Screen；initialize 不初始化子项。父 deactivate(false) 同步停用当前项，保留选择及全部成员，不增加许可检查。已初始化父 deactivate(true) 清空选择和受管记录、清空 Parent、通知并关闭及安排删除；单项仅处理当前项，集合处理全部成员。未初始化父关闭仍无操作。
+父 activate 通过 IActivate 激活当前项；initialize 不初始化子项。父 deactivate(false) 同步停用当前项，保留选择及全部成员，不增加许可检查。已初始化父 deactivate(true) 清空选择和受管记录、清空 Parent、通知并关闭及安排删除；单项仅处理当前项，集合处理全部成员。未初始化父关闭仍无操作。
 
 父级 canClose 检查 getChildren 快照并交付许可：单项只检查当前项，集合检查全部成员，递归支持嵌套 Conductor，不自行关闭成员。任一拒绝时整体拒绝，不移除已同意的成员。直接生命周期用于执行与强制清理，不能代替受管成员请求；Bootstrapper 的退出清理不等待守卫。
 

@@ -1,4 +1,9 @@
 # 纯 C++ 测试不加载 QML；普通目标避免 Qt 的导入扫描额外链接插件及模块库。
+add_executable(CaliburnLifecycleTests cpp/tst_lifecycle.cpp)
+target_link_libraries(CaliburnLifecycleTests PRIVATE Caliburn::MicroQt Qt6::Test)
+add_test(NAME lifecycle COMMAND CaliburnLifecycleTests)
+set_tests_properties(lifecycle PROPERTIES TIMEOUT 30)
+
 add_executable(CaliburnParentProtocolTests cpp/tst_parent_protocol.cpp)
 target_link_libraries(CaliburnParentProtocolTests PRIVATE Caliburn::MicroQt Qt6::Test)
 add_test(NAME parent_protocol COMMAND CaliburnParentProtocolTests)

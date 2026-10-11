@@ -286,7 +286,7 @@ private slots:
         QVERIFY(owned && owned->parent() == &parent);
         auto active = std::make_unique<TrackedScreen>();
         active->activate();
-        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的 Screen");
+        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的对象");
         c.activateItem(std::move(active));
         QVERIFY(active && active->isActive());
         auto self = std::make_unique<ConductorCollectionOneActive<>>();

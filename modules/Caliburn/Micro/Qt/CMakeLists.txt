@@ -16,6 +16,9 @@ qt_add_qml_module(CaliburnMicroQt
         include/CaliburnMicroQt/ViewModelBase.h
         src/ViewModelBase.cpp
         include/CaliburnMicroQt/IChild.h
+        include/CaliburnMicroQt/IActivate.h
+        include/CaliburnMicroQt/IDeactivate.h
+        include/CaliburnMicroQt/ScreenExtensions.h
         include/CaliburnMicroQt/IParent.h
         include/CaliburnMicroQt/IGuardClose.h
         include/CaliburnMicroQt/ICloseStrategy.h

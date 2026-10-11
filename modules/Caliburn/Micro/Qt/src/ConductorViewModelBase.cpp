@@ -1,19 +1,7 @@
 #include <CaliburnMicroQt/ConductorViewModelBase.h>
+#include <CaliburnMicroQt/ScreenExtensions.h>
 #include <QQmlEngine>
 #include <utility>
-
-namespace {
-void activateScreen(ViewModelBase *item)
-{
-    if (auto *screen = qobject_cast<ScreenViewModel *>(item))
-        screen->activate();
-}
-void deactivateScreen(ViewModelBase *item, bool close)
-{
-    if (auto *screen = qobject_cast<ScreenViewModel *>(item))
-        screen->deactivate(close);
-}
-}
 
 ConductorViewModelBase::ConductorViewModelBase(QObject *parent) : ConductorBase(parent) {}
 
@@ -42,8 +30,8 @@ bool ConductorViewModelBase::validateItemChange(ViewModelBase *item) const
             return false;
         }
     }
-    if (auto *screen = qobject_cast<ScreenViewModel *>(item); screen && screen->isActive()) {
-        qWarning("Conductor：不能接管已经激活的 Screen");
+    if (auto *activator = qobject_cast<IActivate *>(item); activator && activator->isActive()) {
+        qWarning("Conductor：不能接管已经激活的对象");
         return false;
     }
     if (hasLogicalParent(item)) {
@@ -92,7 +80,7 @@ void ConductorViewModelBase::selectItem(ViewModelBase *item, bool closePrevious)
     auto *previous = m_activeItem.data();
     if (previous == item) {
         if (isActive()) {
-            activateScreen(item);
+            ScreenExtensions::tryActivate(item);
             onActivationProcessed(item, true);
         }
         return;
@@ -108,8 +96,8 @@ void ConductorViewModelBase::selectItem(ViewModelBase *item, bool closePrevious)
     if (closePrevious) setLogicalParent(previous, nullptr);
     setLogicalParent(item, this);
     emit activeItemChanged();
-    deactivateScreen(previous, closePrevious);
-    if (isActive()) activateScreen(item);
+    ScreenExtensions::tryDeactivate(previous, closePrevious);
+    if (isActive()) ScreenExtensions::tryActivate(item);
     if (previous && closePrevious) previous->deleteLater();
     onActivationProcessed(item, true);
 }
@@ -125,11 +113,11 @@ void ConductorViewModelBase::deactivateItem(ViewModelBase *item, bool close)
 
 void ConductorViewModelBase::onActivate()
 {
-    activateScreen(m_activeItem.data());
+    ScreenExtensions::tryActivate(m_activeItem.data());
 }
 
 void ConductorViewModelBase::onDeactivate(bool close)
 {
     if (close) selectItem(nullptr, true);
-    else deactivateScreen(m_activeItem.data(), false);
+    else ScreenExtensions::tryDeactivate(m_activeItem.data(), false);
 }

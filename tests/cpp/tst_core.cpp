@@ -368,7 +368,7 @@ private slots:
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel{invalid, makeDetailFactory()});
         QVERIFY(!weak);
         QVERIFY(parent.children().isEmpty());
-        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的 Screen");
+        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的对象");
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel([] {
             auto home = std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows());
             home->activate();

@@ -14,6 +14,8 @@ void tryClose(DialogResult dialogResult = std::nullopt);
 void canClose(CloseCallback callback) override;
 ```
 
+ScreenViewModel 同时实现 IActivate、IDeactivate；isActive、activate、deactivate 覆盖对应虚方法。两个 Conductor 通过共享 ScreenExtensions 查询接口，非 Screen 对象也可自行实现生命周期能力。原有调用方式与默认 close=false 保留；新增虚接口改变 C++ 类布局，消费工程须重新编译。状态通知和 attemptingDeactivation/deactivated 信号仍由 Screen 提供，不属于本次纯 C++ 接口契约。
+
 两个 bool 是只读 Q_PROPERTY，分别使用 isInitializedChanged、isActiveChanged 通知，初始 false。派生类通过 protected 虚函数 onInitialize()、onActivate()、onDeactivate(bool close) 扩展，默认空实现。完整声明见 [ScreenViewModel.h](../modules/Caliburn/Micro/Qt/include/CaliburnMicroQt/ScreenViewModel.h)。
 
 | 调用及状态 | 同步行为 |
@@ -62,7 +64,7 @@ Screen 自身关闭不删除的契约不变；集合成员移除、延迟回收�
 
 ## IChild 与只读逻辑 Parent
 
-ScreenViewModel 实现 IChild 并声明 Q_INTERFACES(IChild IGuardClose)。C++ getter 为 `QObject *parentViewModel() const`，QML 同名属性只读，使用 parentViewModelChanged 通知；内部 QPointer 保存弱引用，只有实际改变才通知。受保护接口 setter 授权 ConductorBase 调用，Screen 的具体实现为私有，业务不能公开赋值。
+ScreenViewModel 实现 IChild 并声明 Q_INTERFACES(IChild IGuardClose IActivate IDeactivate)。C++ getter 为 `QObject *parentViewModel() const`，QML 同名属性只读，使用 parentViewModelChanged 通知；内部 QPointer 保存弱引用，只有实际改变才通知。受保护接口 setter 授权 ConductorBase 调用，Screen 的具体实现为私有，业务不能公开赋值。
 
 逻辑 Parent 与 QObject::parent() 分开：构造函数的 QObject 父对象不会自动建立逻辑 Parent。Conductor 接管时建立两者；单项普通停用和集合切换保留 Parent，显式关闭和父关闭清理时先清空 Parent，再执行关闭钩子。直接调用 Screen.deactivate(true) 只执行生命周期，不清理 Conductor 关系、不删除对象；受管项的关闭应通过 Conductor。
 

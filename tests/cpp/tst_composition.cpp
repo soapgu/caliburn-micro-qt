@@ -255,7 +255,7 @@ private slots:
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, shell.showDetail());
         QVERIFY(!invalid && parent.children().isEmpty());
         mode = 3;
-        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的 Screen");
+        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的对象");
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, shell.showDetail());
         QVERIFY(!invalid);
         QCOMPARE(shell.activeItem(), home);
@@ -348,7 +348,7 @@ private slots:
         QSignalSpy active(detail, &ScreenViewModel::isActiveChanged);
         const auto expectRejectionWarning = [&] {
             if (failure == 2)
-                QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的 Screen");
+                QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的对象");
         };
         expectRejectionWarning();
         if (failure <= 2) QVERIFY_THROWS_EXCEPTION(std::invalid_argument, detail->tryClose());

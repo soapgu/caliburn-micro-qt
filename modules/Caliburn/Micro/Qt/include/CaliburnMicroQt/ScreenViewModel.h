@@ -2,16 +2,19 @@
 
 #include <CaliburnMicroQt/ViewModelBase.h>
 #include <CaliburnMicroQt/IChild.h>
+#include <CaliburnMicroQt/IActivate.h>
+#include <CaliburnMicroQt/IDeactivate.h>
 #include <QPointer>
 #include <CaliburnMicroQt/IGuardClose.h>
 #include <optional>
 
 using DialogResult = std::optional<bool>;
 
-class ScreenViewModel : public ViewModelBase, public IChild, public IGuardClose
+class ScreenViewModel : public ViewModelBase, public IChild, public IGuardClose,
+                        public IActivate, public IDeactivate
 {
     Q_OBJECT
-    Q_INTERFACES(IChild IGuardClose)
+    Q_INTERFACES(IChild IGuardClose IActivate IDeactivate)
     QML_ELEMENT
     QML_UNCREATABLE("Screen 由 C++ 应用装配层创建")
     Q_PROPERTY(QObject *parentViewModel READ parentViewModel NOTIFY parentViewModelChanged)
@@ -22,11 +25,11 @@ public:
     explicit ScreenViewModel(QObject *parent = nullptr);
     QObject *parentViewModel() const override { return m_parentViewModel.data(); }
     bool isInitialized() const { return m_initialized; }
-    bool isActive() const { return m_active; }
+    bool isActive() const override { return m_active; }
     // 先提交状态并通知，再执行钩子；异常不回滚，回调不得重入生命周期。
     void initialize();
-    void activate();
-    void deactivate(bool close = false);
+    void activate() override;
+    void deactivate(bool close = false) override;
     // 请求方法返回不代表已经关闭；无逻辑 Parent 时请求关联窗口关闭。
     void tryClose(DialogResult dialogResult = std::nullopt);
     void canClose(CloseCallback callback) override;

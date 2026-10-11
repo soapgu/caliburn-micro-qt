@@ -83,11 +83,11 @@ flowchart LR
 
 ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected 模板辅助 `setAndNotify(field, value, &Owner::notifySignal)`。同值不通知，更新先赋值再同步通知；空信号或对象类型不兼容时诊断并拒绝修改。它没有 displayName、字符串通知入口或生命周期状态；QObject 的继承成员继续可用。完整接口、QML 注册与所有权约定见 [ViewModelBase](docs/ViewModelBase.md)。
 
-已实现的 [Screen](docs/ScreenViewModel.md) 初始化一次、同步执行生命周期，提供只读逻辑 Parent。普通 ViewModelBase 默认不实现 IChild；自行声明该接口的 VM 也能接入。QObject 父树负责所有权，逻辑 Parent 由 Conductor 独立维护。
+已实现的 [Screen](docs/ScreenViewModel.md) 初始化一次、同步执行生命周期，提供只读逻辑 Parent。Screen 实现 IActivate、IDeactivate，两个 Conductor 通过共享 ScreenExtensions 按接口驱动子项生命周期；普通 VM 可独立实现其中一个或两个接口。普通 ViewModelBase 默认不实现 IChild；自行声明该接口的 VM 也能接入。QObject 父树负责所有权，逻辑 Parent 由 Conductor 独立维护。
 
 单项 `deactivateItem(item, false)` 清空选择并普通停用，保留 VM、Parent 和恢复资格；`activateItem(item)` 恢复原对象。切换新项关闭旧当前项，旧对象不登记为留存成员；`closeItem` 只处理当前项。已初始化父关闭只处理当前项，未初始化父关闭无操作；父普通停用仍保留选择。`getChildren()` 在单项只返回当前项，集合型返回全部成员，均为借用快照。详见 [Conductor](docs/Conductor.md) 和 [Parent 体系验收记录](docs/验收/Parent体系验收记录.md)。
 
-新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、Screen 活动状态及逻辑 Parent。基础校验拒绝不移动调用方所有权；通过后单项请求暂存候选，许可拒绝或回调释放时回收，通过时接管并设置父对象；对象使用 CppOwnership。单项裸指针入口可重新选择本 Conductor 接管过的有效旧对象；调用方不得复用已提交关闭对象。集合裸指针入口只操作成员。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 已通过逻辑 Parent 委托 IConductor 关闭。关闭守卫已在 5B 实现；根窗口请求已接入双向桥接，Action 和 View 缓存继续留待后续。
+新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、IActivate 活动状态及逻辑 Parent。基础校验拒绝不移动调用方所有权；通过后单项请求暂存候选，许可拒绝或回调释放时回收，通过时接管并设置父对象；对象使用 CppOwnership。单项裸指针入口可重新选择本 Conductor 接管过的有效旧对象；调用方不得复用已提交关闭对象。集合裸指针入口只操作成员。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 已通过逻辑 Parent 委托 IConductor 关闭。关闭守卫已在 5B 实现；根窗口请求已接入双向桥接，Action 和 View 缓存继续留待后续。
 
 5A 与 5B 均已实现并完成本机验收。5A 的 showDialogAsync 接受自定义 VM，以 QFuture / QPromise 交付一次结果；只允许一个当前弹窗，忙时拒绝新请求，请求者失效后旧结果不能继续执行业务操作。结果为可空 bool，接受 true、明确取消 false、无决定关闭空值，忙和展示失败以异常交付，详见 [WindowManager](docs/WindowManager.md)。这是 Qt 适配差异：CM 3.2 WPF 使用同步 ShowDialog，本项目不为复刻阻塞返回引入嵌套事件循环。
 
