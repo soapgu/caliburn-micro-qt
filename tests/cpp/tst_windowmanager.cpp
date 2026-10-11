@@ -2,6 +2,8 @@
 #include <CaliburnMicroQt/ViewRegistry.h>
 #include <CaliburnMicroQt/Conductor.h>
 #include <HomeViewModel.h>
+#include <DetailViewModel.h>
+#include <CaliburnMicroQt/ConfirmActionViewModel.h>
 #include "../support/TestWindowManager.h"
 #include "../support/DialogWindowSupport.h"
 #include <QQmlEngine>
@@ -26,6 +28,7 @@ public:
     int checks = 0;
     int *checkCounter = nullptr;
     CloseCallback pending;
+    std::function<void()> activationAction;
     std::function<void()> guardAction;
     void canClose(CloseCallback callback) override {
         ++checks;
@@ -39,6 +42,7 @@ public:
 protected:
     void onActivate() override {
         if (events) *events << "activate";
+        if (activationAction) activationAction();
         if (failActivate) throw std::runtime_error("激活失败");
     }
     void onDeactivate(bool close) override {
@@ -91,14 +95,15 @@ private slots:
         QObject requester;
         auto dialog = manager.showDialogAsync(std::make_unique<DialogProbe>(), &requester);
         QVERIFY(manager.busy() && dialogWindow(window));
-        manager.cancelDialogsFor(&requester);
+        manager.currentDialog()->tryClose();
+        QTRY_VERIFY(dialog.isFinished());
         QCOMPARE(dialog.result(), DialogResult{});
-        vm->tryClose();
+        vm->tryClose(true); // 普通窗口忽略结果，仍询问守卫。
         QTRY_COMPARE(vm->checks, 1);
         vm->decide(false);
         QVERIFY(window->isVisible() && vm->isActive());
         QCOMPARE(deactivated.count(), 0);
-        vm->tryClose();
+        vm->tryClose(false);
         QTRY_COMPARE(vm->checks, 2);
         vm->decide(true);
         QTRY_VERIFY(!window->isVisible());
@@ -234,8 +239,9 @@ private slots:
             if (close) QVERIFY(!view); // 关闭钩子前已销毁借用 VM 的 View。
         });
         DialogResult result = decision < 0 ? DialogResult{} : DialogResult(decision == 1);
-        manager.closeDialog(weak, result);
-        manager.closeDialog(weak, !result.value_or(false));
+        if (result) weak->tryClose(result);
+        else weak->tryClose();
+        weak->tryClose(!result.value_or(false));
         QVERIFY(manager.busy() && !future.isFinished());
         QTRY_VERIFY(future.isFinished());
         QCOMPARE(future.result(), result); QVERIFY(!manager.busy());
@@ -244,9 +250,52 @@ private slots:
         QCOMPARE(events, QStringList({"activate", "close"}));
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete); QVERIFY(!weak);
     }
+    void closeDuringActivation_data() { results_data(); }
+    void closeDuringActivation() {
+        QFETCH(int, decision);
+        WindowProbe ownerModel;
+        WindowManager manager;
+        auto *owner = showManagedWindow(manager, &ownerModel); QVERIFY(owner);
+        QObject requester;
+        auto vm = std::make_unique<DialogProbe>();
+        QPointer<DialogProbe> probe = vm.get();
+        int checks = 0;
+        vm->checkCounter = &checks;
+        const DialogResult result = decision < 0 ? DialogResult{} : DialogResult(decision == 1);
+        vm->activationAction = [probe, result] {
+            probe->tryClose(result);
+            probe->tryClose(!result.value_or(false)); // 桥接创建前也保留首次结果。
+        };
+        QSignalSpy closed(probe, &ScreenViewModel::deactivated);
+        auto future = manager.showDialogAsync(std::move(vm), &requester);
+        QVERIFY(manager.busy() && !future.isFinished());
+        QTRY_VERIFY(future.isFinished());
+        QCOMPARE(future.result(), result);
+        QCOMPARE(closed.count(), 1);
+        QCOMPARE(checks, 1);
+        QVERIFY(!manager.busy() && !dialogWindow(owner));
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!probe);
+    }
     void guard_data() {
         QTest::addColumn<bool>("deferred");
         QTest::newRow("立即") << false; QTest::newRow("延后") << true;
+    }
+    void resultDuringNativeCloseIsIgnored() {
+        WindowProbe ownerModel;
+        WindowManager manager;
+        auto *owner = showManagedWindow(manager, &ownerModel); QVERIFY(owner);
+        QObject requester;
+        auto vm = std::make_unique<DialogProbe>();
+        auto *probe = vm.get();
+        probe->deferred = true;
+        auto future = manager.showDialogAsync(std::move(vm), &requester);
+        QVERIFY(!dialogWindow(owner)->close());
+        probe->tryClose(true); // 原生关闭已先发起，不应被后来的结果覆盖。
+        QTRY_COMPARE(probe->checks, 1);
+        probe->decide(true);
+        QTRY_VERIFY(future.isFinished());
+        QCOMPARE(future.result(), DialogResult{});
     }
     void guard() {
         QFETCH(bool, deferred);
@@ -258,9 +307,9 @@ private slots:
         probe->deferred = deferred; probe->allowed = false;
         QSignalSpy closed(probe, &ScreenViewModel::deactivated);
         auto future = manager.showDialogAsync(std::move(vm), &requester);
-        manager.closeDialog(probe, true);
+        probe->tryClose(true);
         QTRY_COMPARE(probe->checks, 1);
-        manager.closeDialog(probe, false); // 等待中不改写结果。
+        probe->tryClose(false); // 等待中不改写结果。
         if (deferred) probe->decide(false);
         QCoreApplication::processEvents();
         QVERIFY(!future.isFinished() && manager.currentDialog() == probe);
@@ -281,7 +330,7 @@ private slots:
         int checks = 0; probe->checkCounter = &checks;
         auto future = manager.showDialogAsync(std::move(vm), &requester);
         QTest::ignoreMessage(QtWarningMsg, "WindowConductor：关闭守卫失败： 守卫失败");
-        manager.closeDialog(probe, true); QTRY_COMPARE(probe->checks, 1);
+        probe->tryClose(true); QTRY_COMPARE(probe->checks, 1);
         QVERIFY(!future.isFinished()); probe->failGuard = false;
         QQmlComponent component(qmlEngine(owner));
         component.setData(R"(
@@ -296,7 +345,7 @@ private slots:
         std::unique_ptr<QObject> handler(component.createWithInitialProperties({
             {"dialog", QVariant::fromValue(dialogWindow(owner))}}));
         QVERIFY2(handler, qPrintable(component.errorString()));
-        manager.closeDialog(probe, true); QTRY_COMPARE(probe->checks, 2);
+        probe->tryClose(true); QTRY_COMPARE(probe->checks, 2);
         QVERIFY(!future.isFinished()); QVERIFY(dialogWindow(owner)->isVisible());
         handler->setProperty("veto", false);
         probe->tryClose();
@@ -332,7 +381,7 @@ private slots:
         auto busy = manager.showDialogAsync(std::move(next), &requester);
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, busy.result()); QVERIFY(!consumed);
         QCOMPARE(manager.currentDialog(), current);
-        manager.cancelDialogsFor(&requester); QCOMPARE(first.result(), DialogResult{});
+        current->tryClose(); QTRY_VERIFY(first.isFinished()); QCOMPARE(first.result(), DialogResult{});
         auto vm = std::make_unique<DialogProbe>(); consumed = vm.get(); vm->setParent(&parent);
         auto parented = manager.showDialogAsync(std::move(vm), &requester);
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, parented.result()); QVERIFY(!consumed);
@@ -349,7 +398,7 @@ private slots:
     }
     void forcedCleanupDuringGuard_data() {
         QTest::addColumn<QString>("target");
-        for (const auto *target : {"requester", "vm", "dialog", "owner", "manager", "release", "prepare", "cancel"})
+        for (const auto *target : {"requester", "vm", "dialog", "owner", "manager", "release", "prepare"})
             QTest::newRow(target) << QString::fromLatin1(target);
     }
     void forcedCleanupDuringGuard() {
@@ -366,7 +415,7 @@ private slots:
         connect(probe, &ScreenViewModel::attemptingDeactivation, this, [view](bool close) {
             if (close) QVERIFY(!view);
         });
-        manager->closeDialog(probe, true); QTRY_COMPARE(probe->checks, 1);
+        probe->tryClose(true); QTRY_COMPARE(probe->checks, 1);
         auto late = std::move(probe->pending);
         if (target == "requester") requester.reset();
         if (target == "vm") delete probe.data();
@@ -375,7 +424,6 @@ private slots:
         if (target == "manager") manager.reset();
         if (target == "release") manager->releaseWindows();
         if (target == "prepare") manager->prepareForShutdown();
-        if (target == "cancel") manager->cancelDialogsFor(requester.get());
         QTRY_VERIFY(future.isFinished()); QCOMPARE(future.result(), DialogResult{});
         QVERIFY(!dialog && !view); if (manager) QVERIFY(!manager->busy());
         late(true); // 已销毁的桥接不会被迟到许可访问。
@@ -396,7 +444,7 @@ private slots:
         vm->events = &events; vm->failActivate = activation; vm->failClose = !activation;
         QSignalSpy attempted(probe, &ScreenViewModel::attemptingDeactivation);
         auto future = manager.showDialogAsync(std::move(vm), &requester);
-        if (!activation) manager.closeDialog(probe, true);
+        if (!activation) probe->tryClose(true);
         QTRY_VERIFY(future.isFinished());
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, future.result());
         QCOMPARE(events, QStringList({"activate", "close"})); QCOMPARE(attempted.count(), 1);
@@ -413,7 +461,7 @@ private slots:
             nested = manager.showDialogAsync(std::make_unique<DialogProbe>(), &requester);
         };
         auto future = manager.showDialogAsync(std::move(vm), &requester);
-        manager.closeDialog(probe, true);
+        probe->tryClose(true);
         QTRY_VERIFY(future.isFinished()); QCOMPARE(future.result(), DialogResult(true));
         QVERIFY(nested.isFinished());
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, nested.result());
@@ -422,28 +470,110 @@ private slots:
         WindowProbe ownerModel;
         WindowManager manager;
         auto *owner = showManagedWindow(manager, &ownerModel); QVERIFY(owner);
-        QObject requester;
-        auto first = manager.showDialogAsync(std::make_unique<DialogProbe>(), &requester);
+        auto requester = std::make_unique<QObject>();
+        auto first = manager.showDialogAsync(std::make_unique<DialogProbe>(), requester.get());
         delete manager.currentDialog(); // 清理在旧窗口上下文中排队。
-        manager.cancelDialogsFor(&requester); // 提前完成并销毁旧窗口。
+        requester.reset(); // 请求者销毁提前完成并销毁旧窗口。
         QCOMPARE(first.result(), DialogResult{});
-        auto second = manager.showDialogAsync(std::make_unique<DialogProbe>(), &requester);
+        QObject nextRequester;
+        auto second = manager.showDialogAsync(std::make_unique<DialogProbe>(), &nextRequester);
         QCoreApplication::processEvents();
         QVERIFY(manager.busy() && !second.isFinished());
-        manager.cancelDialogsFor(&requester); QCOMPARE(second.result(), DialogResult{});
+        manager.currentDialog()->tryClose();
+        QTRY_VERIFY(second.isFinished()); QCOMPARE(second.result(), DialogResult{});
     }
     void failedExternalCloseIsNotRetried() {
         WindowProbe ownerModel;
         WindowManager manager;
         auto *owner = showManagedWindow(manager, &ownerModel); QVERIFY(owner);
-        QObject requester;
+        auto requester = std::make_unique<QObject>();
         auto vm = std::make_unique<DialogProbe>(); auto *probe = vm.get(); vm->failClose = true;
         QSignalSpy attempted(probe, &ScreenViewModel::attemptingDeactivation);
-        auto future = manager.showDialogAsync(std::move(vm), &requester);
+        auto future = manager.showDialogAsync(std::move(vm), requester.get());
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, probe->deactivate(true));
         QVERIFY(!future.isFinished() && dialogWindow(owner)->isVisible());
-        manager.cancelDialogsFor(&requester);
+        requester.reset();
         QCOMPARE(attempted.count(), 1); QCOMPARE(future.result(), DialogResult{});
+    }
+    void pageDeactivationRequestsConfirmationClose_data() {
+        QTest::addColumn<bool>("detailPage");
+        QTest::addColumn<bool>("veto");
+        QTest::newRow("首页正常关闭") << false << false;
+        QTest::newRow("首页拒绝后重试") << false << true;
+        QTest::newRow("详情正常关闭") << true << false;
+        QTest::newRow("详情拒绝后重试") << true << true;
+    }
+    void pageDeactivationRequestsConfirmationClose() {
+        QFETCH(bool, detailPage);
+        QFETCH(bool, veto);
+        WindowProbe ownerModel;
+        auto manager = std::make_shared<WindowManager>();
+        auto *owner = showManagedWindow(*manager, &ownerModel); QVERIFY(owner);
+        auto service = std::make_shared<CounterService>();
+        QStringList events;
+        int decisions = 0;
+        HomeViewModel home(service, manager);
+        DetailViewModel detail(service, manager);
+        ScreenViewModel *page = detailPage ? static_cast<ScreenViewModel *>(&detail) : &home;
+        page->activate();
+        home.add(2);
+        auto openConfirmation = [&] {
+            if (detailPage) detail.canClose([&](bool allowed) { QVERIFY(!allowed); ++decisions; });
+            else home.reset();
+        };
+        openConfirmation();
+        QPointer<ScreenViewModel> confirmation = manager->currentDialog(); QVERIFY(confirmation);
+        auto *window = dialogWindow(owner); QVERIFY(window);
+        QSignalSpy requests(confirmation, &ScreenViewModel::closeRequested);
+        QSignalSpy completed(confirmation, &ScreenViewModel::deactivated);
+        connect(page, &ScreenViewModel::deactivated, this, [&](bool) { events << "页面停用"; });
+        connect(confirmation, &ScreenViewModel::deactivated, this, [&](bool close) {
+            QVERIFY(close); events << "弹窗关闭";
+        });
+        QQmlComponent component(qmlEngine(owner));
+        component.setData(R"(
+            import QtQuick
+            Connections {
+                required property Window dialog
+                property bool veto: false
+                property int attempts: 0
+                target: dialog
+                function onClosing(event) { ++attempts; if (veto) event.accepted = false }
+            }
+        )", QUrl());
+        std::unique_ptr<QObject> handler(component.createWithInitialProperties({
+            {"dialog", QVariant::fromValue(window)}, {"veto", veto}}));
+        QVERIFY2(handler, qPrintable(component.errorString()));
+        page->deactivate(false);
+        QCOMPARE(events, QStringList{"页面停用"});
+        QCOMPARE(requests.count(), 1);
+        QCOMPARE(qvariant_cast<DialogResult>(requests.at(0).at(0)), DialogResult{});
+        QVERIFY(manager->busy() && confirmation->isActive());
+        if (veto) {
+            QTRY_COMPARE(handler->property("attempts").toInt(), 1);
+            QVERIFY(manager->busy() && window->isVisible());
+            QCOMPARE(completed.count(), 0);
+            page->activate();
+            QTest::ignoreMessage(QtWarningMsg, detailPage ? "Detail：退出确认失败" : "Home：重置确认失败");
+            openConfirmation(); // 新候选被忙状态拒绝，不能覆盖原弹窗引用。
+            if (detailPage) QTRY_COMPARE(decisions, 1);
+            else QTRY_VERIFY(!home.resetPending());
+            QCOMPARE(manager->currentDialog(), confirmation.data());
+            handler->setProperty("veto", false);
+            page->deactivate(false);
+            QCOMPARE(requests.count(), 2);
+        }
+        QTRY_VERIFY(!manager->busy());
+        QCOMPARE(completed.count(), 1);
+        QCOMPARE(events.last(), QString("弹窗关闭"));
+        if (detailPage) QTRY_COMPARE(decisions, veto ? 2 : 1);
+        QCOMPARE(home.count(), 2);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!confirmation);
+        page->activate();
+        page->deactivate(false); // 原弱引用已失效，不再请求已销毁的确认框。
+        QVERIFY(!manager->busy());
+        QCOMPARE(completed.count(), 1);
     }
     void homeIgnoresOldResultAndDestroyedRequester() {
         auto windows = std::make_shared<TestWindowManager>();

@@ -42,21 +42,23 @@ void HomeViewModel::reset()
     setResetPending(true);
     try {
         auto dialog = std::make_unique<ConfirmActionViewModel>(
-            ConfirmationRequest{QStringLiteral("重置计数"), QStringLiteral("确定将计数重置为 0 吗？")},
-            *m_windowManager);
-        m_windowManager->showDialogAsync(std::move(dialog), this)
-            .then(this, [this, generation](DialogResult result) {
-                if (generation != m_resetGeneration)
-                    return;
-                if (result.value_or(false) && isActive())
-                    m_counterService->reset();
-                setResetPending(false);
-            }).onFailed(this, [this, generation] {
-                if (generation != m_resetGeneration)
-                    return;
-                setResetPending(false);
-                qWarning("Home：重置确认失败");
-            });
+            ConfirmationRequest{QStringLiteral("重置计数"), QStringLiteral("确定将计数重置为 0 吗？")});
+        QPointer<ConfirmActionViewModel> candidate = dialog.get();
+        auto future = m_windowManager->showDialogAsync(std::move(dialog), this);
+        if (candidate && m_windowManager->currentDialog() == candidate.data())
+            m_confirmation = candidate;
+        future.then(this, [this, generation](DialogResult result) {
+            if (generation != m_resetGeneration)
+                return;
+            if (result.value_or(false) && isActive())
+                m_counterService->reset();
+            setResetPending(false);
+        }).onFailed(this, [this, generation] {
+            if (generation != m_resetGeneration)
+                return;
+            setResetPending(false);
+            qWarning("Home：重置确认失败");
+        });
     } catch (...) {
         setResetPending(false);
         qWarning("Home：重置确认失败");
@@ -95,6 +97,6 @@ void HomeViewModel::onDeactivate(bool close)
 {
     Q_UNUSED(close);
     ++m_resetGeneration;
-    m_windowManager->cancelDialogsFor(this);
+    if (m_confirmation) m_confirmation->tryClose(std::nullopt);
     setResetPending(false);
 }

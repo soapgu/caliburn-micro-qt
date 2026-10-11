@@ -1,17 +1,15 @@
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
 #include <utility>
 
-ConfirmActionViewModel::ConfirmActionViewModel(ConfirmationRequest request, IWindowManager &manager)
-    : m_request(std::move(request)), m_manager(&manager) {}
+ConfirmActionViewModel::ConfirmActionViewModel(ConfirmationRequest request)
+    : m_request(std::move(request)) {}
 
 void ConfirmActionViewModel::accept()
 {
-    if (m_manager)
-        m_manager->closeDialog(this, true);
+    tryClose(true);
 }
 
 void ConfirmActionViewModel::cancel()
 {
-    if (m_manager)
-        m_manager->closeDialog(this, false);
+    tryClose(false);
 }

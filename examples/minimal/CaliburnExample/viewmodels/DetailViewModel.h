@@ -5,6 +5,9 @@
 #include <QString>
 #include <memory>
 #include <CaliburnMicroQt/IWindowManager.h>
+#include <QPointer>
+
+class ConfirmActionViewModel;
 
 class DetailViewModel : public ScreenViewModel
 {
@@ -16,7 +19,6 @@ class DetailViewModel : public ScreenViewModel
 public:
     explicit DetailViewModel(std::shared_ptr<CounterService> counterService,
                              std::shared_ptr<IWindowManager> windowManager);
-    ~DetailViewModel() override;
     Q_INVOKABLE void goBack();
     void canClose(CloseCallback callback) override;
     int count() const { return m_counterService->count(); }
@@ -28,4 +30,5 @@ protected:
 private:
     std::shared_ptr<IWindowManager> m_windowManager;
     std::shared_ptr<CounterService> m_counterService;
+    QPointer<ConfirmActionViewModel> m_confirmation;
 };

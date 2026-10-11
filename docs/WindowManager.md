@@ -9,8 +9,6 @@ using DialogResult = std::optional<bool>;
 bool showWindow(const QVariant &viewModel);
 QFuture<DialogResult> showDialogAsync(std::unique_ptr<ScreenViewModel> viewModel,
                                     QObject *requester);
-void closeDialog(ScreenViewModel *viewModel, DialogResult result = std::nullopt);
-void cancelDialogsFor(QObject *requester);
 ```
 
 IWindowManager 是抽象 QObject 服务，WindowManager 提供具体实现，均不可由 QML 创建。普通 ScreenViewModel 即可作为弹窗；不要求继承确认 VM。busy 表示服务持有弹窗或正在清理，currentDialog 返回尚未进入最终清理的 VM，守卫等待和拒绝期间保持不变。
@@ -52,7 +50,7 @@ void releaseWindows();     // 释放自建窗口与引擎，兜底关闭仍未�
 
 每次请求创建内部 DialogWindow 与新的业务 View，沿用所属窗口的 QML 引擎、ViewRegistry 和 ViewHost，业务 View 仍须以 Item 为根并声明匹配的 typed viewModel。缺失资源、非 Item、语法错误或注入不匹配均结束请求并交付异常。初始窗口尺寸取业务 View 隐式尺寸加 20 像素内容边距，并限制在所属屏幕可用区域内。
 
-closeDialog(vm, result)、Escape、标题栏关闭和无逻辑 Parent 的弹窗 tryClose 都经私有 WindowConductor 调用 canClose。原关闭事件立即拒绝，排队检查许可；许可通过后恢复关闭，跳过本桥接的重复询问，原有 QML onClosing 仍可拒绝。
+弹窗 VM 的 tryClose(result)、Escape 和标题栏关闭都经私有 WindowConductor 调用 canClose。原关闭事件立即拒绝，排队检查许可；许可通过后恢复关闭，跳过本桥接的重复询问，原有 QML onClosing 仍可拒绝。
 
 等待及提交期间重复关闭不重新检查、不覆盖首次结果。守卫拒绝、抛异常或 QML 拒绝时保留窗口和 VM、丢弃本次结果，Future 保持未完成；以后可重新请求关闭。守卫异常在 Qt 边界记录。守卫按主线程回调一次的现有契约执行，不增加通用请求队列或代次协调。
 
@@ -64,7 +62,7 @@ showDialogAsync 按值消费 unique_ptr，拒绝时同样回收候选。只接�
 
 接纳后由 WindowManager 的 QObject 父树持有 VM，设置 CppOwnership，逻辑 Parent 保持为空，同步初始化和激活，再装配窗口。窗口同样由服务持有，transientParent 仅表达所属关系。确认 VM 通过 QPointer 借用服务，避免 shared_ptr 环。
 
-实际关闭成功后先断开桥接并释放窗口父树，同步卸载、销毁 View/Loader；再执行一次 VM 关闭生命周期、安排 VM deleteLater，最后完成 Future。整个清理过程保持 busy。请求者销毁、cancelDialogsFor、解除关联、窗口/引擎失效及服务析构直接清理，不等待许可。VM 意外销毁时先完成其销毁通知，再结束窗口与 Future，不调用失效对象生命周期。外部直接销毁窗口时，等待窗口及子 View 析构完成后再执行 VM 生命周期。迟到许可通过桥接 QPointer 检查，不访问已销毁对象。
+实际关闭成功后先断开桥接并释放窗口父树，同步卸载、销毁 View/Loader；再执行一次 VM 关闭生命周期、安排 VM deleteLater，最后完成 Future。整个清理过程保持 busy。请求者销毁、解除关联、窗口/引擎失效及服务析构直接清理，不等待许可。VM 意外销毁时先完成其销毁通知，再结束窗口与 Future，不调用失效对象生命周期。外部直接销毁窗口时，等待窗口及子 View 析构完成后再执行 VM 生命周期。迟到许可通过桥接 QPointer 检查，不访问已销毁对象。
 
 ## 输入、焦点与业务接入
 
@@ -72,11 +70,11 @@ showDialogAsync 按值消费 unique_ptr，拒绝时同样回收候选。只接�
 
 打开前保存所属窗口焦点，显示后激活弹窗并聚焦业务 View。正常关闭后排队激活所属窗口、恢复有效且可见启用的原焦点，否则使用后备焦点。已有新弹窗、强制清理、所属窗口不可见或销毁时跳过恢复。
 
-ConfirmationRequest 保存文案，ConfirmActionViewModel 通过 closeDialog 提交接受或取消。确认视图默认映射由 ViewRegistry 提供，可在冻结前显式覆盖；覆盖加载失败不回退。Home 重置和 Detail 离开确认保留 Future 业务续接，只有 true 授权业务操作。
+ConfirmationRequest 保存文案，ConfirmActionViewModel 仅接收 ConfirmationRequest，通过 tryClose(true/false) 提交接受或取消，不依赖窗口服务。确认视图默认映射由 ViewRegistry 提供，可在冻结前显式覆盖；覆盖加载失败不回退。Home 重置和 Detail 离开确认保留 Future 业务续接，只有 true 授权业务操作。页面以 QPointer 借用自己的确认框，停用时调用 tryClose(std::nullopt) 请求关闭；关闭检查排队执行，守卫或 QML 可拒绝。请求者销毁时由窗口服务自动强制清理，不提供公开的按请求者取消接口。
 
 ## 迁移与 CM 对齐边界
 
-自定义实现 IWindowManager 的类须补充 showWindow；继承 WindowManager 的弹窗测试替身可沿用默认实现。普通窗口传入 typed QVariant 并借用 VM，不能复用 showDialogAsync 的 unique_ptr 接管约定。
+公开 closeDialog 已移除，调用方改用 vm->tryClose(result)；ConfirmActionViewModel 构造时不再传入窗口服务。相关消费工程需同步修改并重新编译。自定义实现 IWindowManager 的类须补充 showWindow；继承 WindowManager 的弹窗测试替身可沿用默认实现。普通窗口传入 typed QVariant 并借用 VM，不能复用 showDialogAsync 的 unique_ptr 接管约定。
 
 旧 DialogHost、DialogHostState 及其 manager/available/requestId/failed/dismiss/released 手动宿主协议已移除。应用应删除旧 QML 宿主声明，由 Bootstrapper 委托 showWindow 创建窗口，或在独立用法中直接调用 showWindow。原公开 attachToWindow / detachFromWindow 已收为 private，外部窗口手动接入不再支持。内部 DialogWindow 不作为公开可创建的 QML 类型，测试和业务不得依赖其内部属性作为 SDK。
 

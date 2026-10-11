@@ -145,7 +145,7 @@ protected:
                     m_observation.home->reset();
                     m_observation.dialogOpened = m_windows->currentDialog()
                         && dialogControl(root, QStringLiteral("dialogAccept"));
-                    m_windows->cancelDialogsFor(m_observation.home);
+                    if (auto *dialog = m_windows->currentDialog()) dialog->tryClose();
                 }
                 m_observation.typedInjection = root->property("viewModel").metaType()
                     == QMetaType::fromType<ShellViewModel *>();
@@ -451,7 +451,7 @@ private slots:
             if (scenario == "forcedExit") { exercised = true; QCoreApplication::exit(0); return; }
             if (scenario == "forcedExitDialog") {
                 auto future = windows->showDialogAsync(std::make_unique<ConfirmActionViewModel>(
-                    ConfirmationRequest{"退出时仍在展示", "测试强制清理"}, *windows), shell);
+                    ConfirmationRequest{"退出时仍在展示", "测试强制清理"}), shell);
                 QPointer<QQuickWindow> dialog = dialogWindow(window);
                 QVERIFY(dialog && windows->busy());
                 connect(windows, &IWindowManager::busyChanged, &bootstrapper, [&, future, dialog, windows] {
@@ -489,14 +489,14 @@ private slots:
             }
             if (scenario == "busy") {
                 auto future = windows->showDialogAsync(std::make_unique<ConfirmActionViewModel>(
-                    ConfirmationRequest{"已有弹窗", "测试"}, *windows), shell);
+                    ConfirmationRequest{"已有弹窗", "测试"}), shell);
                 QVERIFY(windows->busy());
                 window->close();
                 QCoreApplication::processEvents();
                 QVERIFY(window->isVisible() && shell->isActive());
                 QCOMPARE(bootstrapper.closes, 0);
-                windows->cancelDialogsFor(shell);
-                QVERIFY(future.isFinished());
+                windows->currentDialog()->tryClose();
+                QTRY_VERIFY(future.isFinished());
             }
             if (scenario == "rootTryClose") shell->tryClose();
             else if (scenario == "quit") QCoreApplication::quit();

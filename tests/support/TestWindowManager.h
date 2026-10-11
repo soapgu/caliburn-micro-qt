@@ -28,54 +28,49 @@ public:
             return result;
         }
         m_vm = std::move(vm);
-        m_requester = requester;
         m_promise = std::make_unique<QPromise<DialogResult>>();
         m_promise->start();
         auto future = m_promise->future();
+        connect(m_vm.get(), &ScreenViewModel::closeRequested, this, [this](DialogResult result) {
+            if (!result) ++cancellations;
+            if (!result && deferCancellation) {
+                disconnect(m_requesterDestroyed);
+                deferred = std::move(m_promise);
+                m_vm.reset();
+            } else {
+                complete(result);
+            }
+        });
+        m_requesterDestroyed = connect(requester, &QObject::destroyed, this, [this] {
+            ++cancellations;
+            complete(std::nullopt);
+        });
         if (autoComplete)
             complete(nextResult);
         return future;
-    }
-    void closeDialog(ScreenViewModel *vm, DialogResult result = std::nullopt) override
-    {
-        if (vm == m_vm.get())
-            complete(result);
-    }
-    void cancelDialogsFor(QObject *requester) override
-    {
-        if (requester == m_requester && m_promise) {
-            ++cancellations;
-            if (deferCancellation) {
-                deferred = std::move(m_promise);
-                m_vm.reset();
-                m_requester = nullptr;
-            } else {
-                complete(std::nullopt);
-            }
-        }
     }
     void complete(DialogResult result)
     {
         if (!m_promise)
             return;
+        disconnect(m_requesterDestroyed);
         auto promise = std::move(m_promise);
         m_vm.reset();
-        m_requester = nullptr;
         promise->addResult(result);
         promise->finish();
     }
     void fail()
     {
+        disconnect(m_requesterDestroyed);
         auto promise = std::move(m_promise);
         m_vm.reset();
-        m_requester = nullptr;
         promise->setException(std::make_exception_ptr(std::runtime_error("测试展示失败")));
         promise->finish();
     }
 private:
     std::unique_ptr<QPromise<DialogResult>> m_promise;
     std::unique_ptr<ScreenViewModel> m_vm;
-    QObject *m_requester = nullptr;
+    QMetaObject::Connection m_requesterDestroyed;
 };
 
 inline std::shared_ptr<IWindowManager> testWindows()

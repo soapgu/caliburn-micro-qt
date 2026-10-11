@@ -21,10 +21,7 @@ class CustomDialogVm : public ScreenViewModel
 {
     Q_OBJECT
 public:
-    explicit CustomDialogVm(IWindowManager &manager) : m_manager(manager) {}
-    Q_INVOKABLE void finish() { m_manager.closeDialog(this, true); }
-private:
-    IWindowManager &m_manager;
+    Q_INVOKABLE void finish() { tryClose(true); }
 };
 class MissingDialog : public ScreenViewModel { Q_OBJECT };
 class NonVisualDialog : public ScreenViewModel { Q_OBJECT };
@@ -156,7 +153,7 @@ private slots:
         auto *window = showManagedWindow(*windows, shell.get()); QVERIFY(window);
         QVERIFY(QTest::qWaitForWindowExposed(window));
         auto *manager = windows.get();
-        auto vm = std::make_unique<CustomDialogVm>(*manager);
+        auto vm = std::make_unique<CustomDialogVm>();
         QPointer<CustomDialogVm> weak = vm.get();
         auto future = manager->showDialogAsync(std::move(vm), shell.get());
         auto *button = dialogControl(window, "customDialogAccept"); QVERIFY(button);
@@ -202,7 +199,7 @@ private slots:
         WindowCleanup cleanup{*windows};
         QVERIFY(showManagedWindow(*windows, shell.get()));
         auto *manager = windows.get();
-        auto future = manager->showDialogAsync(std::make_unique<CustomDialogVm>(*manager), shell.get());
+        auto future = manager->showDialogAsync(std::make_unique<CustomDialogVm>(), shell.get());
         windows->releaseWindows();
         QTRY_VERIFY(future.isFinished());
         QCOMPARE(future.result(), DialogResult{});

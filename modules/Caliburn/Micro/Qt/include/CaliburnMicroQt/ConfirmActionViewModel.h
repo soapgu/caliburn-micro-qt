@@ -1,8 +1,7 @@
 #pragma once
 
 #include <CaliburnMicroQt/ConfirmationRequest.h>
-#include <CaliburnMicroQt/IWindowManager.h>
-#include <QPointer>
+#include <CaliburnMicroQt/ScreenViewModel.h>
 
 class ConfirmActionViewModel : public ScreenViewModel
 {
@@ -14,7 +13,7 @@ class ConfirmActionViewModel : public ScreenViewModel
     Q_PROPERTY(QString confirmText READ confirmText CONSTANT)
     Q_PROPERTY(QString cancelText READ cancelText CONSTANT)
 public:
-    ConfirmActionViewModel(ConfirmationRequest request, IWindowManager &manager);
+    explicit ConfirmActionViewModel(ConfirmationRequest request);
     QString title() const { return m_request.title; }
     QString message() const { return m_request.message; }
     QString confirmText() const { return m_request.confirmText; }
@@ -23,5 +22,4 @@ public:
     Q_INVOKABLE void cancel();
 private:
     ConfirmationRequest m_request;
-    QPointer<IWindowManager> m_manager;
 };

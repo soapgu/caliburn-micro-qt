@@ -10,7 +10,7 @@ bool isActive() const;
 void initialize();
 void activate();
 void deactivate(bool close = false);
-void tryClose();
+void tryClose(DialogResult dialogResult = std::nullopt);
 void canClose(CloseCallback callback) override;
 ```
 
@@ -72,7 +72,7 @@ ScreenViewModel 实现 IChild 并声明 Q_INTERFACES(IChild IGuardClose)。C++ g
 
 ## tryClose：受管页面请求关闭自己
 
-void tryClose() 是普通 C++ 方法，不声明 Q_INVOKABLE。每次读取逻辑 Parent，转换为 IConductor 并请求 deactivateItem(this, true)；无逻辑 Parent 时发送 closeRequested()，由关联的窗口桥接处理（根窗口或独立弹窗）。存在非 Conductor 的逻辑 Parent 时无操作，不使用 QObject 父对象兜底，不直接删除自身。单项只处理当前项的请求，普通停用后的非当前旧对象请求无操作。
+void tryClose(DialogResult dialogResult = std::nullopt) 是普通 C++ 方法，不声明 Q_INVOKABLE。DialogResult 为 std::optional<bool>，在 ScreenViewModel.h 定义。每次读取逻辑 Parent，转换为 IConductor 并请求 deactivateItem(this, true)，此分支忽略结果参数；无逻辑 Parent 时发送 closeRequested(dialogResult)，由关联的窗口桥接处理（根窗口或独立弹窗）。存在非 Conductor 的逻辑 Parent 时无操作，不使用 QObject 父对象兜底，不直接删除自身。单项只处理当前项的请求，普通停用后的非当前旧对象请求无操作。
 
 5B 已将请求入口迁移为 void，不带完成回调。Detail 的 Q_INVOKABLE void goBack() 仅活动时发起 tryClose；守卫拒绝时保留页面，接受后关闭返回 Home。方法返回不能表示关闭完成。
 
@@ -80,6 +80,6 @@ Screen 新增 attemptingDeactivation(bool close) 与 deactivated(bool close)，�
 
 Screen 默认 canClose(callback) 立即同意；Conductor 聚合当前子项快照，单项仅当前项、集合为全部成员，Detail 使用窗口 Future 转接许可。同步生命周期异常原样传播且不回滚，延后请求执行异常在 Qt 边界记录。完整规则见 [关闭守卫](关闭守卫.md) 和 [Conductor](Conductor.md)，本机证据见 [5B 验收](5B验收记录.md)。
 
-closeRequested() 仅表达关闭请求，不是许可或完成通知；没有窗口桥接时不执行关闭。根 Shell.tryClose 经窗口关闭入口询问根 canClose，根直接完成 deactivate(true) 后则反向关闭窗口。窗口成功关闭后的根生命周期由 WindowManager 单次执行，Bootstrapper 兜底未完成的根退出；普通停用不关闭窗口。见 [Bootstrapper](Bootstrapper.md) 与 [根窗口验收](根窗口关闭守卫与生命周期验收记录.md)。
+closeRequested(dialogResult) 仅表达关闭请求，不是许可或完成通知；没有窗口桥接时不执行关闭。根 Shell.tryClose 经窗口关闭入口询问根 canClose，根直接完成 deactivate(true) 后则反向关闭窗口。窗口成功关闭后的根生命周期由 WindowManager 单次执行，Bootstrapper 兜底未完成的根退出；普通停用不关闭窗口。见 [Bootstrapper](Bootstrapper.md) 与 [根窗口验收](根窗口关闭守卫与生命周期验收记录.md)。
 
-独立弹窗也关联 WindowConductor，tryClose 会检查弹窗 VM 的 canClose。弹窗关闭后的 View 卸载、一次性生命周期及结果交付由 WindowManager 完成；cancelDialogsFor 等强制清理不询问守卫。见 [窗口服务](WindowManager.md)。
+独立弹窗也关联 WindowConductor，tryClose(true/false) 提交接受或取消，无参关闭提交空结果；根窗口忽略结果参数。tryClose 会检查窗口 VM 的 canClose。弹窗关闭后的 View 卸载、一次性生命周期及结果交付由 WindowManager 完成；请求者销毁及资源释放等强制清理不询问守卫。见 [窗口服务](WindowManager.md)。

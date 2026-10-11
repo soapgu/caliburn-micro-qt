@@ -39,11 +39,11 @@ void ScreenViewModel::deactivate(bool close)
     emit deactivated(close);
 }
 
-void ScreenViewModel::tryClose()
+void ScreenViewModel::tryClose(DialogResult dialogResult)
 {
     auto *conductor = qobject_cast<IConductor *>(parentViewModel());
     if (conductor) conductor->deactivateItem(this, true);
-    else if (!parentViewModel()) emit closeRequested();
+    else if (!parentViewModel()) emit closeRequested(dialogResult);
 }
 
 void ScreenViewModel::canClose(CloseCallback callback)

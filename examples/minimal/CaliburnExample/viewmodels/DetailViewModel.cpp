@@ -15,11 +15,6 @@ DetailViewModel::DetailViewModel(std::shared_ptr<CounterService> counterService,
     connect(m_counterService.get(), &CounterService::countChanged, this, &DetailViewModel::countChanged);
 }
 
-DetailViewModel::~DetailViewModel()
-{
-    m_windowManager->cancelDialogsFor(this);
-}
-
 void DetailViewModel::goBack()
 {
     if (!isActive()) return;
@@ -33,9 +28,11 @@ void DetailViewModel::canClose(CloseCallback callback)
     QFuture<DialogResult> result;
     try {
         auto dialog = std::make_unique<ConfirmActionViewModel>(
-            ConfirmationRequest{QStringLiteral("离开详情"), QStringLiteral("确定离开当前详情吗？")},
-            *m_windowManager);
+            ConfirmationRequest{QStringLiteral("离开详情"), QStringLiteral("确定离开当前详情吗？")});
+        QPointer<ConfirmActionViewModel> candidate = dialog.get();
         result = m_windowManager->showDialogAsync(std::move(dialog), this);
+        if (candidate && m_windowManager->currentDialog() == candidate.data())
+            m_confirmation = candidate;
     } catch (...) {
         qWarning("Detail：退出确认失败");
         callback(false);
@@ -55,5 +52,5 @@ void DetailViewModel::canClose(CloseCallback callback)
 void DetailViewModel::onDeactivate(bool close)
 {
     Q_UNUSED(close);
-    m_windowManager->cancelDialogsFor(this);
+    if (m_confirmation) m_confirmation->tryClose(std::nullopt);
 }

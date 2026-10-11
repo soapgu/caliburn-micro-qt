@@ -136,7 +136,7 @@ Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名
 | 操作与输入 | QML 显式读取可用状态并直接调用方法；第一批演示无参数，第二批演示 int 参数和原生键盘事件。框架不规定方法名、返回值或自动守卫契约。 |
 | 视图映射 | 应用配置的类型到 View 映射，初始化阶段确定，不硬编码某个示例的页面数量。 |
 
-Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由服务保存。Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，注入两个页面工厂与 IWindowManager；Home.reset 通过确认后才重置，停用时取消待处理请求。进入 Detail 保留并停用 Home VM；Detail 内的返回按钮调用 goBack → tryClose，通过 Parent 委托 Shell 关闭自己，自动选回 Home。home/detail 从集合查找，ViewHost 绑定 activeItem。Home View 离开即卸载、返回重新创建，计数和 VM 保留，文本及焦点按新页面初始化。Shell 关闭清空全部成员，再激活新建 Home 并保留服务。DI 仅在装配层，每个 buildShell 的服务独立。详见 [应用装配](docs/IoC与应用装配.md)、[4C 历史记录](docs/4C验收记录.md) 与 [tryClose 验收记录](docs/tryClose验收记录.md)。
+Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由服务保存。Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，注入两个页面工厂与 IWindowManager；Home.reset 通过确认后才重置，停用时使旧请求结果失效，并通过确认框 tryClose(std::nullopt) 请求关闭；请求者销毁时由窗口服务自动强制清理。进入 Detail 保留并停用 Home VM；Detail 内的返回按钮调用 goBack → tryClose，通过 Parent 委托 Shell 关闭自己，自动选回 Home。home/detail 从集合查找，ViewHost 绑定 activeItem。Home View 离开即卸载、返回重新创建，计数和 VM 保留，文本及焦点按新页面初始化。Shell 关闭清空全部成员，再激活新建 Home 并保留服务。DI 仅在装配层，每个 buildShell 的服务独立。详见 [应用装配](docs/IoC与应用装配.md)、[4C 历史记录](docs/4C验收记录.md) 与 [tryClose 验收记录](docs/tryClose验收记录.md)。
 
 ## 阅读文档
 

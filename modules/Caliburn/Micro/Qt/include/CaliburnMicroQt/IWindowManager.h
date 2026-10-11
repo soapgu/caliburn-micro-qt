@@ -4,9 +4,6 @@
 #include <QFuture>
 #include <QVariant>
 #include <memory>
-#include <optional>
-
-using DialogResult = std::optional<bool>;
 
 // Future 只表达弹窗结果；Screen 的同步生命周期不变。
 class IWindowManager : public QObject
@@ -24,8 +21,6 @@ public:
     virtual ScreenViewModel *currentDialog() const = 0;
     virtual QFuture<DialogResult> showDialogAsync(std::unique_ptr<ScreenViewModel> viewModel,
                                                  QObject *requester) = 0;
-    virtual void closeDialog(ScreenViewModel *viewModel, DialogResult result = std::nullopt) = 0;
-    virtual void cancelDialogsFor(QObject *requester) = 0;
 signals:
     void busyChanged();
     void currentDialogChanged();

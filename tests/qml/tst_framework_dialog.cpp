@@ -15,10 +15,10 @@
 
 Q_IMPORT_QML_PLUGIN(CaliburnMicroQtPlugin)
 
-static std::unique_ptr<ConfirmActionViewModel> confirmation(WindowManager &manager)
+static std::unique_ptr<ConfirmActionViewModel> confirmation()
 {
     return std::make_unique<ConfirmActionViewModel>(
-        ConfirmationRequest{QStringLiteral("测试"), QStringLiteral("确认操作")}, manager);
+        ConfirmationRequest{QStringLiteral("测试"), QStringLiteral("确认操作")});
 }
 
 class FrameworkDialogTests : public QObject
@@ -34,7 +34,7 @@ private slots:
     {
         ScreenViewModel root;
         WindowManager manager;
-        auto model = confirmation(manager);
+        auto model = confirmation();
         const QUrl defaultUrl(QStringLiteral("qrc:/qt/qml/Caliburn/Micro/Qt/ConfirmActionView.qml"));
         QCOMPARE(ViewRegistry::viewUrl(model.get()), defaultUrl); // 无 Bootstrapper、无显式登记。
         const QString mode = qEnvironmentVariable("CMQT_CONFIRM_MAPPING");
@@ -71,7 +71,7 @@ private slots:
         vm->accept();
         QTRY_VERIFY(future.isFinished());
         QCOMPARE(future.result(), DialogResult(true));
-        auto cancelModel = confirmation(manager);
+        auto cancelModel = confirmation();
         vm = cancelModel.get();
         auto canceled = manager.showDialogAsync(std::move(cancelModel), &requester);
         vm->cancel();
@@ -93,11 +93,12 @@ private slots:
         QVERIFY(!manager.showWindow(QVariant::fromValue(&rejectedModel)));
         QVERIFY(!rejectedModel.isInitialized());
         QObject requester;
-        auto future = manager.showDialogAsync(confirmation(manager), &requester);
+        auto future = manager.showDialogAsync(confirmation(), &requester);
         QVERIFY(dialogWindow(first));
         QVERIFY(!dialogWindow(second) && !other.busy());
         QCOMPARE(QSizeF(layout->width(), layout->height()), businessSize);
-        manager.cancelDialogsFor(&requester);
+        manager.currentDialog()->tryClose();
+        QTRY_VERIFY(future.isFinished());
         QCOMPARE(future.result(), DialogResult{});
         QCOMPARE(QSizeF(layout->width(), layout->height()), businessSize);
         manager.releaseWindows();
@@ -127,7 +128,7 @@ private slots:
         QPointer<QQuickWindow> window = showManagedWindow(*manager, &root);
         auto requester = std::make_unique<QObject>();
         QVERIFY(window);
-        auto model = confirmation(*manager);
+        auto model = confirmation();
         QPointer<ConfirmActionViewModel> weak = model.get();
         auto future = manager->showDialogAsync(std::move(model), requester.get());
         auto *host = dialogWindow(window);

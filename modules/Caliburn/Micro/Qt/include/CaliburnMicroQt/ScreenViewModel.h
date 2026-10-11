@@ -4,6 +4,9 @@
 #include <CaliburnMicroQt/IChild.h>
 #include <QPointer>
 #include <CaliburnMicroQt/IGuardClose.h>
+#include <optional>
+
+using DialogResult = std::optional<bool>;
 
 class ScreenViewModel : public ViewModelBase, public IChild, public IGuardClose
 {
@@ -25,11 +28,11 @@ public:
     void activate();
     void deactivate(bool close = false);
     // 请求方法返回不代表已经关闭；无逻辑 Parent 时请求关联窗口关闭。
-    void tryClose();
+    void tryClose(DialogResult dialogResult = std::nullopt);
     void canClose(CloseCallback callback) override;
 
 signals:
-    void closeRequested();
+    void closeRequested(DialogResult dialogResult);
     void attemptingDeactivation(bool close);
     void deactivated(bool close);
     void parentViewModelChanged();

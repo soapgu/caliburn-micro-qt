@@ -5,6 +5,9 @@
 #include <CaliburnMicroQt/IWindowManager.h>
 #include <QString>
 #include <memory>
+#include <QPointer>
+
+class ConfirmActionViewModel;
 
 class HomeViewModel : public ScreenViewModel
 {
@@ -47,6 +50,7 @@ private:
     void notifyCountChanged();
     std::shared_ptr<CounterService> m_counterService;
     std::shared_ptr<IWindowManager> m_windowManager;
+    QPointer<ConfirmActionViewModel> m_confirmation;
     bool m_resetPending = false;
     quint64 m_resetGeneration = 0;
     bool m_lastCanIncrement;

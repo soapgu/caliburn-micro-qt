@@ -114,15 +114,16 @@ private slots:
         screen.activate();
         QSignalSpy windowRequests(&screen, &ScreenViewModel::closeRequested);
         screen.setParent(&manager);
-        screen.tryClose(); // QObject 所有权不能代替逻辑 Parent。
+        screen.tryClose(true); // QObject 所有权不能代替逻辑 Parent。
         QCOMPARE(windowRequests.count(), 1);
+        QCOMPARE(qvariant_cast<DialogResult>(windowRequests.at(0).at(0)), DialogResult(true));
         QCOMPARE(manager.calls, 0);
         QVERIFY(screen.isActive());
         manager.attach(&screen, &unrelated);
         screen.tryClose();
         QCOMPARE(manager.calls, 0);
         manager.attach(&screen, &manager);
-        screen.tryClose();
+        screen.tryClose(false); // 逻辑 Parent 只收到关闭请求，不处理弹窗结果。
         QCOMPARE(manager.calls, 1);
         QCOMPARE(manager.target, &screen);
         QVERIFY(manager.requestedClose && screen.isActive());
@@ -140,6 +141,7 @@ private slots:
         QCOMPARE(screen.closed, 0);
         QVERIFY(screen.isActive());
         QCOMPARE(screen.metaObject()->indexOfMethod("tryClose()"), -1);
+        QCOMPARE(screen.metaObject()->indexOfMethod("tryClose(DialogResult)"), -1);
     }
 
     void tryCloseSingleCurrentAndRetained_data()

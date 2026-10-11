@@ -253,6 +253,12 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
                                       Qt::QueuedConnection);
     }) << connect(m_request->vm, &ScreenViewModel::attemptingDeactivation, this, [this](bool close) {
         if (close && m_request) m_request->lifecycleAttempted = true;
+    }) << connect(m_request->vm, &ScreenViewModel::closeRequested, this, [this](DialogResult result) {
+        if (!m_request || m_request->closing || m_request->closePending
+                || (m_request->bridge && m_request->bridge->isClosing())) return;
+        // 在激活及桥接连接前保存结果，桥接收到同一信号时只负责请求关窗。
+        m_request->result = result;
+        m_request->closePending = true;
     });
     m_starting = true;
     emit busyChanged();
@@ -318,20 +324,6 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
     m_starting = false;
     if (m_request && m_request->closing) finish();
     return future;
-}
-
-void WindowManager::closeDialog(ScreenViewModel *vm, DialogResult result)
-{
-    if (!vm || !m_request || m_request->vm != vm || m_request->closing
-            || m_request->closePending || (m_request->bridge && m_request->bridge->isClosing())) return;
-    m_request->result = result;
-    m_request->closePending = true;
-    if (m_request->bridge) m_request->bridge->requestClose();
-}
-
-void WindowManager::cancelDialogsFor(QObject *requester)
-{
-    if (requester && m_request && m_request->requester == requester) complete(std::nullopt);
 }
 
 void WindowManager::complete(DialogResult result, std::exception_ptr error)

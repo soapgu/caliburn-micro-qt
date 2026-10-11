@@ -66,7 +66,7 @@ CounterService 无 QObject 父对象，由两个工厂及页面的 shared_ptr �
 
 ## Detail 自关闭返回
 
-Q_INVOKABLE void goBack() 仅活动时调用 C++ tryClose，不引用 Shell、Home 或页面工厂。Detail.canClose 复用 5A 窗口服务并回传许可；取消、Escape、展示失败及忙均保留页面。Detail 停用或销毁时取消弹窗，旧结果不能关闭重新激活的页面。
+Q_INVOKABLE void goBack() 仅活动时调用 C++ tryClose，不引用 Shell、Home 或页面工厂。Detail.canClose 复用 5A 窗口服务并回传许可；取消、Escape、展示失败及忙均保留页面。Detail 停用时请求确认框 tryClose(std::nullopt)，销毁时由窗口服务自动强制清理，旧结果不能关闭重新激活的页面。
 
 Shell 不再重写公共 deactivateItem，改写受保护 prepareCloseItem。只有许可通过且目标为当前 Detail 时才 ensureHome，再由集合基类重新校验目标并提交关闭。取消时不补建 Home，工厂失败时不移除 Detail。正常返回保留 Home VM 和计数，View 每次新建。
 
