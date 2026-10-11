@@ -1,4 +1,4 @@
-# 这三个纯 C++ 测试不加载 QML；普通目标避免 Qt 的导入扫描额外链接插件及框架库。
+# 纯 C++ 测试不加载 QML；普通目标避免 Qt 的导入扫描额外链接插件及模块库。
 add_executable(CaliburnParentProtocolTests cpp/tst_parent_protocol.cpp)
 target_link_libraries(CaliburnParentProtocolTests PRIVATE Caliburn::MicroQt Qt6::Test)
 add_test(NAME parent_protocol COMMAND CaliburnParentProtocolTests)
@@ -9,7 +9,7 @@ target_link_libraries(CaliburnCollectionTests PRIVATE Caliburn::MicroQt Qt6::Tes
 add_test(NAME collection COMMAND CaliburnCollectionTests)
 set_tests_properties(collection PROPERTIES TIMEOUT 30)
 
-qt_add_executable(CaliburnCounterServiceTests cpp/tst_counterservice.cpp)
+add_executable(CaliburnCounterServiceTests cpp/tst_counterservice.cpp)
 target_link_libraries(CaliburnCounterServiceTests PRIVATE CaliburnExampleModule Qt6::Test)
 add_test(NAME counterservice COMMAND CaliburnCounterServiceTests)
 
@@ -18,30 +18,32 @@ target_link_libraries(CaliburnConductorTests PRIVATE Caliburn::MicroQt Qt6::Test
 add_test(NAME conductor COMMAND CaliburnConductorTests)
 set_tests_properties(conductor PROPERTIES TIMEOUT 30)
 
-qt_add_executable(CaliburnCoreTests cpp/tst_core.cpp)
+add_executable(CaliburnCoreTests cpp/tst_core.cpp)
 target_link_libraries(CaliburnCoreTests PRIVATE CaliburnExampleModule Qt6::Test)
 add_test(NAME core COMMAND CaliburnCoreTests)
 
-qt_add_executable(CaliburnCompositionTests cpp/tst_composition.cpp)
+add_executable(CaliburnCompositionTests cpp/tst_composition.cpp)
 target_link_libraries(CaliburnCompositionTests PRIVATE CaliburnExampleComposition Qt6::Test)
 add_test(NAME composition COMMAND CaliburnCompositionTests)
 
-qt_add_executable(CaliburnQmlTests qml/tst_qml.cpp)
+# QML 测试已通过 Q_IMPORT_QML_PLUGIN 注册插件，使用普通目标避免再次自动扫描。
+add_executable(CaliburnQmlTests qml/tst_qml.cpp)
 # 故意非法的 QML 仅作为原始测试资源，不参与模块编译或 qmllint。
 qt_add_resources(CaliburnQmlTests host_fixtures
     PREFIX /tests
     FILES fixtures/MissingProperty.qml fixtures/MissingRequired.qml
           fixtures/NonVisual.qml fixtures/SyntaxError.qml fixtures/Mismatch.qml
 )
-# 示例由动态 URL 加载，保留其插件；框架插件由 Qt 导入扫描加入。
+# 示例由动态 URL 加载，显式链接其插件；Qt 会传递框架插件依赖。
+# 插件放在依赖其模块库的组合库之前，避免静态库被重复加入链接行。
 target_link_libraries(CaliburnQmlTests PRIVATE
-    CaliburnExampleComposition CaliburnExampleModuleplugin
+    CaliburnExampleModuleplugin CaliburnExampleComposition
     Qt6::Test Qt6::Quick Qt6::QuickControls2
 )
 add_test(NAME qml COMMAND CaliburnQmlTests)
 set_tests_properties(qml PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
-qt_add_executable(CaliburnBootstrapperTests
+add_executable(CaliburnBootstrapperTests
     cpp/tst_bootstrapper.cpp
     ../examples/minimal/app/AppBootstrapper.h
     ../examples/minimal/app/AppBootstrapper.cpp
@@ -51,7 +53,7 @@ qt_add_resources(CaliburnBootstrapperTests bootstrapper_fixtures
     FILES fixtures/NonVisual.qml fixtures/HiddenShell.qml
 )
 target_link_libraries(CaliburnBootstrapperTests PRIVATE
-    CaliburnExampleComposition CaliburnExampleModuleplugin
+    CaliburnExampleModuleplugin CaliburnExampleComposition
     Qt6::Test Qt6::Quick Qt6::QuickControls2
 )
 # 注册表映射与冻结状态均为进程级；各场景需要不同映射或空表，独立进程验收。
@@ -92,14 +94,14 @@ add_test(NAME windowmanager COMMAND CaliburnWindowManagerTests)
 set_tests_properties(windowmanager PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 60)
 
-qt_add_executable(CaliburnDialogTests qml/tst_dialog.cpp)
+add_executable(CaliburnDialogTests qml/tst_dialog.cpp)
 qt_add_resources(CaliburnDialogTests dialog_fixtures
     PREFIX /tests
     FILES fixtures/CustomDialog.qml fixtures/NonVisual.qml
           fixtures/SyntaxError.qml fixtures/MissingProperty.qml
 )
 target_link_libraries(CaliburnDialogTests PRIVATE
-    CaliburnExampleComposition CaliburnExampleModuleplugin
+    CaliburnExampleModuleplugin CaliburnExampleComposition
     Qt6::Test Qt6::Quick Qt6::QuickControls2
 )
 add_test(NAME dialog COMMAND CaliburnDialogTests)
