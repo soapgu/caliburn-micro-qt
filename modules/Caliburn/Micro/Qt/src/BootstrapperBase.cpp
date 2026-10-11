@@ -28,77 +28,77 @@ BootstrapperBase::BootstrapperBase(QGuiApplication &app) : m_app(app)
 {
     connect(&m_app, &QCoreApplication::aboutToQuit, this, [this] {
         if (m_windowManager) m_windowManager->prepareForShutdown();
-        CloseRoot();
-        NotifyExit();
+        closeRoot();
+        notifyExit();
     });
 }
 
 BootstrapperBase::~BootstrapperBase()
 {
-    // 正常清理由 Run 完成；基类析构不调用派生类退出钩子。
-    Shutdown(false);
+    // 正常清理由 run 完成；基类析构不调用派生类退出钩子。
+    shutdown(false);
 }
 
-int BootstrapperBase::Run()
+int BootstrapperBase::run()
 {
     if (QThread::currentThread() != m_app.thread() || thread() != m_app.thread()) {
-        Fail(QStringLiteral("Bootstrapper 必须在应用主线程创建和运行"));
+        fail(QStringLiteral("Bootstrapper 必须在应用主线程创建和运行"));
         return 1;
     }
     if (m_state != State::Ready) {
-        Fail(QStringLiteral("同一实例只能运行一次"));
+        fail(QStringLiteral("同一实例只能运行一次"));
         return 1;
     }
 
     int exitCode = 1;
     try {
-        if (Initialize()) {
+        if (initialize()) {
             m_state = State::Running;
             exitCode = m_app.exec();
         }
     } catch (const std::exception &error) {
         qCritical().noquote() << "Bootstrapper：启动或运行失败：" << error.what();
     } catch (...) {
-        Fail(QStringLiteral("启动或运行发生未知异常"));
+        fail(QStringLiteral("启动或运行发生未知异常"));
     }
     // 此时派生类仍然完整；在事件循环返回后释放 QML 对象。
-    Shutdown(true);
+    shutdown(true);
     return exitCode == 0 && m_cleanupFailed ? 1 : exitCode;
 }
 
-bool BootstrapperBase::Initialize()
+bool BootstrapperBase::initialize()
 {
     m_state = State::Configuring;
     m_windowManager = std::make_shared<WindowManager>();
     connect(m_windowManager.get(), &WindowManager::windowCleanupFailed, this, [this] { m_cleanupFailed = true; });
     QQmlEngine::setObjectOwnership(m_windowManager.get(), QQmlEngine::CppOwnership);
-    if (!Configure())
-        return Fail(QStringLiteral("Configure 失败"));
+    if (!configure())
+        return fail(QStringLiteral("configure 失败"));
     if (!ViewRegistry::freeze())
-        return Fail(QStringLiteral("ViewRegistry 冻结失败"));
+        return fail(QStringLiteral("ViewRegistry 冻结失败"));
     m_state = State::Starting;
-    OnStartup();
+    onStartup();
     if (!m_rootDisplayed || m_rootDisplayFailed)
-        return Fail(QStringLiteral("OnStartup 未成功显示根窗口"));
+        return fail(QStringLiteral("onStartup 未成功显示根窗口"));
     return true;
 }
 
-bool BootstrapperBase::CreateRootViewModel(const QMetaObject *type)
+bool BootstrapperBase::createRootViewModel(const QMetaObject *type)
 {
     if (m_state != State::Starting)
-        return Fail(QStringLiteral("只能在 OnStartup 中显示根窗口"));
+        return fail(QStringLiteral("只能在 onStartup 中显示根窗口"));
     if (m_displayAttempted)
-        return Fail(QStringLiteral("只允许显示一个根窗口"));
+        return fail(QStringLiteral("只允许显示一个根窗口"));
     m_displayAttempted = true;
 
     const auto found = m_factories.constFind(type);
     if (found == m_factories.cend())
-        return Fail(QStringLiteral("未登记对应的根工厂"));
+        return fail(QStringLiteral("未登记对应的根工厂"));
     auto model = (*found)(m_windowManager);
     if (!model)
-        return Fail(QStringLiteral("根工厂返回了空对象"));
+        return fail(QStringLiteral("根工厂返回了空对象"));
     if (model->parent() || model->thread() != m_app.thread())
-        return Fail(QStringLiteral("根 VM 必须无父对象且位于应用主线程"));
+        return fail(QStringLiteral("根 VM 必须无父对象且位于应用主线程"));
 
     m_root = std::move(model);
     connect(m_root.get(), &ScreenViewModel::attemptingDeactivation, this, [this](bool close) {
@@ -108,13 +108,13 @@ bool BootstrapperBase::CreateRootViewModel(const QMetaObject *type)
     return true;
 }
 
-bool BootstrapperBase::DisplayRootView(const QVariant &viewModel)
+bool BootstrapperBase::displayRootView(const QVariant &viewModel)
 {
     m_rootDisplayed = m_windowManager->showWindow(viewModel);
     return m_rootDisplayed;
 }
 
-void BootstrapperBase::CloseRoot() noexcept
+void BootstrapperBase::closeRoot() noexcept
 {
     if (!m_root || m_closeAttempted)
         return;
@@ -123,22 +123,22 @@ void BootstrapperBase::CloseRoot() noexcept
         m_cleanupFailed = true;
 }
 
-void BootstrapperBase::NotifyExit() noexcept
+void BootstrapperBase::notifyExit() noexcept
 {
     if (m_exitNotified) return;
     m_exitNotified = true;
-    if (!tryCleanup("执行 OnExit", [this] { OnExit(); }))
+    if (!tryCleanup("执行 onExit", [this] { onExit(); }))
         m_cleanupFailed = true;
 }
 
-void BootstrapperBase::Shutdown(bool invokeExit) noexcept
+void BootstrapperBase::shutdown(bool invokeExit) noexcept
 {
     if (m_state == State::Stopping || m_state == State::Stopped)
         return;
     m_state = State::Stopping;
     if (m_windowManager) m_windowManager->prepareForShutdown();
-    CloseRoot();
-    if (invokeExit) NotifyExit();
+    closeRoot();
+    if (invokeExit) notifyExit();
     // View 先于其借用的 VM 销毁。即使业务仍持有窗口服务，也显式释放窗口资源。
     if (m_windowManager) m_windowManager->releaseWindows();
     m_root.reset();
@@ -147,7 +147,7 @@ void BootstrapperBase::Shutdown(bool invokeExit) noexcept
     m_state = State::Stopped;
 }
 
-bool BootstrapperBase::Fail(const QString &message) const
+bool BootstrapperBase::fail(const QString &message) const
 {
     qCritical().noquote() << "Bootstrapper：" << message;
     return false;

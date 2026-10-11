@@ -17,13 +17,13 @@ true 表示接受，false 表示明确取消；空值表示 Escape、标题栏�
 
 ## 普通窗口职责与所有权
 
-showWindow 借用一个同线程、无逻辑 Parent 的 ScreenViewModel，参数以 `QVariant::fromValue(具体类型指针)` 构造，保留具体类型供 QML required 属性注入。调用方持有 VM，服务设置 CppOwnership 并管理窗口资源；不会删除或接管普通窗口 VM。Bootstrapper 的 DisplayRootView 只委托此入口并记录结果。
+showWindow 借用一个同线程、无逻辑 Parent 的 ScreenViewModel，参数以 `QVariant::fromValue(具体类型指针)` 构造，保留具体类型供 QML required 属性注入。调用方持有 VM，服务设置 CppOwnership 并管理窗口资源；不会删除或接管普通窗口 VM。Bootstrapper 的 displayRootView 只委托此入口并记录结果。
 
 单服务支持一个自建普通窗口。已有普通窗口或弹窗请求尚未结束时，在激活候选 VM 前拒绝。仅接纳本地或 qrc 映射，普通 View 必须直接为 QQuickWindow；不包装 Item。当前仍先激活 VM，再创建 QQmlApplicationEngine、注入、加载、登记所属窗口并创建 WindowConductor，最后显式 show，不要求 QML 自行设置 visible: true。打开普通窗口不占用 busy/currentDialog，普通窗口显示后可继续展示确认弹窗。
 
 参数、映射和加载失败诊断后返回 false；加载失败立即释放部分创建资源并关闭已激活 VM，服务可以再次显示。激活异常清理后原样传播。关闭守卫及双向桥接沿用弹窗规则，实际窗口关闭后的普通 VM 停用由服务执行；已尝试关闭的生命周期不重复。关闭异常在 Qt 回调中捕获并发出 windowCleanupFailed，Bootstrapper 据此保留失败退出码。
 
-成功显示后的普通窗口关闭仅隐藏窗口，窗口、View 与引擎保留到显式释放，供应用 OnExit 使用。调用方须让借用 VM 活到资源释放；VM 或窗口意外销毁时，在当前析构栈退出后排队清理剩余自建资源，旧清理随旧桥接销毁而取消。服务不保留对 Bootstrapper、根工厂或业务类型的依赖。
+成功显示后的普通窗口关闭仅隐藏窗口，窗口、View 与引擎保留到显式释放，供应用 onExit 使用。调用方须让借用 VM 活到资源释放；VM 或窗口意外销毁时，在当前析构栈退出后排队清理剩余自建资源，旧清理随旧桥接销毁而取消。服务不保留对 Bootstrapper、根工厂或业务类型的依赖。
 
 具体 WindowManager 提供两阶段清理：
 
@@ -32,7 +32,7 @@ void prepareForShutdown(); // 停用桥接、结束弹窗，保留普通窗口�
 void releaseWindows();     // 释放自建窗口与引擎，兜底关闭仍未关闭的普通 VM。
 ```
 
-所有操作在应用主线程执行。Bootstrapper 在 aboutToQuit 中准备退出、关闭根并执行 OnExit，在事件循环返回后显式释放窗口，最后删除根 VM；不依赖共享服务的析构时机。独立使用时须在删除 VM 前调用 releaseWindows；服务析构同样兜底释放。强制释放先销毁普通 View，再执行尚未尝试的 VM 关闭，不询问交互守卫。两阶段接口属于具体资源管理，不加入业务 IWindowManager 的请求协议。
+所有操作在应用主线程执行。Bootstrapper 在 aboutToQuit 中准备退出、关闭根并执行 onExit，在事件循环返回后显式释放窗口，最后删除根 VM；不依赖共享服务的析构时机。独立使用时须在删除 VM 前调用 releaseWindows；服务析构同样兜底释放。强制释放先销毁普通 View，再执行尚未尝试的 VM 关闭，不询问交互守卫。两阶段接口属于具体资源管理，不加入业务 IWindowManager 的请求协议。
 
 根 VM/引擎/桥接拆分与验证见 [职责迁移验收](验收/根窗口职责迁移验收记录.md)。本次对齐 CM 3.2.0 的 Bootstrapper → IWindowManager.ShowWindow 委托方向，创建/绑定/激活时序及通用 CreateWindow/EnsureWindow 仍留待独立变更。
 

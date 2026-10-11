@@ -54,7 +54,7 @@ flowchart LR
 | IWindowManager / WindowManager 的模态职责 | IWindowManager、WindowManager、内部 DialogWindow | 已实现独立 QQuickWindow 模态弹窗及关闭守卫，保留 Future；普通窗口管理留待后续。 |
 | IGuardClose / 关闭策略 | Conductor 关闭守卫与直接许可回调 | 5B 已实现 Detail 退出确认，覆盖成员关闭、单项替换及普通停用、父级关闭许可；保留同步生命周期。 |
 | IoC / 构造注入 | 应用组合根 + Boost.Ext.DI v1.3.2 | 创建与长期持有分开，框架 VM 不依赖容器。 |
-| Bootstrapper | BootstrapperBase + AppBootstrapper | Configure 配置映射和根工厂，OnStartup 显示根窗口，Run 统一生命周期与清理。 |
+| Bootstrapper | BootstrapperBase + AppBootstrapper | configure 配置映射和根工厂，onStartup 显示根窗口，run 统一生命周期与清理。 |
 
 ## 类型清单与实现状态
 
@@ -92,7 +92,7 @@ ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected �
 
 5A 与 5B 均已实现并完成本机验收。5A 的 showDialogAsync 接受自定义 VM，以 QFuture / QPromise 交付一次结果；只允许一个当前弹窗，忙时拒绝新请求，请求者失效后旧结果不能继续执行业务操作。结果为可空 bool，接受 true、明确取消 false、无决定关闭空值，忙和展示失败以异常交付，详见 [WindowManager](docs/WindowManager.md)。这是 Qt 适配差异：CM 3.2 WPF 使用同步 ShowDialog，本项目不为复刻阻塞返回引入嵌套事件循环。
 
-5B 已按 CM 3.2.0 将 activateItem、deactivateItem、closeItem、tryClose 迁移为 void 请求，无完成回调。激活看 activationProcessed，实际停用/关闭看 deactivated(close)，方法返回不保证完成。默认策略检查 getChildren 快照后汇总，单项只有当前项，集合包含全部成员；拒绝时不部分关闭。按 CM 直接回调，不支持重叠请求、重复回调或等待期间修改参与对象，不维护 Request、代次或取消上下文。完整契约见 [关闭守卫](docs/关闭守卫.md)，验收见 [5B](docs/验收/5B验收记录.md)。主窗口关闭与根 tryClose 已接入同一守卫链，根生命周期和 OnExit 单次执行；启动钩子改为 void，正常退出钩子在 aboutToQuit 执行。见 [根窗口验收记录](docs/验收/根窗口关闭守卫与生命周期验收记录.md)。
+5B 已按 CM 3.2.0 将 activateItem、deactivateItem、closeItem、tryClose 迁移为 void 请求，无完成回调。激活看 activationProcessed，实际停用/关闭看 deactivated(close)，方法返回不保证完成。默认策略检查 getChildren 快照后汇总，单项只有当前项，集合包含全部成员；拒绝时不部分关闭。按 CM 直接回调，不支持重叠请求、重复回调或等待期间修改参与对象，不维护 Request、代次或取消上下文。完整契约见 [关闭守卫](docs/关闭守卫.md)，验收见 [5B](docs/验收/5B验收记录.md)。主窗口关闭与根 tryClose 已接入同一守卫链，根生命周期和 onExit 单次执行；启动钩子改为 void，正常退出钩子在 aboutToQuit 执行。见 [根窗口验收记录](docs/验收/根窗口关闭守卫与生命周期验收记录.md)。
 
 ## 模块与项目结构
 

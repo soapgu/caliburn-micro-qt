@@ -8,6 +8,6 @@ public:
     using BootstrapperBase::BootstrapperBase;
 
 protected:
-    bool Configure() override;
-    void OnStartup() override;
+    bool configure() override;
+    void onStartup() override;
 };

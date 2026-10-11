@@ -81,15 +81,15 @@ public:
         : BootstrapperBase(app), m_scenario(std::move(scenario)), m_observation(observation) {}
 
 protected:
-    bool Configure() override
+    bool configure() override
     {
         m_observation.order << "configure";
         if (m_scenario == "configureFailure")
             return false;
         if (m_scenario == "emptyFactory")
-            return RegisterRootFactory<ShellViewModel>({});
+            return registerRootFactory<ShellViewModel>({});
         if (m_scenario != "missingFactory") {
-            if (!RegisterRootFactory<ShellViewModel>([this](std::shared_ptr<IWindowManager> windows) {
+            if (!registerRootFactory<ShellViewModel>([this](std::shared_ptr<IWindowManager> windows) {
                 m_observation.serviceInjected = bool(windows);
                 m_observation.windows = windows.get();
                 if (m_scenario == "retainedService") m_observation.retainedWindows = windows;
@@ -109,7 +109,7 @@ protected:
         return RegisterMappings();
     }
 
-    void OnStartup() override
+    void onStartup() override
     {
         m_observation.order << "startup";
         if (m_scenario == "startupException") throw std::runtime_error("测试启动异常");
@@ -121,14 +121,14 @@ protected:
         if (m_scenario == "noRoot")
             return;
         const bool displayed = m_scenario == "explicitOptions"
-            ? DisplayRootViewFor<ShellViewModel>(RootViewOptions{})
-            : DisplayRootViewFor<ShellViewModel>();
+            ? displayRootViewFor<ShellViewModel>(RootViewOptions{})
+            : displayRootViewFor<ShellViewModel>();
         if (m_scenario == "ignoredLoadFailure")
             return;
         if (!displayed)
             return;
         if (m_scenario == "duplicateRoot") {
-            (void)DisplayRootViewFor<ShellViewModel>();
+            (void)displayRootViewFor<ShellViewModel>();
             return;
         }
 
@@ -170,12 +170,12 @@ protected:
         });
     }
 
-    void OnExit() override
+    void onExit() override
     {
         ++m_observation.exitCalls;
         m_observation.exitBeforeReturn = !m_observation.exitReturned;
         m_observation.order << "exit";
-        m_observation.aliveAtExit = bool(m_observation.shell); // 根对象在 OnExit 时仍有效，Home 可已延迟释放。
+        m_observation.aliveAtExit = bool(m_observation.shell); // 根对象在 onExit 时仍有效，Home 可已延迟释放。
         m_observation.activeAtExit = m_observation.shell && m_observation.shell->isActive();
         if (m_scenario == "exitException")
             throw std::runtime_error("测试退出异常");
@@ -251,11 +251,11 @@ public:
     bool aliveAtExit = false;
     bool badConfirmation = false;
 protected:
-    bool Configure() override
+    bool configure() override
     {
         if (badConfirmation && !ViewRegistry::registerView<ConfirmActionViewModel>(QUrl("qrc:/tests/missing-confirm.qml")))
             return false;
-        return RegisterRootFactory<ShellViewModel>([this](std::shared_ptr<IWindowManager> service) {
+        return registerRootFactory<ShellViewModel>([this](std::shared_ptr<IWindowManager> service) {
             windows = std::static_pointer_cast<WindowManager>(service);
             auto counter = std::make_shared<CounterService>();
             HomeViewModelFactory home = [this, counter, service] {
@@ -275,9 +275,9 @@ protected:
             && ViewRegistry::registerView<HomeViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))
             && ViewRegistry::registerView<DetailViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/DetailView.qml"));
     }
-    void OnStartup() override
+    void onStartup() override
     {
-        if (!DisplayRootViewFor<ShellViewModel>()) return;
+        if (!displayRootViewFor<ShellViewModel>()) return;
         for (auto *candidate : QGuiApplication::allWindows()) {
             auto *quick = qobject_cast<QQuickWindow *>(candidate);
             if (quick && quick->property("viewModel").value<ShellViewModel *>() == shell)
@@ -285,7 +285,7 @@ protected:
         }
         QTimer::singleShot(0, this, [this] { exercise(); });
     }
-    void OnExit() override
+    void onExit() override
     {
         if (exitCheck) exitCheck();
         ++exits;
@@ -298,7 +298,7 @@ class DefaultStartupBootstrapper : public BootstrapperBase
 public:
     using BootstrapperBase::BootstrapperBase;
 protected:
-    bool Configure() override { return true; }
+    bool configure() override { return true; }
 };
 
 class BootstrapperTests : public QObject
@@ -360,7 +360,7 @@ private slots:
         {
             TestBootstrapper bootstrapper(*qobject_cast<QGuiApplication *>(qApp), scenario, observation);
             QCOMPARE(observation.factoryCalls, 0);
-            QCOMPARE(bootstrapper.Run(), exitCode);
+            QCOMPARE(bootstrapper.run(), exitCode);
             QCOMPARE(observation.loopEntered, entersLoop);
             QCOMPARE(observation.factoryCalls, factoryCalls);
             QCOMPARE(observation.closeCalls, closeCalls);
@@ -397,7 +397,7 @@ private slots:
                 QVERIFY(observation.order.indexOf("homeView.destroy") < observation.order.indexOf("home.destroy"));
                 QCOMPARE(observation.order.mid(0, 3), QStringList({"configure", "startup", "factory"}));
             }
-            QCOMPARE(bootstrapper.Run(), 1);
+            QCOMPARE(bootstrapper.run(), 1);
             QCOMPARE(observation.exitCalls, 1);
         }
         QCOMPARE(observation.exitCalls, 1);
@@ -406,7 +406,7 @@ private slots:
     void defaultStartup()
     {
         DefaultStartupBootstrapper bootstrapper(*qobject_cast<QGuiApplication *>(qApp));
-        QCOMPARE(bootstrapper.Run(), 1); // 默认空钩子不能绕过必须显示根窗口的约束。
+        QCOMPARE(bootstrapper.run(), 1); // 默认空钩子不能绕过必须显示根窗口的约束。
     }
 
     void rootWindowClose_data()
@@ -457,7 +457,7 @@ private slots:
                 connect(windows, &IWindowManager::busyChanged, &bootstrapper, [&, future, dialog, windows] {
                     if (!windows->busy()) {
                         QVERIFY(!dialog);
-                        // Future 在清理通知之后完成，在 OnExit 中继续检查。
+                        // Future 在清理通知之后完成，在 onExit 中继续检查。
                     }
                 });
                 bootstrapper.exitCheck = [future, dialog, windows] {
@@ -522,7 +522,7 @@ private slots:
             exercised = true;
             confirmation->accept();
         };
-        QCOMPARE(bootstrapper.Run(), 0);
+        QCOMPARE(bootstrapper.run(), 0);
         deadline.stop();
         QVERIFY(exercised);
         QCOMPARE(bootstrapper.closes, 1);
@@ -576,7 +576,7 @@ private slots:
                 });
             }
         });
-        QCOMPARE(bootstrapper.Run(), 0);
+        QCOMPARE(bootstrapper.run(), 0);
         QVERIFY(shellActive && homeActive && detailLoaded);
         QVERIFY(!shell && !window);
     }

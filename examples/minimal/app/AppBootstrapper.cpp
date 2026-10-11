@@ -3,10 +3,10 @@
 #include <CaliburnMicroQt/ViewRegistry.h>
 #include <QQuickStyle>
 
-bool AppBootstrapper::Configure()
+bool AppBootstrapper::configure()
 {
     QQuickStyle::setStyle(QStringLiteral("Basic"));
-    return RegisterRootFactory<ShellViewModel>([](std::shared_ptr<IWindowManager> windows) {
+    return registerRootFactory<ShellViewModel>([](std::shared_ptr<IWindowManager> windows) {
             return buildShell(std::move(windows));
         })
         && ViewRegistry::registerView<ShellViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml")))
@@ -14,8 +14,8 @@ bool AppBootstrapper::Configure()
         && ViewRegistry::registerView<DetailViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/DetailView.qml")));
 }
 
-void AppBootstrapper::OnStartup()
+void AppBootstrapper::onStartup()
 {
-    if (!DisplayRootViewFor<ShellViewModel>())
+    if (!displayRootViewFor<ShellViewModel>())
         return;
 }

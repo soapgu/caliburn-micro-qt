@@ -4,7 +4,7 @@
 
 ## 1. 登记与查询
 
-应用在配置阶段登记业务映射，完成后显式冻结。使用 BootstrapperBase 时，它在 Configure 成功后自动调用 freeze()；独立使用注册表与宿主时，由应用在创建界面前调用：
+应用在配置阶段登记业务映射，完成后显式冻结。使用 BootstrapperBase 时，它在 configure 成功后自动调用 freeze()；独立使用注册表与宿主时，由应用在创建界面前调用：
 
 ```cpp
 const bool registered = ViewRegistry::registerView<HomeViewModel>(

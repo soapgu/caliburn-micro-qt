@@ -9,5 +9,5 @@ int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
     AppBootstrapper bootstrapper(app);
-    return bootstrapper.Run();
+    return bootstrapper.run();
 }
