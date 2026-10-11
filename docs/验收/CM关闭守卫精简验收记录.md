@@ -12,7 +12,7 @@
 - Detail 删除守卫编号与回调表。窗口失败先转换为 false，再交付许可；延后关闭执行异常在 Qt Future 边界记录。停用或销毁仍取消自己的弹窗。Shell 继续在许可通过后补 Home，取消不补建，工厂失败保留 Detail。
 - 5A WindowManager 的内部请求机制与 Home 重置保持原样。Home VM 常驻、共享计数、View 每次新建及先卸载 View 后 deleteLater VM 的顺序继续保持。
 
-当前接口与使用限制见 [关闭守卫](关闭守卫.md)、[Conductor](Conductor.md)。自定义关闭策略须迁移 execute 签名；消费工程须更新单项管理语义与异常预期。
+当前接口与使用限制见 [关闭守卫](../关闭守卫.md)、[Conductor](../Conductor.md)。自定义关闭策略须迁移 execute 签名；消费工程须更新单项管理语义与异常预期。
 
 ## 环境与命令
 

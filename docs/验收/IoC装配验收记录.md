@@ -1,10 +1,10 @@
 # IoC 装配验收记录
 
-2026-10-09 生命周期顺序对齐 CM 3.2.0，改为先提交状态并通知、再执行钩子；下文“通知先子后父”保留为历史验收结果。当前父通知先于子项转换，异常不回滚，启动仅由根 activate 自动完成初始化，见 [ScreenViewModel](ScreenViewModel.md) 和 [IoC 与应用装配](IoC与应用装配.md)。
+2026-10-09 生命周期顺序对齐 CM 3.2.0，改为先提交状态并通知、再执行钩子；下文“通知先子后父”保留为历史验收结果。当前父通知先于子项转换，异常不回滚，启动仅由根 activate 自动完成初始化，见 [ScreenViewModel](../ScreenViewModel.md) 和 [IoC 与应用装配](../IoC与应用装配.md)。
 
 2026-10-06 完成第三批之后的 IoC 装配调整。macOS arm64 自动检查、Cocoa 集成测试和真实窗口操作全部通过；麒麟待验证。未暂存、提交或推送。
 
-2026-10-07 Conductor 核心调整后，已初始化的 Shell/Home 重复关闭仍执行钩子，未改变的活动状态不重复通知；下文幂等描述保留初次验收语义。当前契约及回归结果见 [ScreenViewModel](ScreenViewModel.md) 和 [Conductor 核心验收记录](Conductor核心验收记录.md)。
+2026-10-07 Conductor 核心调整后，已初始化的 Shell/Home 重复关闭仍执行钩子，未改变的活动状态不重复通知；下文幂等描述保留初次验收语义。当前契约及回归结果见 [ScreenViewModel](../ScreenViewModel.md) 和 [Conductor 核心验收记录](Conductor核心验收记录.md)。
 
 2026-10-07 随后统一精简 Screen 与 Conductor：移除逐次调用线程检查和重入保护，主线程执行由调用方保证；下文相关防守测试仅代表原验收行为，当前回归结果见 [Conductor 核心验收记录](Conductor核心验收记录.md)。
 
@@ -67,7 +67,7 @@ QT_QPA_PLATFORM=cocoa /Users/guhui/Githubs/caliburn-micro-qt/build/ioc-compositi
 
 自动重复、修饰键、反向 Tab 和空白鼠标回焦由 offscreen 与 Cocoa 集成测试覆盖，实体长按未单独计时。Conductor、详情导航、服务、弹窗与其他平台继续留在后续批次。
 
-装配接口与所有权说明见 [IoC 与应用装配](IoC与应用装配.md)，第三批原始验收结果保留在 [第三批验收记录](第三批验收记录.md)。
+装配接口与所有权说明见 [IoC 与应用装配](../IoC与应用装配.md)，第三批原始验收结果保留在 [第三批验收记录](第三批验收记录.md)。
 
 ## 构造接口简化复验
 

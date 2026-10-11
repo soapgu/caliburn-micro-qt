@@ -58,7 +58,7 @@ Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，Home 和 Detail
 
 Screen 自身关闭不删除的契约不变；集合成员移除、延迟回收属于 Conductor。WindowManager 驱动窗口 VM 的正常生命周期，Bootstrapper 兜底根退出，ViewHost 不驱动生命周期，窗口失焦不自动停用。退出时当前 View 先于对应 VM 释放，根 View 先于根 VM 释放。
 
-基础历史结果见 [第三批验收记录](第三批验收记录.md) 和 [4B 验收记录](4B验收记录.md)。当前集合生命周期、异常恢复、单次回收及导航验收见 [4C 验收记录](4C验收记录.md)；装配接口见 [IoC 与应用装配](IoC与应用装配.md)。
+基础历史结果见 [第三批验收记录](验收/第三批验收记录.md) 和 [4B 验收记录](验收/4B验收记录.md)。当前集合生命周期、异常恢复、单次回收及导航验收见 [4C 验收记录](验收/4C验收记录.md)；装配接口见 [IoC 与应用装配](IoC与应用装配.md)。
 
 ## IChild 与只读逻辑 Parent
 
@@ -68,7 +68,7 @@ ScreenViewModel 实现 IChild 并声明 Q_INTERFACES(IChild IGuardClose)。C++ g
 
 根 Shell 的逻辑 Parent 为空，Home/Detail 为 Shell，嵌套 Conductor 向上指向其管理者；CounterService 不属于该逻辑树。普通 ViewModelBase 默认不实现 IChild。
 
-单项 `deactivateItem(current, false)` 清空选择并留存 VM；父 `deactivate(false)` 保留选择。已初始化单项父关闭只处理当前项；普通停用后的旧对象由父树兜底回收。集合型子项普通停用保留选择。这些 C++ 管理入口不向 QML 声明可调用接口。完整契约见 [Conductor](Conductor.md)，结果见 [Parent 体系验收记录](Parent体系验收记录.md)。
+单项 `deactivateItem(current, false)` 清空选择并留存 VM；父 `deactivate(false)` 保留选择。已初始化单项父关闭只处理当前项；普通停用后的旧对象由父树兜底回收。集合型子项普通停用保留选择。这些 C++ 管理入口不向 QML 声明可调用接口。完整契约见 [Conductor](Conductor.md)，结果见 [Parent 体系验收记录](验收/Parent体系验收记录.md)。
 
 ## tryClose：受管页面请求关闭自己
 
@@ -78,8 +78,8 @@ void tryClose(DialogResult dialogResult = std::nullopt) 是普通 C++ 方法，�
 
 Screen 新增 attemptingDeactivation(bool close) 与 deactivated(bool close)，分别在有效生命周期执行前、状态和钩子正常完成后发送。isActiveChanged 仅表示状态变化，不代表关闭完成；拒绝许可、无效目标、未初始化关闭不伪造 deactivated。close=true 表示关闭生命周期完成，实际销毁仍可延后；重复直接 deactivate(true) 沿用既有重复关闭规则。
 
-Screen 默认 canClose(callback) 立即同意；Conductor 聚合当前子项快照，单项仅当前项、集合为全部成员，Detail 使用窗口 Future 转接许可。同步生命周期异常原样传播且不回滚，延后请求执行异常在 Qt 边界记录。完整规则见 [关闭守卫](关闭守卫.md) 和 [Conductor](Conductor.md)，本机证据见 [5B 验收](5B验收记录.md)。
+Screen 默认 canClose(callback) 立即同意；Conductor 聚合当前子项快照，单项仅当前项、集合为全部成员，Detail 使用窗口 Future 转接许可。同步生命周期异常原样传播且不回滚，延后请求执行异常在 Qt 边界记录。完整规则见 [关闭守卫](关闭守卫.md) 和 [Conductor](Conductor.md)，本机证据见 [5B 验收](验收/5B验收记录.md)。
 
-closeRequested(dialogResult) 仅表达关闭请求，不是许可或完成通知；没有窗口桥接时不执行关闭。根 Shell.tryClose 经窗口关闭入口询问根 canClose，根直接完成 deactivate(true) 后则反向关闭窗口。窗口成功关闭后的根生命周期由 WindowManager 单次执行，Bootstrapper 兜底未完成的根退出；普通停用不关闭窗口。见 [Bootstrapper](Bootstrapper.md) 与 [根窗口验收](根窗口关闭守卫与生命周期验收记录.md)。
+closeRequested(dialogResult) 仅表达关闭请求，不是许可或完成通知；没有窗口桥接时不执行关闭。根 Shell.tryClose 经窗口关闭入口询问根 canClose，根直接完成 deactivate(true) 后则反向关闭窗口。窗口成功关闭后的根生命周期由 WindowManager 单次执行，Bootstrapper 兜底未完成的根退出；普通停用不关闭窗口。见 [Bootstrapper](Bootstrapper.md) 与 [根窗口验收](验收/根窗口关闭守卫与生命周期验收记录.md)。
 
 独立弹窗也关联 WindowConductor，tryClose(true/false) 提交接受或取消，无参关闭提交空结果；根窗口忽略结果参数。tryClose 会检查窗口 VM 的 canClose。弹窗关闭后的 View 卸载、一次性生命周期及结果交付由 WindowManager 完成；请求者销毁及资源释放等强制清理不询问守卫。见 [窗口服务](WindowManager.md)。

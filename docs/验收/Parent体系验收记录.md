@@ -9,7 +9,7 @@
 - 单项 deactivateItem(item, false) 清空选择并留存 VM，允许原指针恢复、关闭非当前留存项及多个对象留存。getChildren 只枚举当前项，已关闭对象不能恢复；父关闭清理全部当前和留存项。
 - 集合型 getChildren 返回全成员快照，普通停用保留选择，既有相邻选择、父关闭和意外销毁策略保留。
 - 关闭前清空逻辑 Parent，成员和选择通知看到更新后关系；新增 activationProcessed，统一成功、拒绝、重复选择及自动相邻选择的结果发布。
-- Shell 装配、共享服务寿命及 Home/Detail 导航保持原行为。View 每次新建；tryClose、根窗口请求、关闭守卫、异步接口、Action 和 View 缓存仍未实现，见 [后续 ToDoList](后续版本ToDoList.md)。
+- Shell 装配、共享服务寿命及 Home/Detail 导航保持原行为。View 每次新建；tryClose、根窗口请求、关闭守卫、异步接口、Action 和 View 缓存仍未实现，见 [后续 ToDoList](../计划/后续版本ToDoList.md)。
 
 ## 环境与命令
 

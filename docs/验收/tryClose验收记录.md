@@ -80,4 +80,4 @@ Home 缺失及工厂失败由自动测试注入，未将其写成实际窗口人
 
 同步、主线程、转换非重入和钩子正常返回约定继续适用。Detail 捕获异常不提供部分生命周期转换回滚。已有模板 closeItem 保持原算法；示例返回前置恢复经公共 IConductor 虚接口完成。
 
-根窗口请求、关闭守卫、Action 和 View 保留继续见 [后续 ToDoList](后续版本ToDoList.md)。当前接口见 [Screen](ScreenViewModel.md#tryclose受管页面请求关闭自己)、[Conductor](Conductor.md#screentryclose-与公共协议) 和 [应用装配](IoC与应用装配.md#detail-自关闭返回)。历史 [Parent 验收](Parent体系验收记录.md) 与 [4C 验收](4C验收记录.md) 未修改。麒麟及外部消费工程本轮未验证。
+根窗口请求、关闭守卫、Action 和 View 保留继续见 [后续 ToDoList](../计划/后续版本ToDoList.md)。当前接口见 [Screen](../ScreenViewModel.md#tryclose受管页面请求关闭自己)、[Conductor](../Conductor.md#screentryclose-与公共协议) 和 [应用装配](../IoC与应用装配.md#detail-自关闭返回)。历史 [Parent 验收](Parent体系验收记录.md) 与 [4C 验收](4C验收记录.md) 未修改。麒麟及外部消费工程本轮未验证。

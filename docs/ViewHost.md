@@ -1,6 +1,6 @@
 # ViewHost：视图定位、动态加载与所有权
 
-第三批已实现 ViewRegistry 与 ViewHost，属于静态框架模块 `Caliburn.Micro.Qt 1.0`。本机验收状态见 [第三批验收记录](第三批验收记录.md)。生命周期由 [ScreenViewModel](ScreenViewModel.md) 提供，宿主负责 View 装配。
+第三批已实现 ViewRegistry 与 ViewHost，属于静态框架模块 `Caliburn.Micro.Qt 1.0`。本机验收状态见 [第三批验收记录](验收/第三批验收记录.md)。生命周期由 [ScreenViewModel](ScreenViewModel.md) 提供，宿主负责 View 装配。
 
 ## 1. 登记与查询
 
@@ -98,9 +98,9 @@ C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，卸载不删除
 
 ViewHost 使用 FocusScope，内部 Loader 设置 focus。Shell 给宿主设置 focus，Home 根 FocusScope 和内部输入 Item 也设置 focus，形成窗口至页面的焦点链。按键处理位于输入 Item；空白点击对该 Item 调用 forceActiveFocus，避免作用域保留文本框焦点。[Qt 焦点作用域](https://doc.qt.io/qt-6.8/qtquick-input-focus.html)
 
-窗口失焦不自动停用 VM。泛型单项 Conductor 核心已实现，并通过 activeItem 绑定宿主的集成验证，见 [Conductor](Conductor.md)。集合型 Conductor 和详情导航在 4C 已实现，仍沿用当前 ViewHost。通用页面默认焦点恢复、View 缓存、异步加载和自动重试未实现。5A 已由 DialogHost 复用本宿主展示 WindowManager 的模态弹窗并处理弹窗焦点恢复，见 [WindowManager](WindowManager.md)；5B 已在关闭守卫等待或拒绝期间保留相关页面，见 [5B 验收记录](5B验收记录.md) 和 [阶段划分](迭代实现计划.md#第五批阶段划分)。页面内部可使用同一宿主装配子 VM，无须复制加载规则。
+窗口失焦不自动停用 VM。泛型单项 Conductor 核心已实现，并通过 activeItem 绑定宿主的集成验证，见 [Conductor](Conductor.md)。集合型 Conductor 和详情导航在 4C 已实现，仍沿用当前 ViewHost。通用页面默认焦点恢复、View 缓存、异步加载和自动重试未实现。5A 已由 DialogHost 复用本宿主展示 WindowManager 的模态弹窗并处理弹窗焦点恢复，见 [WindowManager](WindowManager.md)；5B 已在关闭守卫等待或拒绝期间保留相关页面，见 [5B 验收记录](验收/5B验收记录.md) 和 [阶段划分](计划/迭代实现计划.md#第五批阶段划分)。页面内部可使用同一宿主装配子 VM，无须复制加载规则。
 
-验收覆盖跨模块 typed 注入、创建完成时机、同类型替换、属性变化保持身份、清空与销毁、旧连接解绑及各类失败；证据与平台限制见 [第三批验收记录](第三批验收记录.md)。
+验收覆盖跨模块 typed 注入、创建完成时机、同类型替换、属性变化保持身份、清空与销毁、旧连接解绑及各类失败；证据与平台限制见 [第三批验收记录](验收/第三批验收记录.md)。
 
 ## 6. 4C 导航：VM 保留，View 每次新建
 
@@ -108,16 +108,16 @@ ShellView 的 model 继续绑定 activeItem，HomeView/DetailView 分别声明 r
 
 返回时 Shell 关闭 Detail，集合先公布 Home 为当前项；宿主卸载 Detail View、创建 Home View，Detail VM 随后延迟删除。Shell 关闭时清空集合与选择，宿主清空。意外销毁当前项同样清空界面，不自动导航。
 
-本轮没有修改 ViewHost/Loader 契约。Home VM 身份保留、View 重建、文本重置、焦点与 View 先于 VM 销毁均已验证，见 [4C 验收记录](4C验收记录.md)。集合导航视图保留机制已列入 [后续版本 ToDoList](后续版本ToDoList.md)，尚未实现。
+本轮没有修改 ViewHost/Loader 契约。Home VM 身份保留、View 重建、文本重置、焦点与 View 先于 VM 销毁均已验证，见 [4C 验收记录](验收/4C验收记录.md)。集合导航视图保留机制已列入 [后续版本 ToDoList](计划/后续版本ToDoList.md)，尚未实现。
 
 ## 单项普通停用与恢复
 
 宿主仍只观察 model/activeItem，不根据逻辑 Parent 判定显示。单项 deactivateItem(current, false) 清空选择，ViewHost 卸载 View；VM 留存、Parent 和计数保留。activateItem(原指针) 恢复选择时创建新 View，文本按新 View 初始化。父普通停用不清空选择，不触发这次卸载。
 
-显式关闭先清空逻辑 Parent，再通知选择并卸载 View，关闭钩子之后延迟回收 VM，保持 View 先于 VM 销毁。集合 Home/Detail 导航继续沿用 View 每次新建规则；本轮未改宿主加载或缓存实现。结果见 [Parent 体系验收记录](Parent体系验收记录.md)。
+显式关闭先清空逻辑 Parent，再通知选择并卸载 View，关闭钩子之后延迟回收 VM，保持 View 先于 VM 销毁。集合 Home/Detail 导航继续沿用 View 每次新建规则；本轮未改宿主加载或缓存实现。结果见 [Parent 体系验收记录](验收/Parent体系验收记录.md)。
 
 ## Detail 内返回按钮与宿主卸载
 
 返回按钮现在位于 DetailView，objectName 为 goBack，调用 Detail.goBack → Screen.tryClose → Parent 的 IConductor。Shell 在关闭当前 Detail 前补齐缺失 Home，集合提交选择后 ViewHost 卸载 Detail View、创建 Home View，Detail VM 随后延迟回收。按钮及其旧 View 会一起销毁，测试每次进入页面重新获取按钮。
 
-关闭失败时仍显示原 Detail View，页面可重试；成功返回仍复用已有 Home VM、重置 Home 文本和页面焦点。本轮没有修改宿主加载、借用所有权或 View 缓存机制，结果见 [tryClose 验收记录](tryClose验收记录.md)。
+关闭失败时仍显示原 Detail View，页面可重试；成功返回仍复用已有 Home VM、重置 Home 文本和页面焦点。本轮没有修改宿主加载、借用所有权或 View 缓存机制，结果见 [tryClose 验收记录](验收/tryClose验收记录.md)。

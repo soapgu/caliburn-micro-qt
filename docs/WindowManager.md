@@ -1,6 +1,6 @@
 # WindowManager、普通窗口与独立模态窗口
 
-窗口服务使用独立 QQuickWindow 承载 Item View，设置 Qt::Dialog、所属窗口 transientParent 和 Qt::ApplicationModal。保留 QFuture 异步返回，不引入 Widgets 或嵌套事件循环。验收状态见 [独立模态窗口验收记录](独立模态窗口验收记录.md)；历史记录保持原样。
+窗口服务使用独立 QQuickWindow 承载 Item View，设置 Qt::Dialog、所属窗口 transientParent 和 Qt::ApplicationModal。保留 QFuture 异步返回，不引入 Widgets 或嵌套事件循环。验收状态见 [独立模态窗口验收记录](验收/独立模态窗口验收记录.md)；历史记录保持原样。
 
 ## C++ 接口与结果
 
@@ -34,7 +34,7 @@ void releaseWindows();     // 释放自建窗口与引擎，兜底关闭仍未�
 
 所有操作在应用主线程执行。Bootstrapper 在 aboutToQuit 中准备退出、关闭根并执行 OnExit，在事件循环返回后显式释放窗口，最后删除根 VM；不依赖共享服务的析构时机。独立使用时须在删除 VM 前调用 releaseWindows；服务析构同样兜底释放。强制释放先销毁普通 View，再执行尚未尝试的 VM 关闭，不询问交互守卫。两阶段接口属于具体资源管理，不加入业务 IWindowManager 的请求协议。
 
-根 VM/引擎/桥接拆分与验证见 [职责迁移验收](根窗口职责迁移验收记录.md)。本次对齐 CM 3.2.0 的 Bootstrapper → IWindowManager.ShowWindow 委托方向，创建/绑定/激活时序及通用 CreateWindow/EnsureWindow 仍留待独立变更。
+根 VM/引擎/桥接拆分与验证见 [职责迁移验收](验收/根窗口职责迁移验收记录.md)。本次对齐 CM 3.2.0 的 Bootstrapper → IWindowManager.ShowWindow 委托方向，创建/绑定/激活时序及通用 CreateWindow/EnsureWindow 仍留待独立变更。
 
 ## 内部窗口关联
 
