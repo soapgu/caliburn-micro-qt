@@ -6,11 +6,15 @@
 #include <memory>
 
 // example 的输出配置；不是框架 API。
+enum class ConsoleColorMode { Automatic, Always, Never };
+
 struct LoggingOptions
 {
     QString filePath;
     std::size_t maxFileSize = 5 * 1024 * 1024;
     std::size_t maxFiles = 3;
+    // 有效的 CMQT_LOG_COLOR 环境变量优先于此配置。
+    ConsoleColorMode consoleColor = ConsoleColorMode::Automatic;
 };
 
 class LoggingRuntime final

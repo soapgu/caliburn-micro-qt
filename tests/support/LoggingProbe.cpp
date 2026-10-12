@@ -38,6 +38,8 @@ int main(int argc, char **argv)
     const auto scenario = arguments.at(1);
     LoggingOptions options;
     options.filePath = arguments.at(2);
+    if (scenario == QStringLiteral("optionsAlways")) options.consoleColor = ConsoleColorMode::Always;
+    if (scenario == QStringLiteral("optionsNever")) options.consoleColor = ConsoleColorMode::Never;
     if (scenario == QStringLiteral("rotation")) options.maxFileSize = 1024;
     if (scenario == QStringLiteral("restore")) {
         const auto original = qInstallMessageHandler(previousHandler);

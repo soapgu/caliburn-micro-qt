@@ -7,6 +7,10 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#ifdef _WIN32
+#include <spdlog/details/windows_include.h>
+#include <wincon.h>
+#endif
 #include <atomic>
 #include <cstdio>
 #include <mutex>
@@ -20,6 +24,22 @@ void reportError(const char *message) noexcept
 {
     std::fprintf(stderr, "Logging output error: %s\n", message);
     std::fflush(stderr);
+}
+
+spdlog::color_mode colorModeFor(ConsoleColorMode configured)
+{
+    const auto value = qgetenv("CMQT_LOG_COLOR").trimmed().toLower();
+    if (value == "auto") return spdlog::color_mode::automatic;
+    if (value == "always") return spdlog::color_mode::always;
+    if (value == "never") return spdlog::color_mode::never;
+    if (!value.isEmpty())
+        reportError("Invalid CMQT_LOG_COLOR; expected auto, always or never; using configured mode");
+    switch (configured) {
+    case ConsoleColorMode::Automatic: return spdlog::color_mode::automatic;
+    case ConsoleColorMode::Always: return spdlog::color_mode::always;
+    case ConsoleColorMode::Never: return spdlog::color_mode::never;
+    }
+    return spdlog::color_mode::automatic;
 }
 
 spdlog::level::level_enum levelFor(QtMsgType type)
@@ -52,7 +72,18 @@ bool LoggingRuntime::initialize(const LoggingOptions &options)
 
     auto state = std::make_shared<State>();
     std::vector<spdlog::sink_ptr> sinks;
-    sinks.push_back(std::make_shared<spdlog::sinks::stderr_color_sink_mt>());
+    auto console = std::make_shared<spdlog::sinks::stderr_color_sink_mt>(
+        colorModeFor(options.consoleColor));
+    // 默认使用 Debug 青色、Info 绿色、Warning 加粗黄色；错误使用红色前景。
+#ifdef _WIN32
+    console->set_color(spdlog::level::err, FOREGROUND_RED);
+    console->set_color(spdlog::level::critical, FOREGROUND_RED | FOREGROUND_INTENSITY);
+#else
+    console->set_color(spdlog::level::err, console->red);
+    console->set_color(spdlog::level::critical, console->red_bold);
+#endif
+    console->set_pattern("%^%v%$");
+    sinks.push_back(console);
     QString path = options.filePath;
     if (path.isEmpty()) {
         const auto directory = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
@@ -62,8 +93,10 @@ bool LoggingRuntime::initialize(const LoggingOptions &options)
     try {
         if (path.isEmpty() || !QDir().mkpath(QFileInfo(path).absolutePath()))
             throw std::runtime_error("Cannot create the log directory");
-        sinks.push_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-            path.toStdString(), options.maxFileSize, options.maxFiles));
+        auto file = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+            path.toStdString(), options.maxFileSize, options.maxFiles);
+        file->set_pattern("%v");
+        sinks.push_back(file);
         state->filePath = QFileInfo(path).absoluteFilePath();
     } catch (const std::exception &error) {
         reportError(error.what());
@@ -71,7 +104,7 @@ bool LoggingRuntime::initialize(const LoggingOptions &options)
     // 不注册全局 logger，也不修改应用中其他 spdlog logger 的配置。
     state->logger = std::make_shared<spdlog::logger>("qt", sinks.begin(), sinks.end());
     state->logger->set_level(spdlog::level::trace);
-    state->logger->set_pattern("%v");
+    // 各 sink 独立格式化，避免全局 pattern 覆盖控制台着色或污染文件。
     state->logger->set_error_handler([](const std::string &error) { reportError(error.c_str()); });
     state->logger->flush_on(spdlog::level::warn);
     qSetMessagePattern(QStringLiteral(

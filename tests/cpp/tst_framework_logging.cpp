@@ -14,7 +14,7 @@ class FrameworkLoggingTests : public QObject
         const auto path = directory.filePath(QStringLiteral("framework.log"));
         QProcess process;
         auto environment = QProcessEnvironment::systemEnvironment();
-        for (const auto *name : {"QT_MESSAGE_PATTERN", "QT_LOGGING_CONF", "QT_FATAL_WARNINGS", "QT_FATAL_CRITICALS"})
+        for (const auto *name : {"QT_MESSAGE_PATTERN", "QT_LOGGING_CONF", "QT_FATAL_WARNINGS", "QT_FATAL_CRITICALS", "CMQT_LOG_COLOR"})
             environment.remove(QString::fromLatin1(name));
         environment.insert(QStringLiteral("QT_LOGGING_RULES"), rules);
         environment.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
