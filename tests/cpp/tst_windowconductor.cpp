@@ -183,7 +183,7 @@ private slots:
         root.throws = true;
         root.activate();
         WindowConductor bridge(&window, &root);
-        QTest::ignoreMessage(QtWarningMsg, "WindowConductor：关闭守卫失败： 测试根守卫异常");
+        QTest::ignoreMessage(QtWarningMsg, "WindowConductor: close guard failed: 测试根守卫异常");
         QVERIFY(!window.close());
         QTRY_COMPARE(root.checks, 1);
         QVERIFY(window.isVisible() && root.isActive());

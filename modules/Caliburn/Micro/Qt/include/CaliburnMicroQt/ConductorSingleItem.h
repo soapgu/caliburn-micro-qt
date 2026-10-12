@@ -8,7 +8,7 @@ class ConductorSingleItem : public ConductorBaseWithActiveItem
 {
     Q_OBJECT
     QML_ELEMENT
-    QML_UNCREATABLE("Conductor 由 C++ 应用装配层创建")
+    QML_UNCREATABLE("Conductor is created by the C++ composition layer")
 
 public:
     explicit ConductorSingleItem(QObject *parent = nullptr);

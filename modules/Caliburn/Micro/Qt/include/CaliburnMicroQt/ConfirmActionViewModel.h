@@ -7,7 +7,7 @@ class ConfirmActionViewModel : public ScreenViewModel
 {
     Q_OBJECT
     QML_ELEMENT
-    QML_UNCREATABLE("确认 VM 由 C++ 创建")
+    QML_UNCREATABLE("Confirmation model is created by C++")
     Q_PROPERTY(QString title READ title CONSTANT)
     Q_PROPERTY(QString message READ message CONSTANT)
     Q_PROPERTY(QString confirmText READ confirmText CONSTANT)

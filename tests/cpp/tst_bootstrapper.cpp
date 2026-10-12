@@ -114,7 +114,7 @@ protected:
         m_observation.order << "startup";
         if (m_scenario == "startupException") throw std::runtime_error("测试启动异常");
         if (m_scenario == "lateRegistration") {
-            QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：配置已冻结，拒绝登记");
+            QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: registration rejected after freeze");
             if (ViewRegistry::registerView<ShellViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))))
                 return;
         }

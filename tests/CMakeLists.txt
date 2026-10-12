@@ -156,3 +156,17 @@ target_link_libraries(CaliburnWindowConductorTests PRIVATE Caliburn::MicroQt Qt6
 add_test(NAME windowconductor COMMAND CaliburnWindowConductorTests)
 set_tests_properties(windowconductor PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 30)
+
+# 框架日志探针使用真实静态模块与应用输出，注册表场景由独立进程隔离。
+add_executable(CaliburnFrameworkLoggingProbe support/FrameworkLoggingProbe.cpp
+    ../examples/minimal/app/AppBootstrapper.h ../examples/minimal/app/AppBootstrapper.cpp)
+qt_add_resources(CaliburnFrameworkLoggingProbe logging_fixtures PREFIX /tests
+    FILES fixtures/Probe.qml fixtures/WindowProbe.qml)
+target_link_libraries(CaliburnFrameworkLoggingProbe PRIVATE
+    CaliburnExampleModuleplugin CaliburnExampleComposition CaliburnExampleLogging
+    Qt6::Quick Qt6::QuickControls2)
+add_executable(CaliburnFrameworkLoggingTests cpp/tst_framework_logging.cpp)
+target_link_libraries(CaliburnFrameworkLoggingTests PRIVATE Qt6::Test)
+add_dependencies(CaliburnFrameworkLoggingTests CaliburnFrameworkLoggingProbe)
+add_test(NAME framework_logging COMMAND CaliburnFrameworkLoggingTests)
+set_tests_properties(framework_logging PROPERTIES TIMEOUT 120)

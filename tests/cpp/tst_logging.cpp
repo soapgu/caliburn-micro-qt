@@ -120,7 +120,7 @@ private slots:
         const auto result = run(QStringLiteral("normal"), path + QStringLiteral("/output.log"));
         QCOMPARE(result.exitCode, 0);
         QVERIFY(result.file.isEmpty());
-        QVERIFY(result.console.contains("日志输出错误"));
+        QVERIFY(result.console.contains("Logging output error"));
         QCOMPARE(result.console.count("信息消息"), 1);
     }
 

@@ -133,13 +133,13 @@ private slots:
         QVERIFY(ViewRegistry::viewUrl(nullptr).isEmpty());
         for (const QUrl &url : {QUrl(), QUrl(QStringLiteral("views/Home.qml")),
                                QUrl(QStringLiteral("http://["))}) {
-            QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：View URL 必须为有效、非空的绝对地址");
+            QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: view URL must be valid, non-empty and absolute");
             QVERIFY(!ViewRegistry::registerView<HomeViewModel>(url));
         }
         const QUrl home(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"));
         QVERIFY(ViewRegistry::registerView<HomeViewModel>(home));
         QVERIFY(ViewRegistry::registerView<HomeViewModel>(home));
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：类型映射冲突 HomeViewModel");
+        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: conflicting type mapping HomeViewModel");
         QVERIFY(!ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/different.qml"))));
         QVERIFY(ViewRegistry::registerView<ShellViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))));
     }
@@ -284,10 +284,10 @@ private slots:
         QCOMPARE(registry.resolve(&home), homeUrl);
         QCOMPARE(ViewRegistry::viewUrl(&shell), QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml")));
         DerivedHome unknown(std::make_shared<CounterService>(), testWindows());
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：未登记类型 DerivedHome");
+        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: no view registered for type DerivedHome");
         QVERIFY(ViewRegistry::viewUrl(&unknown).isEmpty());
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：登记、冻结与查询必须在应用主线程调用");
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：登记、冻结与查询必须在应用主线程调用");
+        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: registration, freeze and lookup require the application thread");
+        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: registration, freeze and lookup require the application thread");
         QUrl workerUrl;
         bool workerFrozen = true;
         auto worker = std::unique_ptr<QThread>(QThread::create([&] {
@@ -304,7 +304,7 @@ private slots:
         QCOMPARE(ViewRegistry::viewUrl(&unknown), derivedUrl);
         QVERIFY(ViewRegistry::freeze());
         QVERIFY(ViewRegistry::freeze());
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：配置已冻结，拒绝登记");
+        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: registration rejected after freeze");
         QVERIFY(!ViewRegistry::registerView<HomeViewModel>(homeUrl));
         QCOMPARE(ViewRegistry::viewUrl(&home), homeUrl);
         QCOMPARE(registry.resolve(&home), homeUrl);
@@ -364,11 +364,11 @@ private slots:
             weak = home.get();
             return home;
         };
-        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：接管对象必须无父对象且位于同一线程");
+        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive: adopted item must have no QObject parent and belong to the conductor thread");
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel{invalid, makeDetailFactory()});
         QVERIFY(!weak);
         QVERIFY(parent.children().isEmpty());
-        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的对象");
+        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive: cannot adopt an active item");
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, ShellViewModel([] {
             auto home = std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows());
             home->activate();
@@ -490,9 +490,9 @@ private slots:
         NotifyVm vm;
         QSignalSpy spy(&vm, &NotifyVm::changed);
         void (NotifyVm::*nullSignal)() = nullptr;
-        QTest::ignoreMessage(QtWarningMsg, "ViewModelBase::setAndNotify: 信号为空或对象类型不兼容");
+        QTest::ignoreMessage(QtWarningMsg, "ViewModelBase::setAndNotify: null signal or incompatible owner type");
         QVERIFY(!vm.setAndNotify(vm.value, 2, nullSignal));
-        QTest::ignoreMessage(QtWarningMsg, "ViewModelBase::setAndNotify: 信号为空或对象类型不兼容");
+        QTest::ignoreMessage(QtWarningMsg, "ViewModelBase::setAndNotify: null signal or incompatible owner type");
         QVERIFY(!vm.setAndNotify(vm.value, 2, &HomeViewModel::countChanged));
         QCOMPARE(vm.value, 0);
         QCOMPARE(spy.count(), 0);

@@ -85,8 +85,8 @@ jobs:
           cmake -S . -B build/release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
             -DCALIBURN_BUILD_EXAMPLE=OFF -DCALIBURN_BUILD_TESTS=ON
-          cmake --build build/release --target CaliburnLoggingTests
-          ctest --test-dir build/release -R '^logging$' --output-on-failure
+          cmake --build build/release --target CaliburnLoggingTests CaliburnFrameworkLoggingTests
+          ctest --test-dir build/release -R '^(logging|framework_logging)$' --output-on-failure
 
       - name: 保存测试报告与配置日志
         if: ${{ !cancelled() }}

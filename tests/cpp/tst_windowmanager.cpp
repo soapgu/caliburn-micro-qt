@@ -329,7 +329,7 @@ private slots:
         auto vm = std::make_unique<DialogProbe>(); auto *probe = vm.get(); probe->failGuard = true;
         int checks = 0; probe->checkCounter = &checks;
         auto future = manager.showDialogAsync(std::move(vm), &requester);
-        QTest::ignoreMessage(QtWarningMsg, "WindowConductor：关闭守卫失败： 守卫失败");
+        QTest::ignoreMessage(QtWarningMsg, "WindowConductor: close guard failed: 守卫失败");
         probe->tryClose(true); QTRY_COMPARE(probe->checks, 1);
         QVERIFY(!future.isFinished()); probe->failGuard = false;
         QQmlComponent component(qmlEngine(owner));
@@ -554,7 +554,7 @@ private slots:
             QVERIFY(manager->busy() && window->isVisible());
             QCOMPARE(completed.count(), 0);
             page->activate();
-            QTest::ignoreMessage(QtWarningMsg, detailPage ? "Detail：退出确认失败" : "Home：重置确认失败");
+            QTest::ignoreMessage(QtWarningMsg, detailPage ? "Detail: exit confirmation failed" : "Home: reset confirmation failed");
             openConfirmation(); // 新候选被忙状态拒绝，不能覆盖原弹窗引用。
             if (detailPage) QTRY_COMPARE(decisions, 1);
             else QTRY_VERIFY(!home.resetPending());
@@ -607,7 +607,7 @@ private slots:
         QCOMPARE(windows->cancellations, 1);
         QVERIFY(!home.resetPending()); QCOMPARE(home.count(), 2);
         home.activate(); home.reset();
-        QTest::ignoreMessage(QtWarningMsg, "Home：重置确认失败"); windows->fail();
+        QTest::ignoreMessage(QtWarningMsg, "Home: reset confirmation failed"); windows->fail();
         QTRY_VERIFY(!home.resetPending()); QCOMPARE(home.count(), 2);
         home.reset(); windows->complete(true); QTRY_COMPARE(home.count(), 0);
     }

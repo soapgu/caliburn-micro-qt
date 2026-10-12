@@ -1,3 +1,4 @@
+#include "FrameworkLog.h"
 #include <CaliburnMicroQt/ConductorCollectionOneActiveBase.h>
 #include <CaliburnMicroQt/ScreenExtensions.h>
 #include <QQmlEngine>
@@ -23,21 +24,21 @@ QVariantList ConductorCollectionOneActiveBase::items() const
 bool ConductorCollectionOneActiveBase::validateItemChange(ViewModelBase *item) const
 {
     if (item->parent() || item->thread() != thread()) {
-        qWarning("Collection.OneActive：接管对象必须无父对象且位于同一线程");
+        qCWarning(FrameworkLog::conductor, "Collection.OneActive: adopted item must have no QObject parent and belong to the conductor thread");
         return false;
     }
     for (auto *ancestor = static_cast<const QObject *>(this); ancestor; ancestor = ancestor->parent()) {
         if (ancestor == item) {
-            qWarning("Collection.OneActive：不能接管自身或祖先对象");
+            qCWarning(FrameworkLog::conductor, "Collection.OneActive: cannot adopt itself or an ancestor");
             return false;
         }
     }
     if (auto *activator = qobject_cast<IActivate *>(item); activator && activator->isActive()) {
-        qWarning("Collection.OneActive：不能接管已经激活的对象");
+        qCWarning(FrameworkLog::conductor, "Collection.OneActive: cannot adopt an active item");
         return false;
     }
     if (hasLogicalParent(item)) {
-        qWarning("Collection.OneActive：不能接管已有逻辑 Parent 的对象");
+        qCWarning(FrameworkLog::conductor, "Collection.OneActive: cannot adopt an item with a logical parent");
         return false;
     }
     return true;
@@ -45,6 +46,7 @@ bool ConductorCollectionOneActiveBase::validateItemChange(ViewModelBase *item) c
 
 void ConductorCollectionOneActiveBase::addMember(ViewModelBase *item)
 {
+    qCDebug(FrameworkLog::conductor).noquote() << "Adding collection member:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item);
     m_items.append(item);
     m_destroyed.insert(item, connect(item, &QObject::destroyed, this, [this, item] {
         memberDestroyed(item);
@@ -56,6 +58,7 @@ void ConductorCollectionOneActiveBase::addMember(ViewModelBase *item)
 void ConductorCollectionOneActiveBase::removeMember(ViewModelBase *item)
 {
     if (!m_items.removeOne(item)) return;
+    qCDebug(FrameworkLog::conductor).noquote() << "Removing collection member:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item);
     QObject::disconnect(m_destroyed.take(item));
     setLogicalParent(item, nullptr);
     emit itemsChanged();
@@ -73,6 +76,7 @@ void ConductorCollectionOneActiveBase::adoptItem(std::unique_ptr<ViewModelBase> 
 
 void ConductorCollectionOneActiveBase::activateItem(ViewModelBase *item)
 {
+    qCDebug(FrameworkLog::conductor).noquote() << "Activation requested:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item);
     // Qt 所有权边界：新对象由 unique_ptr 接管；原先接管的对象可再次加入集合。
     if (item && item->parent() != this) {
         onActivationProcessed(item, false);
@@ -90,6 +94,7 @@ void ConductorCollectionOneActiveBase::activateItem(ViewModelBase *item)
 
 void ConductorCollectionOneActiveBase::deactivateItem(ViewModelBase *item, bool close)
 {
+    qCDebug(FrameworkLog::conductor).noquote() << "Deactivation requested:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item) << "close:" << close;
     if (!item || item->parent() != this) return;
     if (!close) { ScreenExtensions::tryDeactivate(item, false); return; }
     QPointer<ViewModelBase> target = item;
@@ -132,6 +137,8 @@ bool ConductorCollectionOneActiveBase::closeMember(ViewModelBase *item)
 
 void ConductorCollectionOneActiveBase::memberDestroyed(ViewModelBase *identity)
 {
+    qCDebug(FrameworkLog::conductor).noquote() << "Destroyed collection member removed:" << FrameworkLog::identity(this)
+                                            << "address:" << static_cast<const void *>(identity);
     m_destroyed.remove(identity);
     m_items.removeOne(identity);
     emit itemsChanged();

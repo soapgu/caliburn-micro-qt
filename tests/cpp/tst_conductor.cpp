@@ -280,13 +280,13 @@ private slots:
         QObject parent;
         auto parented = std::make_unique<PlainVm>();
         parented->setParent(&parent);
-        QTest::ignoreMessage(QtWarningMsg, "Conductor：接管对象必须无父对象且与 Conductor 位于同一线程");
+        QTest::ignoreMessage(QtWarningMsg, "Conductor: adopted item must have no QObject parent and belong to the conductor thread");
         conductor.activateItem(std::move(parented));
         QVERIFY(parented);
         QCOMPARE(parented->parent(), &parent);
         auto active = std::make_unique<TrackedScreen>();
         active->activate();
-        QTest::ignoreMessage(QtWarningMsg, "Conductor：不能接管已经激活的对象");
+        QTest::ignoreMessage(QtWarningMsg, "Conductor: cannot adopt an active item");
         conductor.activateItem(std::move(active));
         QVERIFY(active);
         QVERIFY(active->isActive());
@@ -299,12 +299,12 @@ private slots:
     {
         auto self = std::make_unique<Conductor<>>();
         auto *selfRaw = self.get();
-        QTest::ignoreMessage(QtWarningMsg, "Conductor：不能接管自身或祖先对象");
+        QTest::ignoreMessage(QtWarningMsg, "Conductor: cannot adopt itself or an ancestor");
         selfRaw->activateItem(std::move(self));
         QCOMPARE(self.get(), selfRaw);
         auto ancestor = std::make_unique<Conductor<>>();
         auto *child = new Conductor<>(ancestor.get());
-        QTest::ignoreMessage(QtWarningMsg, "Conductor：不能接管自身或祖先对象");
+        QTest::ignoreMessage(QtWarningMsg, "Conductor: cannot adopt itself or an ancestor");
         child->activateItem(std::move(ancestor));
         QVERIFY(ancestor);
         QCOMPARE(child->parent(), ancestor.get());
@@ -322,7 +322,7 @@ private slots:
         foreignThread.start();
         QMetaObject::invokeMethod(&context, [&] { foreign = new PlainVm; }, Qt::BlockingQueuedConnection);
         std::unique_ptr<PlainVm> foreignOwner(foreign);
-        QTest::ignoreMessage(QtWarningMsg, "Conductor：接管对象必须无父对象且与 Conductor 位于同一线程");
+        QTest::ignoreMessage(QtWarningMsg, "Conductor: adopted item must have no QObject parent and belong to the conductor thread");
         conductor.activateItem(std::move(foreignOwner));
         foreignRejected = bool(foreignOwner);
         const bool retained = foreignOwner.get() == foreign;

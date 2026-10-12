@@ -10,7 +10,7 @@ class ConductorBase : public ScreenViewModel, public IConductor
     Q_OBJECT
     Q_INTERFACES(IParent IConductor)
     QML_ELEMENT
-    QML_UNCREATABLE("抽象 Conductor 不能直接创建")
+    QML_UNCREATABLE("Abstract conductor cannot be created directly")
 
 public:
     explicit ConductorBase(QObject *parent = nullptr);

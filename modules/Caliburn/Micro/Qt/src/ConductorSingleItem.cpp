@@ -1,3 +1,4 @@
+#include "FrameworkLog.h"
 #include <CaliburnMicroQt/ConductorSingleItem.h>
 #include <CaliburnMicroQt/ScreenExtensions.h>
 #include <QQmlEngine>
@@ -15,22 +16,22 @@ bool ConductorSingleItem::validateItemChange(ViewModelBase *item) const
     if (!item)
         return true;
     if (item->parent() || item->thread() != thread()) {
-        qWarning("Conductor：接管对象必须无父对象且与 Conductor 位于同一线程");
+        qCWarning(FrameworkLog::conductor, "Conductor: adopted item must have no QObject parent and belong to the conductor thread");
         return false;
     }
     // 防止接管自身或拥有当前 Conductor 的祖先，形成 QObject 父树环。
     for (auto *ancestor = static_cast<const QObject *>(this); ancestor; ancestor = ancestor->parent()) {
         if (ancestor == item) {
-            qWarning("Conductor：不能接管自身或祖先对象");
+            qCWarning(FrameworkLog::conductor, "Conductor: cannot adopt itself or an ancestor");
             return false;
         }
     }
     if (auto *activator = qobject_cast<IActivate *>(item); activator && activator->isActive()) {
-        qWarning("Conductor：不能接管已经激活的对象");
+        qCWarning(FrameworkLog::conductor, "Conductor: cannot adopt an active item");
         return false;
     }
     if (hasLogicalParent(item)) {
-        qWarning("Conductor：不能接管已有逻辑 Parent 的对象");
+        qCWarning(FrameworkLog::conductor, "Conductor: cannot adopt an item with a logical parent");
         return false;
     }
     return true;
@@ -54,6 +55,7 @@ void ConductorSingleItem::adoptAndActivate(std::unique_ptr<ViewModelBase> item)
 
 void ConductorSingleItem::activateItem(ViewModelBase *item)
 {
+    qCDebug(FrameworkLog::conductor).noquote() << "Activation requested:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item);
     // 旧对象可由业务再次选择；从未接管的新对象必须走 unique_ptr 入口。
     if (item && (item->parent() != this
         || (qobject_cast<IChild *>(item) && qobject_cast<IChild *>(item)->parentViewModel() != this))) {
@@ -78,6 +80,7 @@ void ConductorSingleItem::activateItem(ViewModelBase *item)
 
 void ConductorSingleItem::deactivateItem(ViewModelBase *item, bool close)
 {
+    qCDebug(FrameworkLog::conductor).noquote() << "Deactivation requested:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item) << "close:" << close;
     if (!item || item != activeItem()) return;
     QPointer<ViewModelBase> target = item;
     checkClose({item}, [this, target, close](bool allowed) {

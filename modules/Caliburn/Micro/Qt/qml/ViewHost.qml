@@ -12,7 +12,7 @@ FocusScope {
         loading.acceptedItem = null
         loading.loadError = message
         loader.source = ""
-        console.warn(message)
+        state.reportLoadFailed(message)
     }
 
     function reloadView() {
@@ -24,10 +24,11 @@ FocusScope {
             return
         const url = ViewRegistry.resolve(state.model)
         if (url.toString().length === 0) {
-            fail("ViewHost：VM 缺少有效 View 映射")
+            fail("ViewHost: model has no valid view mapping")
             return
         }
         loading.requestedUrl = url.toString()
+        state.reportLoadStarted(url)
         loader.setSource(url, { viewModel: state.model })
     }
 
@@ -57,18 +58,19 @@ FocusScope {
         asynchronous: false
         onStatusChanged: {
             if (status === Loader.Error)
-                root.fail("ViewHost：QML View 加载失败 " + loading.requestedUrl)
+                root.fail("ViewHost: QML view loading failed " + loading.requestedUrl)
         }
         onLoaded: {
             if (!(item instanceof Item)) {
-                root.fail("ViewHost：View 根对象必须为 Item")
+                root.fail("ViewHost: view root must be an Item")
                 return
             }
             if (!state.matchesView(item)) {
-                root.fail("ViewHost：View 的 viewModel 注入不匹配")
+                root.fail("ViewHost: injected viewModel does not match the model")
                 return
             }
             loading.acceptedItem = item as Item
+            state.reportLoadSucceeded(loading.requestedUrl)
         }
     }
 }

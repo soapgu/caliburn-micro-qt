@@ -266,12 +266,12 @@ private slots:
 
     void rejectsActiveCandidates()
     {
-        checkActiveCandidate<Conductor<>>("Conductor：不能接管已经激活的对象");
-        checkActiveCandidate<Conductor<>::Collection::OneActive>("Collection.OneActive：不能接管已经激活的对象");
+        checkActiveCandidate<Conductor<>>("Conductor: cannot adopt an active item");
+        checkActiveCandidate<Conductor<>::Collection::OneActive>("Collection.OneActive: cannot adopt an active item");
         Conductor<>::Collection::OneActive collection;
         auto item = std::make_unique<ActivateOnlyVm>();
         item->activate();
-        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的对象");
+        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive: cannot adopt an active item");
         QVERIFY(!collection.addItem(std::move(item)));
         QVERIFY(item);
         QVERIFY(collection.items().isEmpty());

@@ -38,13 +38,13 @@ protected:
     {
         static_assert(std::is_base_of_v<ScreenViewModel, T>, "根 VM 必须继承 ScreenViewModel");
         if (m_state != State::Configuring)
-            return fail(QStringLiteral("根工厂只能在 configure 中登记"));
+            return fail(QStringLiteral("Root factories can only be registered during configure"));
         const auto *type = &T::staticMetaObject;
         if (m_factories.contains(type))
-            return fail(QStringLiteral("根工厂重复登记"));
+            return fail(QStringLiteral("Duplicate root factory registration"));
 
         if (!factory)
-            return fail(QStringLiteral("根工厂不能为空"));
+            return fail(QStringLiteral("Root factory must not be empty"));
 
         m_factories.insert(type, std::move(factory));
         return true;

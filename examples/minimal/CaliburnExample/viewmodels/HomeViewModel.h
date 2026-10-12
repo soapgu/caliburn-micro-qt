@@ -13,7 +13,7 @@ class HomeViewModel : public ScreenViewModel
 {
     Q_OBJECT
     QML_ELEMENT
-    QML_UNCREATABLE("由示例应用装配层创建")
+    QML_UNCREATABLE("Created by the example composition layer")
     Q_PROPERTY(bool resetPending READ resetPending NOTIFY resetPendingChanged)
     Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_PROPERTY(QString message READ message NOTIFY countChanged)

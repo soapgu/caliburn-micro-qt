@@ -11,7 +11,7 @@ class WindowManager : public IWindowManager
 {
     Q_OBJECT
     QML_ELEMENT
-    QML_UNCREATABLE("窗口服务由框架创建")
+    QML_UNCREATABLE("Window service is created by the framework")
 public:
     explicit WindowManager(QObject *parent = nullptr);
     ~WindowManager() override;

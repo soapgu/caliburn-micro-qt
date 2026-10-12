@@ -18,7 +18,7 @@ class ShellViewModel : public Conductor<ScreenViewModel>::Collection::OneActive
 {
     Q_OBJECT
     QML_ELEMENT
-    QML_UNCREATABLE("由示例应用装配层创建")
+    QML_UNCREATABLE("Created by the example composition layer")
     Q_PROPERTY(HomeViewModel *home READ home NOTIFY itemsChanged)
     Q_PROPERTY(DetailViewModel *detail READ detail NOTIFY itemsChanged)
     Q_PROPERTY(bool canShowDetail READ canShowDetail NOTIFY navigationChanged)

@@ -1,3 +1,4 @@
+#include "FrameworkLog.h"
 #include <CaliburnMicroQt/DefaultCloseStrategy.h>
 #include <CaliburnMicroQt/ViewModelBase.h>
 #include <QPointer>
@@ -26,6 +27,7 @@ struct Evaluation : std::enable_shared_from_this<Evaluation>
                 if (partialClose)
                     for (const auto &item : closable)
                         if (item) available.append(item.data());
+                qCDebug(FrameworkLog::conductor) << "Close strategy completed; allowed:" << result << "closable items:" << available.size();
                 complete(result, available);
                 break;
             }
@@ -35,7 +37,10 @@ struct Evaluation : std::enable_shared_from_this<Evaluation>
             if (!guard) { closable.append(current); continue; }
             waiting = true;
             auto self = shared_from_this();
-            guard->canClose([self, current](bool allowed) {
+            const auto identity = FrameworkLog::identity(current.data());
+            qCDebug(FrameworkLog::conductor).noquote() << "Evaluating close guard:" << identity;
+            guard->canClose([self, current, identity](bool allowed) {
+                qCDebug(FrameworkLog::conductor).noquote() << "Close guard resolved:" << identity << "alive:" << bool(current) << "allowed:" << allowed;
                 self->result = self->result && current && allowed;
                 if (current && allowed) self->closable.append(current);
                 self->waiting = false;

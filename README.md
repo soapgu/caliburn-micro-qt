@@ -175,7 +175,7 @@ Home 和 Detail 显式接收非空 shared_ptr<CounterService>，唯一计数由�
 
 example 与测试通过 CMake FetchContent 自动获取 spdlog v1.17.0 和 Boost.Ext.DI v1.3.2，固定版本并校验 SHA-256，无需系统安装或设置 `spdlog_DIR`。首次配置需访问官方 GitHub 归档及单头文件，源码及构建产物默认保存在构建目录的 `_deps` 中；仅框架构建不获取这两个依赖。离线使用方法见 [日志接入](docs/日志接入.md#依赖下载与离线构建)。
 
-example 使用 `caliburn.example` 分类，Debug 构建默认输出 Debug 及以上，其余构建默认输出 Info 及以上；包含类/函数与文件行号。控制台和轮转文件同步输出，启动时打印文件位置；Qt/QML 诊断也进入同一出口。过滤和格式仍使用 `QT_LOGGING_RULES`、`QT_MESSAGE_PATTERN`，详见 [日志接入](docs/日志接入.md)。
+example 使用 `caliburn.example` 分类，框架按职责使用 `caliburn.microqt.*` 分类；项目维护的日志正文及异常诊断统一使用英文，界面保持中文。Debug 构建默认输出 Debug 及以上，其余构建默认输出 Info 及以上；包含类/函数与文件行号。控制台和轮转文件同步输出，启动时打印文件位置；Qt/QML 诊断也进入同一出口。过滤和格式仍使用 `QT_LOGGING_RULES`、`QT_MESSAGE_PATTERN`，详见 [日志接入](docs/日志接入.md)。
 
 需要 Qt 6.8.3 及以上（框架需要 Core/Qml/Quick/QuickControls2，测试另需 Test）、CMake 3.21 及以上、Ninja 和支持 C++17 的编译器。将 QT_ROOT 设置为本机 Qt kit 的根目录；公共预设不包含个人路径。
 
@@ -253,7 +253,7 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 | 5B．Detail 退出确认与关闭守卫 | Detail 确认、关闭策略、父级当前项/集合成员许可、直接回调及 void 入口。 | 已实现；本机验收通过，麒麟待验证 |
 | 5C．重构 | 统一窗口管理、tryClose、生命周期分派及 Conductor 结构。 | 已完成，历史验收保留 |
 | 6A．搭建日志体系 | Qt 分类日志、应用层 spdlog 控制台与轮转文件输出；FetchContent 管理示例依赖。 | 已实现，验收状态见 [6A 记录](docs/验收/6A验收记录.md) |
-| 6B．打印框架层日志 | 统一框架诊断并增加关键流程日志。 | 未实施，依赖 6A |
+| 6B．打印框架层日志 | 分类诊断与关键流程日志；框架和示例日志统一英文。 | 已实现并完成本机验收，见 [6B 记录](docs/验收/6B验收记录.md) |
 | 7．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
 
 第四批阶段与历史验收分别记录：

@@ -9,6 +9,8 @@ qt_add_qml_module(CaliburnMicroQt
     CLASS_NAME CaliburnMicroQtPlugin
     RESOURCE_PREFIX /qt/qml
     SOURCES
+        src/FrameworkLog.h
+        src/FrameworkLog.cpp
         include/CaliburnMicroQt/BootstrapperBase.h
         src/BootstrapperBase.cpp
         src/WindowConductor.h

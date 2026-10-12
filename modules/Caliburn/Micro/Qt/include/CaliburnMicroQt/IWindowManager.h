@@ -10,7 +10,7 @@ class IWindowManager : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    QML_UNCREATABLE("窗口服务由框架创建")
+    QML_UNCREATABLE("Window service is created by the framework")
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(ScreenViewModel *currentDialog READ currentDialog NOTIFY currentDialogChanged)
 public:

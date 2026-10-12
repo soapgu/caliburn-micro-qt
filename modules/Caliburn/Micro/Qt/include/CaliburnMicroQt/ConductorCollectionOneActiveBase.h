@@ -12,7 +12,7 @@ class ConductorCollectionOneActiveBase : public ConductorBaseWithActiveItem
 {
     Q_OBJECT
     QML_ELEMENT
-    QML_UNCREATABLE("集合型 Conductor 由 C++ 应用装配层创建")
+    QML_UNCREATABLE("Collection conductor is created by the C++ composition layer")
     Q_PROPERTY(QVariantList items READ items NOTIFY itemsChanged)
 
 public:

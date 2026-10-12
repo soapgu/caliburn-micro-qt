@@ -8,7 +8,7 @@ class ConductorBaseWithActiveItem : public ConductorBase
 {
     Q_OBJECT
     QML_ELEMENT
-    QML_UNCREATABLE("抽象活动项 Conductor 不能直接创建")
+    QML_UNCREATABLE("Abstract active-item conductor cannot be created directly")
     Q_PROPERTY(ViewModelBase *activeItem READ activeItem WRITE setActiveItem NOTIFY activeItemChanged)
 
 public:

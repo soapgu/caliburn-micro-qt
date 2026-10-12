@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QObject>
-#include <QDebug>
 #include <QtQmlIntegration/qqmlintegration.h>
 #include <type_traits>
 
@@ -9,7 +8,7 @@ class ViewModelBase : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    QML_UNCREATABLE("ViewModel 由 C++ 应用装配层创建")
+    QML_UNCREATABLE("ViewModel is created by the C++ composition layer")
 
 public:
     explicit ViewModelBase(QObject *parent = nullptr);
@@ -23,7 +22,7 @@ protected:
                       "Owner 必须继承 ViewModelBase");
         auto *owner = qobject_cast<Owner *>(this);
         if (!notifySignal || !owner) {
-            qWarning("ViewModelBase::setAndNotify: 信号为空或对象类型不兼容");
+            reportInvalidNotify();
             return false;
         }
         if (field == value)
@@ -32,4 +31,7 @@ protected:
         (owner->*notifySignal)();
         return true;
     }
+
+private:
+    void reportInvalidNotify() const;
 };

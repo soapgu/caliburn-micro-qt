@@ -1,3 +1,4 @@
+#include "FrameworkLog.h"
 #include <CaliburnMicroQt/WindowManager.h>
 #include <CaliburnMicroQt/ViewRegistry.h>
 #include "WindowConductor.h"
@@ -16,7 +17,7 @@ constexpr auto ownerProperty = "_caliburnWindowManager";
 
 bool failWindow(const QString &message)
 {
-    qWarning().noquote() << "WindowManager：" << message;
+    qCWarning(FrameworkLog::window).noquote() << "WindowManager:" << message;
     return false;
 }
 }
@@ -35,17 +36,18 @@ struct WindowManager::ManagedWindow
 bool WindowManager::showWindow(const QVariant &viewModel)
 {
     if (QThread::currentThread() != thread())
-        return failWindow(QStringLiteral("显示普通窗口必须位于服务线程"));
+        return failWindow(QStringLiteral("Showing a window requires the service thread"));
     auto *model = qobject_cast<ScreenViewModel *>(viewModel.value<QObject *>());
     if (!model || model->thread() != thread() || model->parentViewModel())
-        return failWindow(QStringLiteral("普通窗口 VM 必须为同线程且无逻辑 Parent 的 Screen"));
+        return failWindow(QStringLiteral("Window model must be a Screen on the service thread without a logical parent"));
     if (m_managedWindow || m_window || busy() || m_destroying)
-        return failWindow(QStringLiteral("已有普通窗口、所属窗口或尚未完成的请求"));
+        return failWindow(QStringLiteral("A managed window, owner window or pending request already exists"));
+    qCDebug(FrameworkLog::window).noquote() << "Showing window; model:" << FrameworkLog::identity(model);
     const QUrl url = ViewRegistry::viewUrl(model);
     if (url.isEmpty())
-        return failWindow(QStringLiteral("未找到普通窗口 View 映射"));
+        return failWindow(QStringLiteral("No view mapping found for the window model"));
     if (url.scheme() != QStringLiteral("qrc") && !url.isLocalFile())
-        return failWindow(QStringLiteral("普通窗口 View 必须使用本地或 qrc 地址"));
+        return failWindow(QStringLiteral("Window view must use a local or qrc URL"));
 
     m_managedWindow = std::make_unique<ManagedWindow>();
     auto &managed = *m_managedWindow;
@@ -68,10 +70,10 @@ bool WindowManager::showWindow(const QVariant &viewModel)
         const auto roots = managed.engine->rootObjects();
         auto *window = roots.size() == 1 ? qobject_cast<QQuickWindow *>(roots.first()) : nullptr;
         if (!window)
-            return fail(QStringLiteral("普通窗口 View 加载失败或根对象不是窗口：%1").arg(url.toString()));
+            return fail(QStringLiteral("Window view failed to load or its root is not a window: %1").arg(url.toString()));
         managed.window = window;
         if (!attachToWindow(window))
-            return fail(QStringLiteral("普通窗口所属窗口登记失败"));
+            return fail(QStringLiteral("Failed to attach the managed window"));
         managed.bridge = std::make_unique<WindowConductor>(window, model);
         connect(managed.bridge.get(), &WindowConductor::windowClosed,
                 this, &WindowManager::closeManagedWindow);
@@ -82,7 +84,11 @@ bool WindowManager::showWindow(const QVariant &viewModel)
         };
         connect(model, &QObject::destroyed, managed.bridge.get(), releaseLater);
         connect(window, &QObject::destroyed, managed.bridge.get(), releaseLater);
+        const auto windowIdentity = FrameworkLog::identity(window);
+        const auto modelIdentity = FrameworkLog::identity(model);
         window->show();
+        qCInfo(FrameworkLog::window).noquote() << "Window shown:" << windowIdentity
+                                             << "model:" << modelIdentity << "URL:" << url.toString();
         return true;
     } catch (...) {
         releaseWindows();
@@ -96,10 +102,10 @@ void WindowManager::closeManagedWindow() noexcept
     m_managedWindow->closeAttempted = true;
     try { m_managedWindow->model->deactivate(true); }
     catch (const std::exception &error) {
-        qCritical().noquote() << "WindowManager：关闭窗口 VM 失败：" << error.what();
+        qCCritical(FrameworkLog::window).noquote() << "WindowManager: model close failed:" << error.what();
         emit windowCleanupFailed();
     } catch (...) {
-        qCritical("WindowManager：关闭窗口 VM 发生未知异常");
+        qCCritical(FrameworkLog::window, "WindowManager: model close failed with an unknown exception");
         emit windowCleanupFailed();
     }
 }
@@ -107,7 +113,7 @@ void WindowManager::closeManagedWindow() noexcept
 void WindowManager::prepareForShutdown()
 {
     if (QThread::currentThread() != thread()) {
-        failWindow(QStringLiteral("窗口退出准备必须位于服务线程"));
+        failWindow(QStringLiteral("Shutdown preparation requires the service thread"));
         return;
     }
     if (m_managedWindow && m_managedWindow->bridge) m_managedWindow->bridge->detach();
@@ -117,11 +123,13 @@ void WindowManager::prepareForShutdown()
 void WindowManager::releaseWindows()
 {
     if (QThread::currentThread() != thread()) {
-        failWindow(QStringLiteral("窗口资源释放必须位于服务线程"));
+        failWindow(QStringLiteral("Window release requires the service thread"));
         return;
     }
     prepareForShutdown();
     if (!m_managedWindow) return;
+    qCDebug(FrameworkLog::window).noquote() << "Releasing managed window resources; model:"
+                                          << FrameworkLog::identity(m_managedWindow->model.data());
     m_managedWindow->bridge.reset();
     m_managedWindow->engine.reset();
     // 强制释放时 View 先于 VM 收尾；Bootstrapper 已关闭过的根不会重复关闭。
@@ -144,6 +152,7 @@ struct WindowManager::Request
     bool closing = false;
     bool closePending = false;
     bool lifecycleAttempted = false;
+    QString modelIdentity;
 };
 
 WindowManager::WindowManager(QObject *parent) : IWindowManager(parent) {}
@@ -158,30 +167,31 @@ bool WindowManager::attachToWindow(QQuickWindow *window, QQuickItem *fallbackFoc
 {
     if (QThread::currentThread() != thread() || !window || window->thread() != thread()
             || (fallbackFocusItem && fallbackFocusItem->thread() != thread()) || m_destroying) {
-        qWarning("WindowManager：宿主窗口或线程无效");
+        qCWarning(FrameworkLog::window, "WindowManager: invalid owner window or thread");
         return false;
     }
     if (m_window == window) return true;
     if (m_managedWindow && m_managedWindow->window && m_managedWindow->window != window)
-        return failWindow(QStringLiteral("须先释放自建普通窗口，再登记其他窗口"));
+        return failWindow(QStringLiteral("Release the managed window before attaching another owner window"));
     if (m_window || busy()) {
-        qWarning("WindowManager：已有所属窗口或尚未完成的请求，须先解除挂载");
+        qCWarning(FrameworkLog::window, "WindowManager: detach the current owner window before attaching another one");
         return false;
     }
     auto *engine = qmlEngine(window);
     if (!engine || engine->thread() != thread()) {
-        qWarning("WindowManager：窗口没有可用的 QML 引擎");
+        qCWarning(FrameworkLog::window, "WindowManager: window has no usable QML engine");
         return false;
     }
     if (fallbackFocusItem && fallbackFocusItem->window() != window) {
-        qWarning("WindowManager：后备焦点必须属于宿主窗口");
+        qCWarning(FrameworkLog::window, "WindowManager: fallback focus item must belong to the owner window");
         return false;
     }
     if (window->property(ownerProperty).value<QObject *>()) {
-        qWarning("WindowManager：目标窗口已关联窗口服务");
+        qCWarning(FrameworkLog::window, "WindowManager: target window already has a window service");
         return false;
     }
     window->setProperty(ownerProperty, QVariant::fromValue(static_cast<QObject *>(this)));
+    qCDebug(FrameworkLog::window).noquote() << "Owner window attached:" << FrameworkLog::identity(window);
     m_window = window;
     m_engine = engine;
     m_fallbackFocus = fallbackFocusItem ? fallbackFocusItem : window->contentItem();
@@ -193,9 +203,10 @@ bool WindowManager::attachToWindow(QQuickWindow *window, QQuickItem *fallbackFoc
 void WindowManager::detachFromWindow()
 {
     if (QThread::currentThread() != thread()) {
-        qWarning("WindowManager：解除挂载必须位于服务线程");
+        qCWarning(FrameworkLog::window, "WindowManager: detaching requires the service thread");
         return;
     }
+    if (m_window) qCDebug(FrameworkLog::window).noquote() << "Owner window detached:" << FrameworkLog::identity(m_window.data());
     disconnect(m_engineDestroyed);
     disconnect(m_windowDestroyed);
     if (m_window && m_window->property(ownerProperty).value<QObject *>() == this)
@@ -215,27 +226,30 @@ ScreenViewModel *WindowManager::currentDialog() const
 QFuture<DialogResult> WindowManager::showDialogAsync(
         std::unique_ptr<ScreenViewModel> vm, QObject *requester)
 {
+    qCDebug(FrameworkLog::window) << "Dialog requested";
     auto request = std::make_unique<Request>();
     request->promise.start();
     auto future = request->promise.future();
     auto reject = [&](std::exception_ptr error) {
+        qCWarning(FrameworkLog::window).noquote() << "Dialog request rejected:" << FrameworkLog::exceptionMessage(error);
         request->promise.setException(error);
         request->promise.finish();
         return future;
     };
     if (vm && vm->thread() != thread()) {
         vm.release()->deleteLater();
-        return reject(std::make_exception_ptr(std::invalid_argument("WindowManager：弹窗 VM 线程不匹配")));
+        return reject(std::make_exception_ptr(std::invalid_argument("WindowManager: dialog model belongs to another thread")));
     }
     if (!vm || !requester || vm->parent() || vm->parentViewModel() || vm->isActive()
             || vm->thread() != thread() || requester->thread() != thread())
-        return reject(std::make_exception_ptr(std::invalid_argument("WindowManager：弹窗 VM 或请求者无效")));
+        return reject(std::make_exception_ptr(std::invalid_argument("WindowManager: invalid dialog model or requester")));
     if (busy() || m_destroying)
-        return reject(std::make_exception_ptr(std::runtime_error("WindowManager：已有弹窗请求")));
+        return reject(std::make_exception_ptr(std::runtime_error("WindowManager: a dialog request is already pending")));
     if (!m_window || !m_engine)
-        return reject(std::make_exception_ptr(std::runtime_error("WindowManager：没有可用所属窗口")));
+        return reject(std::make_exception_ptr(std::runtime_error("WindowManager: no usable owner window")));
     if (ViewRegistry::viewUrl(vm.get()).isEmpty())
-        return reject(std::make_exception_ptr(std::runtime_error("WindowManager：弹窗 VM 缺少 View 映射")));
+        return reject(std::make_exception_ptr(std::runtime_error("WindowManager: dialog model has no view mapping")));
+    request->modelIdentity = FrameworkLog::identity(vm.get());
     request->requester = requester;
     request->vm = vm.get();
     request->previousFocus = m_window->activeFocusItem();
@@ -315,6 +329,8 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
             window->requestActivate();
             if (auto *view = window->property("dialogItem").value<QQuickItem *>())
                 view->forceActiveFocus(Qt::PopupFocusReason);
+            qCInfo(FrameworkLog::window).noquote() << "Dialog shown:" << FrameworkLog::identity(window)
+                                                 << "model:" << m_request->modelIdentity;
             emit currentDialogChanged();
             if (m_request->closePending) m_request->bridge->requestClose();
         }
@@ -359,10 +375,18 @@ void WindowManager::finish(bool restoreFocus)
             m_window->requestActivate();
             auto *focus = previous && previous->window() == m_window && previous->isVisible()
                     && previous->isEnabled() ? previous.data() : m_fallbackFocus.data();
-            if (focus && focus->isVisible() && focus->isEnabled())
+            if (focus && focus->isVisible() && focus->isEnabled()) {
+                qCDebug(FrameworkLog::window).noquote() << "Restoring focus:" << FrameworkLog::identity(focus);
                 focus->forceActiveFocus(Qt::PopupFocusReason);
+            }
         }, Qt::QueuedConnection);
     }
+    if (request->error)
+        qCWarning(FrameworkLog::window).noquote() << "Dialog failed:" << request->modelIdentity
+                                               << "reason:" << FrameworkLog::exceptionMessage(request->error);
+    else
+        qCInfo(FrameworkLog::window).noquote() << "Dialog completed:" << request->modelIdentity
+                                            << "result:" << (request->result ? (*request->result ? "accepted" : "rejected") : "cancelled");
     m_finishing = false;
     emit currentDialogChanged();
     emit busyChanged();

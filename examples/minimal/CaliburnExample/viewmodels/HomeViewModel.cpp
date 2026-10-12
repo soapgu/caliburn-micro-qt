@@ -1,3 +1,4 @@
+#include "ExampleLog.h"
 #include "HomeViewModel.h"
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
 #include <stdexcept>
@@ -8,9 +9,9 @@ HomeViewModel::HomeViewModel(std::shared_ptr<CounterService> counterService,
     : m_counterService(std::move(counterService)), m_windowManager(std::move(windowManager))
 {
     if (!m_counterService)
-        throw std::invalid_argument("Home 要求非空的计数服务");
+        throw std::invalid_argument("Home requires a non-null counter service");
     if (!m_windowManager)
-        throw std::invalid_argument("Home 要求非空的窗口服务");
+        throw std::invalid_argument("Home requires a non-null window service");
     m_lastCanIncrement = canIncrement();
     m_lastCanAddTwo = canAddTwo();
     m_lastCanReset = canReset();
@@ -57,11 +58,11 @@ void HomeViewModel::reset()
             if (generation != m_resetGeneration)
                 return;
             setResetPending(false);
-            qWarning("Home：重置确认失败");
+            qCWarning(exampleLog, "Home: reset confirmation failed");
         });
     } catch (...) {
         setResetPending(false);
-        qWarning("Home：重置确认失败");
+        qCWarning(exampleLog, "Home: reset confirmation failed");
     }
 }
 

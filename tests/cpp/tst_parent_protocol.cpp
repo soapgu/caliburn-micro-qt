@@ -473,14 +473,14 @@ private slots:
         auto rejected = std::make_unique<CustomChild>(&owner);
         auto *raw = rejected.get();
         QSignalSpy result(&c, &ConductorBase::activationProcessed);
-        QTest::ignoreMessage(QtWarningMsg, "Conductor：不能接管已有逻辑 Parent 的对象");
+        QTest::ignoreMessage(QtWarningMsg, "Conductor: cannot adopt an item with a logical parent");
         c.activateItem(std::move(rejected));
         QCOMPARE(rejected.get(), raw);
         QCOMPARE(raw->parentViewModel(), &owner);
         QCOMPARE(result.count(), 1);
         QVERIFY(!result.first().at(1).toBool());
         Conductor<>::Collection::OneActive collection;
-        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已有逻辑 Parent 的对象");
+        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive: cannot adopt an item with a logical parent");
         collection.activateItem(std::move(rejected));
         QCOMPARE(rejected.get(), raw);
     }

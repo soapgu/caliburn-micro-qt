@@ -1,3 +1,4 @@
+#include "FrameworkLog.h"
 #include <CaliburnMicroQt/BootstrapperBase.h>
 #include <CaliburnMicroQt/ViewRegistry.h>
 #include <QQmlEngine>
@@ -16,9 +17,9 @@ bool tryCleanup(const char *stage, Action action) noexcept
         action();
         return true;
     } catch (const std::exception &error) {
-        qCritical().noquote() << "Bootstrapper：" << stage << error.what();
+        qCCritical(FrameworkLog::bootstrapper).noquote() << "Bootstrapper:" << stage << error.what();
     } catch (...) {
-        qCritical().noquote() << "Bootstrapper：" << stage << "发生未知异常";
+        qCCritical(FrameworkLog::bootstrapper).noquote() << "Bootstrapper:" << stage << "failed with an unknown exception";
     }
     return false;
 }
@@ -42,63 +43,68 @@ BootstrapperBase::~BootstrapperBase()
 int BootstrapperBase::run()
 {
     if (QThread::currentThread() != m_app.thread() || thread() != m_app.thread()) {
-        fail(QStringLiteral("Bootstrapper 必须在应用主线程创建和运行"));
+        fail(QStringLiteral("Bootstrapper must be created and run on the application thread"));
         return 1;
     }
     if (m_state != State::Ready) {
-        fail(QStringLiteral("同一实例只能运行一次"));
+        fail(QStringLiteral("Bootstrapper can only run once per instance"));
         return 1;
     }
 
+    qCDebug(FrameworkLog::bootstrapper).noquote() << "Starting bootstrapper:" << FrameworkLog::identity(this);
     int exitCode = 1;
     try {
         if (initialize()) {
             m_state = State::Running;
+            qCInfo(FrameworkLog::bootstrapper).noquote() << "Startup completed:" << FrameworkLog::identity(this);
             exitCode = m_app.exec();
         }
     } catch (const std::exception &error) {
-        qCritical().noquote() << "Bootstrapper：启动或运行失败：" << error.what();
+        qCCritical(FrameworkLog::bootstrapper).noquote() << "Bootstrapper: startup or execution failed:" << error.what();
     } catch (...) {
-        fail(QStringLiteral("启动或运行发生未知异常"));
+        fail(QStringLiteral("Startup or execution failed with an unknown exception"));
     }
     // 此时派生类仍然完整；在事件循环返回后释放 QML 对象。
     shutdown(true);
-    return exitCode == 0 && m_cleanupFailed ? 1 : exitCode;
+    const int result = exitCode == 0 && m_cleanupFailed ? 1 : exitCode;
+    qCInfo(FrameworkLog::bootstrapper) << "Bootstrapper exited; exit code:" << result;
+    return result;
 }
 
 bool BootstrapperBase::initialize()
 {
+    qCDebug(FrameworkLog::bootstrapper) << "Configuring application";
     m_state = State::Configuring;
     m_windowManager = std::make_shared<WindowManager>();
     connect(m_windowManager.get(), &WindowManager::windowCleanupFailed, this, [this] { m_cleanupFailed = true; });
     QQmlEngine::setObjectOwnership(m_windowManager.get(), QQmlEngine::CppOwnership);
     if (!configure())
-        return fail(QStringLiteral("configure 失败"));
+        return fail(QStringLiteral("configure failed"));
     if (!ViewRegistry::freeze())
-        return fail(QStringLiteral("ViewRegistry 冻结失败"));
+        return fail(QStringLiteral("ViewRegistry freeze failed"));
     m_state = State::Starting;
     onStartup();
     if (!m_rootDisplayed || m_rootDisplayFailed)
-        return fail(QStringLiteral("onStartup 未成功显示根窗口"));
+        return fail(QStringLiteral("onStartup did not display the root window successfully"));
     return true;
 }
 
 bool BootstrapperBase::createRootViewModel(const QMetaObject *type)
 {
     if (m_state != State::Starting)
-        return fail(QStringLiteral("只能在 onStartup 中显示根窗口"));
+        return fail(QStringLiteral("The root window can only be displayed during onStartup"));
     if (m_displayAttempted)
-        return fail(QStringLiteral("只允许显示一个根窗口"));
+        return fail(QStringLiteral("Only one root window can be displayed"));
     m_displayAttempted = true;
 
     const auto found = m_factories.constFind(type);
     if (found == m_factories.cend())
-        return fail(QStringLiteral("未登记对应的根工厂"));
+        return fail(QStringLiteral("No factory registered for the root type"));
     auto model = (*found)(m_windowManager);
     if (!model)
-        return fail(QStringLiteral("根工厂返回了空对象"));
+        return fail(QStringLiteral("Root factory returned a null model"));
     if (model->parent() || model->thread() != m_app.thread())
-        return fail(QStringLiteral("根 VM 必须无父对象且位于应用主线程"));
+        return fail(QStringLiteral("Root model must have no QObject parent and belong to the application thread"));
 
     m_root = std::move(model);
     connect(m_root.get(), &ScreenViewModel::attemptingDeactivation, this, [this](bool close) {
@@ -119,7 +125,7 @@ void BootstrapperBase::closeRoot() noexcept
     if (!m_root || m_closeAttempted)
         return;
     m_closeAttempted = true;
-    if (!tryCleanup("关闭根 VM", [this] { m_root->deactivate(true); }))
+    if (!tryCleanup("Close root model", [this] { m_root->deactivate(true); }))
         m_cleanupFailed = true;
 }
 
@@ -127,7 +133,7 @@ void BootstrapperBase::notifyExit() noexcept
 {
     if (m_exitNotified) return;
     m_exitNotified = true;
-    if (!tryCleanup("执行 onExit", [this] { onExit(); }))
+    if (!tryCleanup("Execute onExit", [this] { onExit(); }))
         m_cleanupFailed = true;
 }
 
@@ -135,6 +141,7 @@ void BootstrapperBase::shutdown(bool invokeExit) noexcept
 {
     if (m_state == State::Stopping || m_state == State::Stopped)
         return;
+    qCDebug(FrameworkLog::bootstrapper).noquote() << "Releasing application resources:" << FrameworkLog::identity(this);
     m_state = State::Stopping;
     if (m_windowManager) m_windowManager->prepareForShutdown();
     closeRoot();
@@ -149,6 +156,6 @@ void BootstrapperBase::shutdown(bool invokeExit) noexcept
 
 bool BootstrapperBase::fail(const QString &message) const
 {
-    qCritical().noquote() << "Bootstrapper：" << message;
+    qCCritical(FrameworkLog::bootstrapper).noquote() << "Bootstrapper:" << message;
     return false;
 }

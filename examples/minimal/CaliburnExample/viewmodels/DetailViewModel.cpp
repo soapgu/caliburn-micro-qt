@@ -1,3 +1,4 @@
+#include "ExampleLog.h"
 #include "DetailViewModel.h"
 #include <QDebug>
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
@@ -9,9 +10,9 @@ DetailViewModel::DetailViewModel(std::shared_ptr<CounterService> counterService,
     : m_windowManager(std::move(windowManager)), m_counterService(std::move(counterService))
 {
     if (!m_counterService)
-        throw std::invalid_argument("Detail 要求非空的计数服务");
+        throw std::invalid_argument("Detail requires a non-null counter service");
     if (!m_windowManager)
-        throw std::invalid_argument("Detail 要求非空的窗口服务");
+        throw std::invalid_argument("Detail requires a non-null window service");
     connect(m_counterService.get(), &CounterService::countChanged, this, &DetailViewModel::countChanged);
 }
 
@@ -19,8 +20,8 @@ void DetailViewModel::goBack()
 {
     if (!isActive()) return;
     try { tryClose(); }
-    catch (const std::exception &error) { qWarning().noquote() << "Detail 返回失败：" << error.what(); }
-    catch (...) { qWarning("Detail 返回失败：未知异常"); }
+    catch (const std::exception &error) { qCWarning(exampleLog).noquote() << "Detail: navigation back failed:" << error.what(); }
+    catch (...) { qCWarning(exampleLog, "Detail: navigation back failed: unknown exception"); }
 }
 
 void DetailViewModel::canClose(CloseCallback callback)
@@ -34,18 +35,18 @@ void DetailViewModel::canClose(CloseCallback callback)
         if (candidate && m_windowManager->currentDialog() == candidate.data())
             m_confirmation = candidate;
     } catch (...) {
-        qWarning("Detail：退出确认失败");
+        qCWarning(exampleLog, "Detail: exit confirmation failed");
         callback(false);
         return;
     }
     // 先转换窗口失败，再交付许可，避免关闭执行异常被误当成展示失败。
     result.onFailed(this, []() -> DialogResult {
-        qWarning("Detail：退出确认失败");
+        qCWarning(exampleLog, "Detail: exit confirmation failed");
         return false;
     }).then(this, [callback = std::move(callback)](DialogResult decision) {
         try { callback(decision.value_or(false)); }
-        catch (const std::exception &error) { qWarning().noquote() << "Detail：关闭执行失败：" << error.what(); }
-        catch (...) { qWarning("Detail：关闭执行失败：未知异常"); }
+        catch (const std::exception &error) { qCWarning(exampleLog).noquote() << "Detail: close execution failed:" << error.what(); }
+        catch (...) { qCWarning(exampleLog, "Detail: close execution failed: unknown exception"); }
     });
 }
 

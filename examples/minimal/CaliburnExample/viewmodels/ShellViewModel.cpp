@@ -6,11 +6,11 @@ ShellViewModel::ShellViewModel(HomeViewModelFactory homeFactory, DetailViewModel
     : m_homeFactory(std::move(homeFactory)), m_detailFactory(std::move(detailFactory))
 {
     if (!m_homeFactory || !m_detailFactory)
-        throw std::invalid_argument("Shell 要求非空的 Home 与 Detail 工厂");
+        throw std::invalid_argument("Shell requires non-empty Home and Detail factories");
     auto *initial = ensureHome();
     activateItem(initial);
     if (activeItem() != initial)
-        throw std::invalid_argument("Shell 无法选择初始 Home");
+        throw std::invalid_argument("Shell could not select the initial Home");
     connect(this, &ShellViewModel::itemsChanged, this, &ShellViewModel::navigationChanged);
     connect(this, &ShellViewModel::activeItemChanged, this, &ShellViewModel::navigationChanged);
     connect(this, &ShellViewModel::isActiveChanged, this, &ShellViewModel::navigationChanged);
@@ -39,7 +39,7 @@ HomeViewModel *ShellViewModel::ensureHome()
     auto home = m_homeFactory();
     auto *raw = home.get();
     if (!home || !addItem(std::move(home)))
-        throw std::invalid_argument("Shell 工厂必须返回可接管的非空 Home");
+        throw std::invalid_argument("Shell factory must return a non-null adoptable Home");
     return raw;
 }
 
@@ -49,10 +49,10 @@ void ShellViewModel::showDetail()
     if (auto *existing = detail()) { activateItem(existing); return; }
     auto next = m_detailFactory();
     auto *raw = next.get();
-    if (!next) throw std::invalid_argument("Shell 工厂必须返回可接管的非空 Detail");
+    if (!next) throw std::invalid_argument("Shell factory must return a non-null adoptable Detail");
     activateItem(std::move(next));
     if (activeItem() != raw)
-        throw std::invalid_argument("Shell 工厂必须返回可接管的非空 Detail");
+        throw std::invalid_argument("Shell factory must return a non-null adoptable Detail");
 }
 
 bool ShellViewModel::prepareCloseItem(ViewModelBase *item)
@@ -67,7 +67,7 @@ void ShellViewModel::onActivate()
     if (!activeItem() || !items().contains(activeItem())) {
         activateItem(availableHome);
         if (activeItem() != availableHome)
-            throw std::invalid_argument("Shell 无法选择 Home");
+            throw std::invalid_argument("Shell could not select Home");
         // Shell 已活动，集合选择入口已经完成子项激活。
         return;
     }

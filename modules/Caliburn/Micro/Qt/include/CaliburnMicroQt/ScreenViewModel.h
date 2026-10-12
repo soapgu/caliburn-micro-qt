@@ -16,7 +16,7 @@ class ScreenViewModel : public ViewModelBase, public IChild, public IGuardClose,
     Q_OBJECT
     Q_INTERFACES(IChild IGuardClose IActivate IDeactivate)
     QML_ELEMENT
-    QML_UNCREATABLE("Screen 由 C++ 应用装配层创建")
+    QML_UNCREATABLE("Screen is created by the C++ composition layer")
     Q_PROPERTY(QObject *parentViewModel READ parentViewModel NOTIFY parentViewModelChanged)
     Q_PROPERTY(bool isInitialized READ isInitialized NOTIFY isInitializedChanged)
     Q_PROPERTY(bool isActive READ isActive NOTIFY isActiveChanged)

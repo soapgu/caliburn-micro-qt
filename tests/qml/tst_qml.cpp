@@ -120,7 +120,7 @@ private slots:
         QQmlComponent component(&engine);
         component.setData(source, QUrl());
         QVERIFY(component.isError());
-        QVERIFY2(component.errorString().contains(QStringLiteral("创建")), qPrintable(component.errorString()));
+        QVERIFY2(component.errorString().contains(QStringLiteral("created"), Qt::CaseInsensitive), qPrintable(component.errorString()));
     }
 
     void hostStatesAreCreatable_data()
@@ -644,7 +644,7 @@ private slots:
             QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
                 back->mapToScene(QPointF(back->width() / 2, back->height() / 2)).toPoint());
         };
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Detail 返回失败：.*Home 工厂失败"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Detail: navigation back failed:.*Home 工厂失败"));
         click();
         QCOMPARE(shell->activeItem(), detail);
         QCOMPARE(detail->parentViewModel(), shell.get());

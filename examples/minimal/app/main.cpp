@@ -15,10 +15,10 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationName(QStringLiteral("CaliburnMicroQt"));
     QCoreApplication::setApplicationName(QStringLiteral("CaliburnExampleApp"));
     logging.initialize();
-    qCInfo(exampleLog).noquote() << "应用启动，日志文件："
-                               << (logging.filePath().isEmpty() ? QStringLiteral("仅控制台") : logging.filePath());
+    qCInfo(exampleLog).noquote() << "Application started; log file:"
+                               << (logging.filePath().isEmpty() ? QStringLiteral("console only") : logging.filePath());
     AppBootstrapper bootstrapper(app);
     const int exitCode = bootstrapper.run();
-    qCInfo(exampleLog) << "应用退出，退出码：" << exitCode;
+    qCInfo(exampleLog) << "Application exited; exit code:" << exitCode;
     return exitCode;
 }

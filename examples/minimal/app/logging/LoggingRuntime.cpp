@@ -18,7 +18,7 @@ std::mutex installationMutex;
 
 void reportError(const char *message) noexcept
 {
-    std::fprintf(stderr, "日志输出错误：%s\n", message);
+    std::fprintf(stderr, "Logging output error: %s\n", message);
     std::fflush(stderr);
 }
 
@@ -48,7 +48,7 @@ bool LoggingRuntime::initialize(const LoggingOptions &options)
 {
     std::lock_guard<std::mutex> lock(installationMutex);
     if (m_state || std::atomic_load(&s_active))
-        throw std::logic_error("日志处理器已经安装");
+        throw std::logic_error("A logging handler is already installed");
 
     auto state = std::make_shared<State>();
     std::vector<spdlog::sink_ptr> sinks;
@@ -61,7 +61,7 @@ bool LoggingRuntime::initialize(const LoggingOptions &options)
     }
     try {
         if (path.isEmpty() || !QDir().mkpath(QFileInfo(path).absolutePath()))
-            throw std::runtime_error("无法创建日志目录");
+            throw std::runtime_error("Cannot create the log directory");
         sinks.push_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
             path.toStdString(), options.maxFileSize, options.maxFiles));
         state->filePath = QFileInfo(path).absoluteFilePath();
@@ -93,7 +93,7 @@ LoggingRuntime::~LoggingRuntime()
     try {
         m_state->logger->flush();
     } catch (...) {
-        reportError("退出刷新失败");
+        reportError("Failed to flush logs during shutdown");
     }
     // 已经进入回调的线程仍持有自己的 shared_ptr，不会访问已释放的 sink。
 }
@@ -121,6 +121,6 @@ void LoggingRuntime::handleMessage(QtMsgType type, const QMessageLogContext &con
     } catch (const std::exception &error) {
         reportError(error.what());
     } catch (...) {
-        reportError("未知输出异常");
+        reportError("Unknown logging output exception");
     }
 }

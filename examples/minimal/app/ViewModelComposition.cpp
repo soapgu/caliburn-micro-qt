@@ -12,7 +12,7 @@ std::unique_ptr<ShellViewModel> buildShell()
 std::unique_ptr<ShellViewModel> buildShell(std::shared_ptr<IWindowManager> windowManager)
 {
     if (!windowManager)
-        throw std::invalid_argument("装配 Shell 要求非空的窗口服务");
+        throw std::invalid_argument("Shell composition requires a non-null window service");
     auto counterService = std::make_shared<CounterService>();
     QQmlEngine::setObjectOwnership(windowManager.get(), QQmlEngine::CppOwnership);
     HomeViewModelFactory homeFactory = [counterService, windowManager] {

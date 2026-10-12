@@ -44,12 +44,12 @@ private slots:
         if (!mode.isEmpty()) {
             QVERIFY(ViewRegistry::registerView<ConfirmActionViewModel>(selected));
             QVERIFY(ViewRegistry::registerView<ConfirmActionViewModel>(selected));
-            QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：类型映射冲突 ConfirmActionViewModel");
+            QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: conflicting type mapping ConfirmActionViewModel");
             QVERIFY(!ViewRegistry::registerView<ConfirmActionViewModel>(defaultUrl));
         }
         QCOMPARE(ViewRegistry::viewUrl(model.get()), selected);
         QVERIFY(ViewRegistry::freeze());
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry：配置已冻结，拒绝登记");
+        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: registration rejected after freeze");
         QVERIFY(!ViewRegistry::registerView<ConfirmActionViewModel>(defaultUrl));
         auto *window = showManagedWindow(manager, &root);
         QVERIFY(window);

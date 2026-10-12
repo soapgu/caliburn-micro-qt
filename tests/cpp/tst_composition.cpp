@@ -251,11 +251,11 @@ private slots:
         mode = 1;
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, shell.showDetail());
         mode = 2;
-        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：接管对象必须无父对象且位于同一线程");
+        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive: adopted item must have no QObject parent and belong to the conductor thread");
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, shell.showDetail());
         QVERIFY(!invalid && parent.children().isEmpty());
         mode = 3;
-        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的对象");
+        QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive: cannot adopt an active item");
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, shell.showDetail());
         QVERIFY(!invalid);
         QCOMPARE(shell.activeItem(), home);
@@ -348,14 +348,14 @@ private slots:
         QSignalSpy active(detail, &ScreenViewModel::isActiveChanged);
         const auto expectRejectionWarning = [&] {
             if (failure == 2)
-                QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive：不能接管已经激活的对象");
+                QTest::ignoreMessage(QtWarningMsg, "Collection.OneActive: cannot adopt an active item");
         };
         expectRejectionWarning();
         if (failure <= 2) QVERIFY_THROWS_EXCEPTION(std::invalid_argument, detail->tryClose());
         else if (failure == 3) QVERIFY_THROWS_EXCEPTION(std::runtime_error, detail->tryClose());
         else QVERIFY_THROWS_EXCEPTION(int, detail->tryClose());
         expectRejectionWarning();
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Detail 返回失败：.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Detail: navigation back failed:.*"));
         QVERIFY(QMetaObject::invokeMethod(detail, "goBack"));
         QCOMPARE(shell.activeItem(), detail);
         QCOMPARE(shell.items().size(), 1);
@@ -521,7 +521,7 @@ private slots:
         delete shell.home(); fail = true;
         QSignalSpy closed(detail, &ScreenViewModel::deactivated);
         detail->goBack(); QVERIFY(windows->busy());
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Detail：关闭执行失败：.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Detail: close execution failed:.*"));
         windows->complete(true);
         QVERIFY(detail->isActive()); QCOMPARE(shell.activeItem(), detail);
         QVERIFY(!shell.home()); QCOMPARE(closed.count(), 0); QCOMPARE(windows->requests, 1);

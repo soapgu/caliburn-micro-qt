@@ -1,3 +1,4 @@
+#include "FrameworkLog.h"
 #include "ViewHostState.h"
 #include <QThread>
 #include <QVariant>
@@ -10,13 +11,14 @@ bool ViewHostState::matchesView(QObject *view) const
 void ViewHostState::setModel(ViewModelBase *model)
 {
     if (QThread::currentThread() != thread() || (model && model->thread() != thread())) {
-        qWarning("ViewHost：模型与宿主必须位于同一线程");
+        qCWarning(FrameworkLog::view, "ViewHost: model and host must belong to the same thread");
         return;
     }
     if (m_model == model)
         return;
     QObject::disconnect(m_destroyed);
     m_model = model;
+    m_loadUrl.clear();
     if (model) {
         m_destroyed = connect(model, &QObject::destroyed, this, [this] {
             // destroyed 到达时 QPointer 已经清空，仍必须显式通知宿主卸载。
@@ -25,4 +27,22 @@ void ViewHostState::setModel(ViewModelBase *model)
         });
     }
     emit modelChanged();
+}
+
+void ViewHostState::reportLoadStarted(const QUrl &url)
+{
+    m_loadIdentity = FrameworkLog::identity(m_model.data());
+    m_loadUrl = url;
+    qCDebug(FrameworkLog::view).noquote() << "View loading:" << m_loadIdentity << "URL:" << url.toString();
+}
+
+void ViewHostState::reportLoadSucceeded(const QUrl &url) const
+{
+    qCInfo(FrameworkLog::view).noquote() << "View assembled:" << m_loadIdentity << "URL:" << url.toString();
+}
+
+void ViewHostState::reportLoadFailed(const QString &message) const
+{
+    qCWarning(FrameworkLog::view).noquote() << message << "model:" << FrameworkLog::identity(m_model.data())
+                                        << "URL:" << m_loadUrl.toString();
 }
