@@ -13,6 +13,8 @@ qt_add_qml_module(CaliburnMicroQt
         src/FrameworkLog.cpp
         include/CaliburnMicroQt/BootstrapperBase.h
         src/BootstrapperBase.cpp
+        src/WindowViewBinding.h
+        src/WindowViewBinding.cpp
         src/WindowConductor.h
         src/WindowConductor.cpp
         include/CaliburnMicroQt/ViewModelBase.h

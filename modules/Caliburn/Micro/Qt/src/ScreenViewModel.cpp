@@ -1,6 +1,7 @@
 #include <CaliburnMicroQt/ScreenViewModel.h>
 #include <CaliburnMicroQt/IConductor.h>
 #include "FrameworkLog.h"
+#include <QVariant>
 #include <utility>
 
 ScreenViewModel::ScreenViewModel(QObject *parent) : ViewModelBase(parent) {}
@@ -59,8 +60,21 @@ void ScreenViewModel::tryClose(DialogResult dialogResult)
 {
     qCDebug(FrameworkLog::lifecycle).noquote() << "Close requested:" << FrameworkLog::identity(this);
     auto *conductor = qobject_cast<IConductor *>(parentViewModel());
-    if (conductor) conductor->deactivateItem(this, true);
-    else if (!parentViewModel()) emit closeRequested(dialogResult);
+    if (conductor) {
+        conductor->deactivateItem(this, true);
+        return;
+    }
+    const auto identity = FrameworkLog::identity(this);
+    QPointer<QObject> window = m_windowView;
+    if (!window) {
+        qCInfo(FrameworkLog::lifecycle).noquote()
+                << "TryClose requires a parent IConductor or an associated window:" << identity;
+        return;
+    }
+    if (m_windowIsDialog)
+        window->setProperty("dialogResult", dialogResult ? QVariant(*dialogResult) : QVariant());
+    if (window && !QMetaObject::invokeMethod(window, "close", Qt::DirectConnection))
+        qCWarning(FrameworkLog::window).noquote() << "Associated window has no close method:" << identity;
 }
 
 void ScreenViewModel::canClose(CloseCallback callback)

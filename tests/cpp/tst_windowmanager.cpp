@@ -113,6 +113,58 @@ private slots:
         QVERIFY(!window);
         QVERIFY(vm); // 服务不删除借用的普通窗口 VM。
     }
+    void activationSeesBoundHiddenViewAndCanOpenDialog() {
+        WindowProbe vm;
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        QFuture<DialogResult> future;
+        vm.activationAction = [&] {
+            auto *window = ordinaryWindow(&vm);
+            QVERIFY(window);
+            QVERIFY(!window->isVisible());
+            QVERIFY(window->handle());
+            QVERIFY(!window->property("initializedAtCreation").toBool());
+            QVERIFY(!window->property("activeAtCreation").toBool());
+            future = manager.showDialogAsync(std::make_unique<DialogProbe>(), &vm);
+            QVERIFY(manager.busy() && manager.currentDialog());
+            QVERIFY(dialogWindow(window));
+        };
+        QVERIFY(manager.showWindow(QVariant::fromValue(&vm)));
+        QVERIFY(ordinaryWindow(&vm)->isVisible());
+        auto *dialog = qobject_cast<ScreenViewModel *>(manager.currentDialog());
+        QVERIFY(dialog);
+        dialog->tryClose(true);
+        QTRY_VERIFY(future.isFinished());
+        QCOMPARE(future.result(), DialogResult(true));
+    }
+
+    void ordinaryCloseDuringActivation() {
+        WindowProbe vm;
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        vm.activationAction = [&] { vm.tryClose(true); };
+        QSignalSpy closed(&vm, &ScreenViewModel::deactivated);
+        QVERIFY(manager.showWindow(QVariant::fromValue(&vm)));
+        QPointer<QQuickWindow> window = ordinaryWindow(&vm);
+        QVERIFY(window);
+        QTRY_VERIFY(!window->isVisible());
+        QCOMPARE(vm.checks, 1);
+        QCOMPARE(closed.count(), 1);
+    }
+
+    void duplicateWindowBindingRejectedBeforeActivation() {
+        WindowProbe vm;
+        WindowManager first, second;
+        WindowCleanup firstCleanup{first}, secondCleanup{second};
+        QVERIFY(first.showWindow(QVariant::fromValue(&vm)));
+        auto *original = ordinaryWindow(&vm);
+        QVERIFY(!second.showWindow(QVariant::fromValue(&vm)));
+        QVERIFY(vm.isActive() && original->isVisible());
+        vm.tryClose();
+        QTRY_VERIFY(!original->isVisible());
+        QCOMPARE(vm.checks, 1);
+    }
+
     void normalWindowRejectsWithoutActivating() {
         WindowManager manager;
         QVERIFY(!manager.showWindow({}));
@@ -152,7 +204,8 @@ private slots:
         } else {
             QVERIFY(!manager.showWindow(QVariant::fromValue(candidate.get())));
         }
-        QCOMPARE(closed.count(), int(kind != "remote" && kind != "unmapped"));
+        QCOMPARE(closed.count(), int(kind == "activate"));
+        QCOMPARE(candidate->isInitialized(), kind == "activate");
         QVERIFY(!candidate->isActive());
         QVERIFY(QGuiApplication::allWindows().isEmpty());
         WindowProbe next;
@@ -264,7 +317,7 @@ private slots:
         const DialogResult result = decision < 0 ? DialogResult{} : DialogResult(decision == 1);
         vm->activationAction = [probe, result] {
             probe->tryClose(result);
-            probe->tryClose(!result.value_or(false)); // 桥接创建前也保留首次结果。
+            probe->tryClose(!result.value_or(false)); // 已关联窗口，仍保留首次关闭事件的结果。
         };
         QSignalSpy closed(probe, &ScreenViewModel::deactivated);
         auto future = manager.showDialogAsync(std::move(vm), &requester);
@@ -524,7 +577,6 @@ private slots:
         openConfirmation();
         QPointer<ScreenViewModel> confirmation = qobject_cast<ScreenViewModel *>(manager->currentDialog()); QVERIFY(confirmation);
         auto *window = dialogWindow(owner); QVERIFY(window);
-        QSignalSpy requests(confirmation, &ScreenViewModel::closeRequested);
         QSignalSpy completed(confirmation, &ScreenViewModel::deactivated);
         connect(page, &ScreenViewModel::deactivated, this, [&](bool) { events << "页面停用"; });
         connect(confirmation, &ScreenViewModel::deactivated, this, [&](bool close) {
@@ -546,8 +598,7 @@ private slots:
         QVERIFY2(handler, qPrintable(component.errorString()));
         page->deactivate(false);
         QCOMPARE(events, QStringList{"页面停用"});
-        QCOMPARE(requests.count(), 1);
-        QCOMPARE(qvariant_cast<DialogResult>(requests.at(0).at(0)), DialogResult{});
+        QVERIFY(!window->property("dialogResult").isValid());
         QVERIFY(manager->busy() && confirmation->isActive());
         if (veto) {
             QTRY_COMPARE(handler->property("attempts").toInt(), 1);
@@ -561,7 +612,7 @@ private slots:
             QCOMPARE(manager->currentDialog(), confirmation.data());
             handler->setProperty("veto", false);
             page->deactivate(false);
-            QCOMPARE(requests.count(), 2);
+            QCOMPARE(handler->property("attempts").toInt(), 1); // 第二次守卫尚在排队。
         }
         QTRY_VERIFY(!manager->busy());
         QCOMPARE(completed.count(), 1);

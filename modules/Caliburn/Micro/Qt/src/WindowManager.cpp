@@ -1,8 +1,8 @@
 #include "FrameworkLog.h"
 #include <CaliburnMicroQt/WindowManager.h>
 #include <CaliburnMicroQt/ViewLocator.h>
-#include <CaliburnMicroQt/ScreenViewModel.h>
 #include <CaliburnMicroQt/ScreenExtensions.h>
+#include <CaliburnMicroQt/IChild.h>
 #include "WindowConductor.h"
 #include <QQmlEngine>
 #include <QQmlApplicationEngine>
@@ -30,6 +30,7 @@ struct WindowManager::ManagedWindow
     QPointer<QObject> model;
     QPointer<QQuickWindow> window;
     bool closeAttempted = false;
+    bool lifecycleStarted = false;
     QMetaObject::Connection closeConnection;
     std::unique_ptr<QQmlApplicationEngine> engine;
     std::unique_ptr<WindowConductor> bridge;
@@ -45,6 +46,8 @@ bool WindowManager::showWindow(const QVariant &viewModel)
         return failWindow(QStringLiteral("Window model must be a QObject on the service thread without a logical parent"));
     if (m_managedWindow || m_window || busy() || m_destroying)
         return failWindow(QStringLiteral("A managed window, owner window or pending request already exists"));
+    if (!WindowViewBinding::canBind(model))
+        return failWindow(QStringLiteral("Window model already has an associated window"));
     qCDebug(FrameworkLog::window).noquote() << "Showing window; model:" << FrameworkLog::identity(model);
     const QUrl url = ViewLocator::viewUrl(model);
     if (url.isEmpty())
@@ -66,15 +69,17 @@ bool WindowManager::showWindow(const QVariant &viewModel)
         return failWindow(message);
     };
     try {
-        // 保留当前先激活再加载的契约；CM 的创建/绑定/激活顺序单独迁移。
-        ScreenExtensions::tryActivate(model);
         managed.engine = std::make_unique<QQmlApplicationEngine>();
-        managed.engine->setInitialProperties({{QStringLiteral("viewModel"), viewModel}});
+        // 框架在绑定和激活完成后统一显示，不让 QML 的初始 visible 提前展示。
+        managed.engine->setInitialProperties({{QStringLiteral("viewModel"), viewModel},
+                                              {QStringLiteral("visible"), false}});
         managed.engine->load(url);
         const auto roots = managed.engine->rootObjects();
         auto *window = roots.size() == 1 ? qobject_cast<QQuickWindow *>(roots.first()) : nullptr;
         if (!window)
             return fail(QStringLiteral("Window view failed to load or its root is not a window: %1").arg(url.toString()));
+        if (!managed.model)
+            return fail(QStringLiteral("Window model was destroyed during view creation"));
         managed.window = window;
         if (!attachToWindow(window))
             return fail(QStringLiteral("Failed to attach the managed window"));
@@ -88,9 +93,18 @@ bool WindowManager::showWindow(const QVariant &viewModel)
         };
         connect(model, &QObject::destroyed, managed.bridge.get(), releaseLater);
         connect(window, &QObject::destroyed, managed.bridge.get(), releaseLater);
-        const auto windowIdentity = FrameworkLog::identity(window);
-        const auto modelIdentity = FrameworkLog::identity(model);
-        window->show();
+        // 隐藏窗口也需要原生资源，否则 QWindow::close 不发送关闭事件。
+        window->create();
+        QPointer<QQuickWindow> target = window;
+        managed.lifecycleStarted = true;
+        ScreenExtensions::tryActivate(managed.model.data());
+        if (!m_managedWindow || !m_managedWindow->model || !target
+                || m_managedWindow->window != target)
+            return failWindow(QStringLiteral("Window or model became unavailable during activation"));
+        if (m_managedWindow->bridge->isClosed()) return true;
+        const auto windowIdentity = FrameworkLog::identity(target.data());
+        const auto modelIdentity = FrameworkLog::identity(m_managedWindow->model.data());
+        target->show();
         qCInfo(FrameworkLog::window).noquote() << "Window shown:" << windowIdentity
                                              << "model:" << modelIdentity << "URL:" << url.toString();
         return true;
@@ -102,7 +116,8 @@ bool WindowManager::showWindow(const QVariant &viewModel)
 
 void WindowManager::closeManagedWindow() noexcept
 {
-    if (!m_managedWindow || !m_managedWindow->model || m_managedWindow->closeAttempted) return;
+    if (!m_managedWindow || !m_managedWindow->model || !m_managedWindow->lifecycleStarted
+            || m_managedWindow->closeAttempted) return;
     m_managedWindow->closeAttempted = true;
     try { ScreenExtensions::tryDeactivate(m_managedWindow->model.data(), true); }
     catch (const std::exception &error) {
@@ -154,7 +169,7 @@ struct WindowManager::Request
     DialogResult result;
     std::exception_ptr error;
     bool closing = false;
-    bool closePending = false;
+    bool lifecycleStarted = false;
     bool lifecycleAttempted = false;
     QString modelIdentity;
 };
@@ -250,6 +265,8 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
             || (activator && activator->isActive())
             || vm->thread() != thread() || requester->thread() != thread())
         return reject(std::make_exception_ptr(std::invalid_argument("WindowManager: invalid dialog model or requester")));
+    if (!WindowViewBinding::canBind(vm.get()))
+        return reject(std::make_exception_ptr(std::invalid_argument("WindowManager: dialog model already has an associated window")));
     if (busy() || m_destroying)
         return reject(std::make_exception_ptr(std::runtime_error("WindowManager: a dialog request is already pending")));
     if (!m_window || !m_engine)
@@ -278,19 +295,9 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
             if (close && m_request) m_request->lifecycleAttempted = true;
         });
     }
-    if (auto *screen = qobject_cast<ScreenViewModel *>(m_request->vm.data())) {
-        m_request->connections << connect(screen, &ScreenViewModel::closeRequested, this, [this](DialogResult result) {
-            if (!m_request || m_request->closing || m_request->closePending
-                    || (m_request->bridge && m_request->bridge->isClosing())) return;
-            // 在激活及桥接连接前保存结果，桥接收到同一信号时只负责请求关窗。
-            m_request->result = result;
-            m_request->closePending = true;
-        });
-    }
     m_starting = true;
     emit busyChanged();
     try {
-        if (!m_request->closing) ScreenExtensions::tryActivate(m_request->vm.data());
         if (!m_request->closing) {
             QQmlComponent component(m_engine, QUrl(QStringLiteral(
                 "qrc:/qt/qml/Caliburn/Micro/Qt/DialogWindow.qml")));
@@ -317,19 +324,16 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
                                           area.right() - window->width() + 1),
                                 std::clamp(center.y() - window->height()/2, area.top(),
                                           area.bottom() - window->height() + 1));
-            m_request->bridge = std::make_unique<WindowConductor>(window, m_request->vm);
+            m_request->bridge = std::make_unique<WindowConductor>(window, m_request->vm, nullptr, true);
             QPointer<QQuickWindow> dialog = window;
             m_request->connections << connect(m_request->bridge.get(), &WindowConductor::windowClosed,
-                    this, [this, dialog] {
-                if (dialog && m_request && m_request->window == dialog) finish(true);
-            }, Qt::QueuedConnection);
-            m_request->connections << connect(m_request->bridge.get(), &WindowConductor::closeRejected,
-                    this, [this] {
-                if (m_request) {
-                    m_request->result = std::nullopt;
-                    m_request->closePending = false;
+                    this, [this, dialog](DialogResult result) {
+                if (dialog && m_request && m_request->window == dialog) {
+                    m_request->result = result;
+                    if (m_starting) m_request->closing = true;
+                    else finish(true);
                 }
-            });
+            }, Qt::QueuedConnection);
             m_request->connections << connect(window, &QObject::destroyed, this, [this] {
                 // QObject::destroyed 早于子对象释放，等窗口析构完成后再关闭 VM。
                 m_request->closing = true;
@@ -338,14 +342,19 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
             });
             // QML 的 Escape 与按钮、标题栏走同一个关闭桥接。
             connect(window, SIGNAL(dismissRequested()), m_request->bridge.get(), SLOT(requestClose()));
-            window->show();
-            window->requestActivate();
-            if (auto *view = window->property("dialogItem").value<QQuickItem *>())
-                view->forceActiveFocus(Qt::PopupFocusReason);
-            qCInfo(FrameworkLog::window).noquote() << "Dialog shown:" << FrameworkLog::identity(window)
-                                                 << "model:" << m_request->modelIdentity;
-            emit currentDialogChanged();
-            if (m_request->closePending) m_request->bridge->requestClose();
+            window->create();
+            m_request->lifecycleStarted = true;
+            ScreenExtensions::tryActivate(m_request->vm.data());
+            if (!m_request->vm || !m_request->window) m_request->closing = true;
+            if (!m_request->closing && !m_request->bridge->isClosed()) {
+                window->show();
+                window->requestActivate();
+                if (auto *view = window->property("dialogItem").value<QQuickItem *>())
+                    view->forceActiveFocus(Qt::PopupFocusReason);
+                qCInfo(FrameworkLog::window).noquote() << "Dialog shown:" << FrameworkLog::identity(window)
+                                                     << "model:" << m_request->modelIdentity;
+                emit currentDialogChanged();
+            }
         }
     } catch (...) {
         complete(std::nullopt, std::current_exception());
@@ -375,7 +384,7 @@ void WindowManager::finish(bool restoreFocus)
     // 窗口父树同步释放 View/Loader，不在引擎析构期间执行 QML 函数。
     delete request->window.data();
     if (request->vm) {
-        if (!request->lifecycleAttempted) {
+        if (request->lifecycleStarted && !request->lifecycleAttempted) {
             try { ScreenExtensions::tryDeactivate(request->vm.data(), true); }
             catch (...) { if (!request->error) request->error = std::current_exception(); }
         }

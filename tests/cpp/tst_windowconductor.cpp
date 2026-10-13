@@ -88,10 +88,8 @@ private slots:
         root.activate();
         WindowConductor bridge(&window, &root);
         connect(&bridge, &WindowConductor::windowClosed, &root, [&] { root.deactivate(true); });
-        QSignalSpy requested(&root, &ScreenViewModel::closeRequested);
         QSignalSpy completed(&root, &ScreenViewModel::deactivated);
         root.tryClose();
-        QCOMPARE(requested.count(), 1);
         QTRY_VERIFY(!window.isVisible());
         QCOMPARE(completed.count(), 1);
     }

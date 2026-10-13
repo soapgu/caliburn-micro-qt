@@ -74,6 +74,29 @@ private:
     Observation &m_observation;
 };
 
+class ActivationDialogShell : public ShellViewModel
+{
+public:
+    ActivationDialogShell(std::shared_ptr<IWindowManager> windows, Observation &observation)
+        : ShellViewModel(makeHomeFactory(), makeDetailFactory()),
+          m_windows(windows.get()), m_observation(observation) {}
+protected:
+    void onActivate() override
+    {
+        ShellViewModel::onActivate();
+        auto vm = std::make_unique<ConfirmActionViewModel>(
+                ConfirmationRequest{QStringLiteral("激活期间"), QStringLiteral("窗口已关联")});
+        auto future = m_windows->showDialogAsync(std::move(vm), this);
+        m_observation.dialogOpened = m_windows->busy() && m_windows->currentDialog()
+                && dialogWindow(managedWindow(this));
+        if (auto *dialog = qobject_cast<ScreenViewModel *>(m_windows->currentDialog()))
+            dialog->tryClose(true);
+    }
+private:
+    QPointer<IWindowManager> m_windows;
+    Observation &m_observation;
+};
+
 class TestBootstrapper : public BootstrapperBase
 {
 public:
@@ -215,6 +238,8 @@ private:
         std::unique_ptr<ShellViewModel> shell;
         if (m_scenario == "closeException" || m_scenario == "windowCloseException" || m_scenario == "externalCloseException")
             shell = std::make_unique<FailingCloseShell>(m_observation);
+        else if (m_scenario == "activationDialog")
+            shell = std::make_unique<ActivationDialogShell>(windows, m_observation);
         else
             shell = buildShell(std::move(windows));
         m_observation.shell = shell.get();
@@ -319,6 +344,7 @@ private slots:
         QTest::addColumn<int>("factoryCalls");
         QTest::addColumn<int>("closeCalls");
         QTest::addColumn<bool>("aliveAtExit");
+        QTest::newRow("activationDialog") << QString("activationDialog") << 0 << true << 1 << 1 << true;
         QTest::newRow("injectedService") << QString("injectedService") << 0 << true << 1 << 1 << true;
         QTest::newRow("explicitOptions") << QString("explicitOptions") << 0 << true << 1 << 1 << true;
         QTest::newRow("emptyFactory") << QString("emptyFactory") << 1 << false << 0 << 0 << false;
@@ -336,10 +362,10 @@ private slots:
         QTest::newRow("nullRoot") << QString("nullRoot") << 1 << false << 1 << 0 << false;
         QTest::newRow("missingMapping") << QString("missingMapping") << 1 << false << 1 << 0 << true;
         QTest::newRow("remoteView") << QString("remoteView") << 1 << false << 1 << 0 << true;
-        QTest::newRow("missingResource") << QString("missingResource") << 1 << false << 1 << 1 << true;
-        QTest::newRow("nonWindow") << QString("nonWindow") << 1 << false << 1 << 1 << true;
+        QTest::newRow("missingResource") << QString("missingResource") << 1 << false << 1 << 0 << true;
+        QTest::newRow("nonWindow") << QString("nonWindow") << 1 << false << 1 << 0 << true;
         QTest::newRow("noRoot") << QString("noRoot") << 1 << false << 0 << 0 << false;
-        QTest::newRow("ignoredLoadFailure") << QString("ignoredLoadFailure") << 1 << false << 1 << 1 << true;
+        QTest::newRow("ignoredLoadFailure") << QString("ignoredLoadFailure") << 1 << false << 1 << 0 << true;
         QTest::newRow("duplicateRoot") << QString("duplicateRoot") << 1 << false << 1 << 1 << true;
         QTest::newRow("exitException") << QString("exitException") << 1 << true << 1 << 1 << true;
         QTest::newRow("closeException") << QString("closeException") << 1 << true << 1 << 1 << true;
@@ -379,7 +405,7 @@ private slots:
                     observation.retainedWindows.reset();
                 }
                 QVERIFY(!observation.windows);
-                if (scenario == "injectedService" || scenario == "explicitOptions")
+                if (scenario == "injectedService" || scenario == "explicitOptions" || scenario == "activationDialog")
                     QVERIFY(observation.dialogOpened);
             }
             QVERIFY(!observation.shell && !observation.home && !observation.window);

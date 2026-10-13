@@ -1,4 +1,5 @@
 #include <CaliburnMicroQt/Conductor.h>
+#include "../support/TestCloseWindow.h"
 #include <QMetaProperty>
 #include <QtTest>
 #include <stdexcept>
@@ -106,21 +107,23 @@ private slots:
         QCOMPARE(ConductorCollectionOneActiveBase::staticMetaObject.superClass(), &ConductorBaseWithActiveItem::staticMetaObject);
     }
 
-    void tryCloseDelegatesOnlyToLogicalParent()
+    void tryClosePrefersConductorOtherwiseClosesWindow()
     {
         CloseRequestParent manager;
         QObject unrelated;
         ProtocolScreen screen;
         screen.activate();
-        QSignalSpy windowRequests(&screen, &ScreenViewModel::closeRequested);
+        TestCloseWindow window;
+        WindowViewBinding binding(&screen, &window, true);
         screen.setParent(&manager);
         screen.tryClose(true); // QObject 所有权不能代替逻辑 Parent。
-        QCOMPARE(windowRequests.count(), 1);
-        QCOMPARE(qvariant_cast<DialogResult>(windowRequests.at(0).at(0)), DialogResult(true));
+        QCOMPARE(window.calls, 1);
+        QCOMPARE(window.result.toBool(), true);
         QCOMPARE(manager.calls, 0);
         QVERIFY(screen.isActive());
         manager.attach(&screen, &unrelated);
         screen.tryClose();
+        QCOMPARE(window.calls, 2); // 非 Conductor 的逻辑 Parent 回退到关联窗口。
         QCOMPARE(manager.calls, 0);
         manager.attach(&screen, &manager);
         screen.tryClose(false); // 逻辑 Parent 只收到关闭请求，不处理弹窗结果。
@@ -132,7 +135,7 @@ private slots:
         QCOMPARE(manager.calls, 2);
         manager.attach(&screen, &unrelated);
         screen.tryClose(); // 每次重新读取 Parent。
-        QCOMPARE(windowRequests.count(), 1); // 非 Conductor 的逻辑 Parent 不发窗口请求。
+        QCOMPARE(window.calls, 3);
         QCOMPARE(manager.calls, 2);
         manager.attach(&screen, &manager);
         manager.throws = true;

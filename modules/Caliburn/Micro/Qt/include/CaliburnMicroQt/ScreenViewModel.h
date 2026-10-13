@@ -8,6 +8,8 @@
 #include <CaliburnMicroQt/IGuardClose.h>
 #include <CaliburnMicroQt/DialogResult.h>
 
+class WindowViewBinding;
+
 class ScreenViewModel : public ViewModelBase, public IChild, public IGuardClose,
                         public IActivate, public IDeactivate
 {
@@ -32,12 +34,11 @@ public:
             QObject *context, DeactivationCallback callback) override;
     QMetaObject::Connection subscribeDeactivated(
             QObject *context, DeactivationCallback callback) override;
-    // 请求方法返回不代表已经关闭；无逻辑 Parent 时请求关联窗口关闭。
+    // 请求方法返回不代表已经关闭；优先委托逻辑 Conductor，否则关闭关联窗口。
     void tryClose(DialogResult dialogResult = std::nullopt);
     void canClose(CloseCallback callback) override;
 
 signals:
-    void closeRequested(DialogResult dialogResult);
     void attemptingDeactivation(bool close);
     void deactivated(bool close);
     void parentViewModelChanged();
@@ -50,8 +51,12 @@ protected:
     virtual void onDeactivate(bool close) { Q_UNUSED(close); }
 
 private:
+    friend class WindowViewBinding;
     void setParentViewModel(QObject *parent) override;
     QPointer<QObject> m_parentViewModel;
+    QPointer<QObject> m_windowView;
+    const WindowViewBinding *m_windowBinding = nullptr;
+    bool m_windowIsDialog = false;
     bool m_initialized = false;
     bool m_active = false;
 };

@@ -1,6 +1,7 @@
 #include "FrameworkLog.h"
 #include "WindowConductor.h"
-#include <CaliburnMicroQt/ScreenViewModel.h>
+#include <CaliburnMicroQt/IDeactivate.h>
+#include <QVariant>
 #include <CaliburnMicroQt/IGuardClose.h>
 #include <QCloseEvent>
 #include <QDebug>
@@ -8,16 +9,17 @@
 #include <exception>
 #include <utility>
 
-WindowConductor::WindowConductor(QQuickWindow *window, QObject *model, QObject *parent)
-    : QObject(parent), m_window(window), m_model(model)
+WindowConductor::WindowConductor(QQuickWindow *window, QObject *model, QObject *parent, bool isDialog)
+    : QObject(parent), m_binding(model, window, isDialog), m_window(window), m_model(model),
+      m_isDialog(isDialog)
 {
     window->installEventFilter(this);
-    if (auto *screen = qobject_cast<ScreenViewModel *>(model))
-        m_connections << connect(screen, &ScreenViewModel::closeRequested, this, &WindowConductor::requestClose);
     if (auto *deactivator = qobject_cast<IDeactivate *>(model)) {
         m_connections << deactivator->subscribeDeactivated(this, [this](bool close) {
             if (!close) return;
             m_modelClosed = true;
+            m_result = std::nullopt;
+            if (m_isDialog && m_window) m_window->setProperty("dialogResult", QVariant());
             if (m_enabled && !m_windowClosed)
                 QMetaObject::invokeMethod(this, [this] { closeWindow(); }, Qt::QueuedConnection);
         });
@@ -34,6 +36,7 @@ WindowConductor::~WindowConductor()
 void WindowConductor::detach()
 {
     m_enabled = false;
+    m_binding.detach();
     if (m_window) m_window->removeEventFilter(this);
     for (const auto &connection : std::as_const(m_connections)) disconnect(connection);
     m_connections.clear();
@@ -45,13 +48,14 @@ void WindowConductor::requestClose()
     if (!m_enabled || !m_window || isClosing()) return;
     qCDebug(FrameworkLog::window).noquote() << "Window close requested:" << FrameworkLog::identity(m_window.data())
                                          << "model:" << FrameworkLog::identity(m_model.data());
+    if (m_isDialog) m_window->setProperty("dialogResult", QVariant());
     try { m_window->close(); }
     catch (const std::exception &error) {
         qCWarning(FrameworkLog::window).noquote() << "WindowConductor: close request failed:" << error.what();
-        emit closeRejected();
+        rejectClose();
     } catch (...) {
         qCWarning(FrameworkLog::window, "WindowConductor: close request failed with an unknown exception");
-        emit closeRejected();
+        rejectClose();
     }
 }
 
@@ -62,6 +66,11 @@ bool WindowConductor::eventFilter(QObject *watched, QEvent *event)
     static_cast<QCloseEvent *>(event)->ignore();
     if (!m_checking && !m_windowClosed) {
         m_checking = true;
+        if (m_isDialog) {
+            const QVariant result = m_window->property("dialogResult");
+            m_result = result.metaType() == QMetaType::fromType<bool>()
+                    ? DialogResult(result.toBool()) : std::nullopt;
+        }
         // 原关闭栈退出后才能重新调用 QWindow::close()。
         QMetaObject::invokeMethod(this, [this] { checkClose(); }, Qt::QueuedConnection);
     }
@@ -86,13 +95,13 @@ void WindowConductor::checkClose()
                                                   << "model:" << FrameworkLog::identity(owner->m_model.data()) << "allowed:" << allowed;
             owner->m_checking = false;
             if (allowed) owner->closeWindow();
-            else emit owner->closeRejected();
+            else owner->rejectClose();
         });
     } catch (const std::exception &error) {
-        if (owner) { owner->m_checking = false; emit owner->closeRejected(); }
+        if (owner) { owner->m_checking = false; owner->rejectClose(); }
         qCWarning(FrameworkLog::window).noquote() << "WindowConductor: close guard failed:" << error.what();
     } catch (...) {
-        if (owner) { owner->m_checking = false; emit owner->closeRejected(); }
+        if (owner) { owner->m_checking = false; owner->rejectClose(); }
         qCWarning(FrameworkLog::window, "WindowConductor: close guard failed with an unknown exception");
     }
 }
@@ -119,9 +128,15 @@ void WindowConductor::closeWindow()
     if (closed && (!window || !window->isVisible())) {
         m_windowClosed = true;
         qCInfo(FrameworkLog::window).noquote() << "Window closed:" << windowIdentity << "model:" << modelIdentity;
-        emit windowClosed();
+        emit windowClosed(m_result);
     } else {
         qCInfo(FrameworkLog::window).noquote() << "Window close rejected:" << windowIdentity << "model:" << modelIdentity;
-        emit closeRejected();
+        rejectClose();
     }
+}
+
+void WindowConductor::rejectClose()
+{
+    m_result = std::nullopt;
+    if (m_isDialog && m_window) m_window->setProperty("dialogResult", QVariant());
 }

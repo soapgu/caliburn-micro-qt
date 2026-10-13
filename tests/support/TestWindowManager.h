@@ -4,6 +4,7 @@
 #include <CaliburnMicroQt/ScreenViewModel.h>
 #include <QPromise>
 #include <stdexcept>
+#include "TestCloseWindow.h"
 
 // 默认立即接受以保持旧业务测试的目的；异步测试可关闭自动完成。
 class TestWindowManager : public WindowManager
@@ -32,17 +33,22 @@ public:
         m_promise = std::make_unique<QPromise<DialogResult>>();
         m_promise->start();
         auto future = m_promise->future();
-        if (auto *screen = qobject_cast<ScreenViewModel *>(m_vm.get()))
-        connect(screen, &ScreenViewModel::closeRequested, this, [this](DialogResult result) {
+        m_closeWindow.result = QVariant();
+        m_binding = std::make_unique<WindowViewBinding>(m_vm.get(), &m_closeWindow, true);
+        m_closeWindow.action = [this] {
+            const auto &value = m_closeWindow.result;
+            const DialogResult result = value.metaType() == QMetaType::fromType<bool>()
+                    ? DialogResult(value.toBool()) : std::nullopt;
             if (!result) ++cancellations;
             if (!result && deferCancellation) {
                 disconnect(m_requesterDestroyed);
                 deferred = std::move(m_promise);
+                m_binding.reset();
                 m_vm.reset();
             } else {
                 complete(result);
             }
-        });
+        };
         m_requesterDestroyed = connect(requester, &QObject::destroyed, this, [this] {
             ++cancellations;
             complete(std::nullopt);
@@ -57,6 +63,7 @@ public:
             return;
         disconnect(m_requesterDestroyed);
         auto promise = std::move(m_promise);
+        m_binding.reset();
         m_vm.reset();
         promise->addResult(result);
         promise->finish();
@@ -65,13 +72,16 @@ public:
     {
         disconnect(m_requesterDestroyed);
         auto promise = std::move(m_promise);
+        m_binding.reset();
         m_vm.reset();
         promise->setException(std::make_exception_ptr(std::runtime_error("测试展示失败")));
         promise->finish();
     }
 private:
     std::unique_ptr<QPromise<DialogResult>> m_promise;
+    TestCloseWindow m_closeWindow;
     std::unique_ptr<QObject> m_vm;
+    std::unique_ptr<WindowViewBinding> m_binding;
     QMetaObject::Connection m_requesterDestroyed;
 };
 

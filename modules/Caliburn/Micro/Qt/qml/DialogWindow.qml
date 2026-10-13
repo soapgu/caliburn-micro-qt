@@ -9,6 +9,8 @@ Window {
     visible: false
     title: qsTr("对话框")
     color: palette.window
+    // 内部结果载体；首次关闭事件由 C++ 桥接固定本次结果。
+    property var dialogResult: undefined
     property alias model: view.model
     readonly property Item dialogItem: view.item
     readonly property string errorString: view.errorString

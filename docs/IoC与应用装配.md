@@ -52,7 +52,7 @@ DI 仍为装配库私有依赖。工厂不捕获注入器或 Shell；局部注�
 
 Shell 重写 onActivate：补齐缺失 Home，已有选择时调用集合型基类激活当前项；没有选择时通过 activateItem 选择 Home 并由集合入口完成激活，随后直接返回，不再重复调用基类激活同一项。这是页面选择与重建逻辑，不操作 Shell 自身生命周期。初始化、普通停用和关闭由框架管理。操作在应用主线程同步执行；生命周期钩子应正常返回，转换回调不得重入修改生命周期、集合或销毁参与对象。
 
-WindowManager::showWindow 在根 QML 加载前只调用 Shell.activate()，不额外调用 initialize；首次初始化由 Screen 自动完成。Home/Detail 不在钩子中自行激活或关闭。状态通知先于钩子执行，不表示整个父子转换完成；钩子抛异常时已提交状态不回滚。
+WindowManager::showWindow 在根 QML 创建、模型绑定及窗口关联完成后调用 Shell.activate()，不额外调用 initialize；首次初始化由 Screen 自动完成。激活钩子可通过 tryClose 请求关联窗口关闭，守卫检查排队执行。Home/Detail 不自行驱动生命周期；状态通知先于钩子，不表示整个父子转换完成，异常不回滚。
 
 ## View 与后续边界
 

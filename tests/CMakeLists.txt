@@ -85,7 +85,7 @@ target_link_libraries(CaliburnBootstrapperTests PRIVATE
 )
 # 注册表映射与冻结状态均为进程级；各场景需要不同映射或空表，独立进程验收。
 foreach(scenario IN ITEMS
-    hiddenWindow retainedService success injectedService explicitOptions emptyFactory hostFailure configureQuery lateRegistration exitCode configureFailure missingFactory factoryException nullRoot
+    hiddenWindow retainedService success injectedService activationDialog explicitOptions emptyFactory hostFailure configureQuery lateRegistration exitCode configureFailure missingFactory factoryException nullRoot
     missingMapping remoteView missingResource nonWindow noRoot ignoredLoadFailure
     duplicateRoot exitException closeException startupException windowCloseException externalCloseException
 )
@@ -194,3 +194,14 @@ target_link_libraries(CaliburnObjectCapabilitiesTests PRIVATE
 add_test(NAME object_capabilities COMMAND CaliburnObjectCapabilitiesTests)
 set_tests_properties(object_capabilities PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 60)
+
+# 含无 GUI 关闭端点的测试需要独立生成其元对象。
+foreach(target IN ITEMS CaliburnCoreTests CaliburnCompositionTests CaliburnQmlTests
+        CaliburnBootstrapperTests CaliburnWindowManagerTests CaliburnParentProtocolTests)
+    target_sources(${target} PRIVATE support/TestCloseWindow.h)
+endforeach()
+
+add_executable(CaliburnWindowViewBindingTests cpp/tst_windowviewbinding.cpp support/TestCloseWindow.h)
+target_link_libraries(CaliburnWindowViewBindingTests PRIVATE Caliburn::MicroQt Qt6::Test)
+add_test(NAME windowviewbinding COMMAND CaliburnWindowViewBindingTests)
+set_tests_properties(windowviewbinding PROPERTIES TIMEOUT 30)
