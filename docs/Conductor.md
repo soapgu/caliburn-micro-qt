@@ -19,7 +19,7 @@ ScreenViewModel
 | ConductorSingleItem + Conductor<T> | Conductor<T>：单项替换、停用、守卫和父级生命周期。 |
 | ConductorCollectionOneActiveBase + ConductorCollectionOneActive<T> | Conductor<T>.Collection.OneActive：成员、相邻项和集合关闭。 |
 
-Qt 元对象必须放在非模板层；模板层提供类型约束和类型化 C++ 入口。T 为非 const/volatile 的 ViewModelBase 派生类。两个具体类继承同一个 activeItem 属性和 activeItemChanged 信号，不再分别保存活动项。
+Qt 元对象必须放在非模板层；模板层提供类型约束和类型化 C++ 入口。T 为非 const/volatile 的 QObject 派生类型，默认 T = QObject。activeItem 为 QObject*，getChildren 与关闭策略使用 QList<QObject*>，activationProcessed 的对象参数也是 QObject*。类型化模板仍提供 T* 入口，基类、IConductor 和 QML 属性入口均检查实际类型，拒绝不匹配对象。两个具体类继承同一个 activeItem 属性和 activeItemChanged 信号，不再分别保存活动项。
 
 ## 名称迁移
 
@@ -51,6 +51,8 @@ changeActiveItem(item, closePrevious) 按原版顺序执行：
 旧项停用、新项准备和激活钩子执行时，ActiveItem 仍为旧项。任何前置步骤抛异常都不提交新选择，也不回滚已完成的生命周期或 Parent 变化；例如新 Screen 激活钩子抛异常后它的 isActive 可能已为 true，但 ActiveItem 仍是旧项。通知不做同值过滤；非空同项请求由具体 ActivateItem 的分支处理。
 
 ## 接口分派
+
+普通 QObject 无须继承 ViewModelBase 或 Screen；未实现 IChild 时不设置逻辑 Parent，但接管后仍由 QObject 父树持有。
 
 两个 Conductor 统一使用 ScreenExtensions::tryActivate(QObject *) 和 tryDeactivate(QObject *, bool)，分别查询 IActivate、IDeactivate。空对象或没有对应接口时跳过；辅助函数不判断活动状态，不补初始化，不捕获异常。具体对象负责状态与幂等性，Screen 保留原实现。方法和 Qt 信号的契约见 [Screen](ScreenViewModel.md)。
 
@@ -84,7 +86,7 @@ prepareCloseItem 是本项目为 Shell 保留的业务准备钩子，不属于 C
 
 所有调用在主线程执行；同步钩子和通知不得重入修改或销毁参与对象。守卫等待期间不支持重叠请求或修改参与成员。QPointer 检查只用于内存安全，不提供通用取消协议。
 
-新增基类、虚方法、属性 setter 和策略入口改变 C++ ABI，消费工程须重新编译。
+本次 QObject 类型迁移改变 C++ ABI 和公开虚方法签名，消费工程须同步修改并重新编译。IParent IID 为 /2.0，IConductor IID 为 /3.0；自定义 Conductor 的 ensureItem、prepareCloseItem、determineNextItemToActivate 等扩展点同步使用 QObject。详见 [接口化迁移](接口化迁移.md)。
 
 ## 源码与历史记录
 

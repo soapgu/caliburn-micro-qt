@@ -9,22 +9,22 @@ class ConductorBaseWithActiveItem : public ConductorBase
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Abstract active-item conductor cannot be created directly")
-    Q_PROPERTY(ViewModelBase *activeItem READ activeItem WRITE setActiveItem NOTIFY activeItemChanged)
+    Q_PROPERTY(QObject *activeItem READ activeItem WRITE setActiveItem NOTIFY activeItemChanged)
 
 public:
     explicit ConductorBaseWithActiveItem(QObject *parent = nullptr);
     ~ConductorBaseWithActiveItem() override;
-    ViewModelBase *activeItem() const { return m_activeItem.data(); }
+    QObject *activeItem() const { return m_activeItem.data(); }
     // 与 CM ActiveItem setter 一致，赋值仍经过具体 Conductor 的激活及守卫流程。
-    void setActiveItem(ViewModelBase *item) { activateItem(item); }
+    void setActiveItem(QObject *item) { activateItem(item); }
 
 signals:
     void activeItemChanged();
 
 protected:
-    virtual void changeActiveItem(ViewModelBase *item, bool closePrevious);
+    virtual void changeActiveItem(QObject *item, bool closePrevious);
 
 private:
-    QPointer<ViewModelBase> m_activeItem;
+    QPointer<QObject> m_activeItem;
     QMetaObject::Connection m_currentDestroyed;
 };

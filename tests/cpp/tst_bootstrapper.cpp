@@ -145,7 +145,7 @@ protected:
                     m_observation.home->reset();
                     m_observation.dialogOpened = m_windows->currentDialog()
                         && dialogControl(root, QStringLiteral("dialogAccept"));
-                    if (auto *dialog = m_windows->currentDialog()) dialog->tryClose();
+                    if (auto *dialog = qobject_cast<ScreenViewModel *>(m_windows->currentDialog())) dialog->tryClose();
                 }
                 m_observation.typedInjection = root->property("viewModel").metaType()
                     == QMetaType::fromType<ShellViewModel *>();
@@ -495,7 +495,7 @@ private slots:
                 QCoreApplication::processEvents();
                 QVERIFY(window->isVisible() && shell->isActive());
                 QCOMPARE(bootstrapper.closes, 0);
-                windows->currentDialog()->tryClose();
+                qobject_cast<ScreenViewModel *>(windows->currentDialog())->tryClose();
                 QTRY_VERIFY(future.isFinished());
             }
             if (scenario == "rootTryClose") shell->tryClose();

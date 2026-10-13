@@ -6,9 +6,7 @@
 #include <CaliburnMicroQt/IDeactivate.h>
 #include <QPointer>
 #include <CaliburnMicroQt/IGuardClose.h>
-#include <optional>
-
-using DialogResult = std::optional<bool>;
+#include <CaliburnMicroQt/DialogResult.h>
 
 class ScreenViewModel : public ViewModelBase, public IChild, public IGuardClose,
                         public IActivate, public IDeactivate
@@ -30,6 +28,10 @@ public:
     void initialize();
     void activate() override;
     void deactivate(bool close = false) override;
+    QMetaObject::Connection subscribeAttemptingDeactivation(
+            QObject *context, DeactivationCallback callback) override;
+    QMetaObject::Connection subscribeDeactivated(
+            QObject *context, DeactivationCallback callback) override;
     // 请求方法返回不代表已经关闭；无逻辑 Parent 时请求关联窗口关闭。
     void tryClose(DialogResult dialogResult = std::nullopt);
     void canClose(CloseCallback callback) override;

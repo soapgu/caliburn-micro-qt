@@ -97,6 +97,8 @@ flowchart LR
 
 ViewModelBase 的新增成员仅为构造函数、默认虚析构和 protected 模板辅助 `setAndNotify(field, value, &Owner::notifySignal)`。同值不通知，更新先赋值再同步通知；空信号或对象类型不兼容时诊断并拒绝修改。它没有 displayName、字符串通知入口或生命周期状态；QObject 的继承成员继续可用。完整接口、QML 注册与所有权约定见 [ViewModelBase](docs/ViewModelBase.md)。
 
+窗口服务、根工厂和 Conductor 均允许普通 QObject，按 IActivate、IDeactivate、IGuardClose、IChild 选择性参与生命周期。Conductor 默认模板类型为 QObject；IDeactivate 提供带 QObject 上下文的尝试/完成通知订阅。Screen 保留 tryClose 与弹窗结果便利能力，普通 QObject 不要求关闭请求信号。公开类型与 ABI 统一迁移，消费工程须重新编译，见 [接口化迁移](docs/接口化迁移.md)。
+
 已实现的 [Screen](docs/ScreenViewModel.md) 初始化一次、同步执行生命周期，提供只读逻辑 Parent。Screen 实现 IActivate、IDeactivate，两个 Conductor 通过共享 ScreenExtensions 按接口驱动子项生命周期；普通 VM 可独立实现其中一个或两个接口。普通 ViewModelBase 默认不实现 IChild；自行声明该接口的 VM 也能接入。QObject 父树负责所有权，逻辑 Parent 由 Conductor 独立维护。
 
 单项 `deactivateItem(item, false)` 清空选择并普通停用，保留 VM、Parent 和恢复资格；`activateItem(item)` 恢复原对象。切换新项关闭旧当前项，旧对象仍由 QObject 父树持有；`closeItem` 只处理当前项。已初始化单项父关闭只处理当前项并保留选择，集合父关闭清空成员但保留 ActiveItem；未初始化父关闭无操作；父普通停用仍保留选择。`getChildren()` 在单项只返回当前项，集合型返回全部成员，均为借用快照。详见 [Conductor](docs/Conductor.md) 和 [Parent 体系验收记录](docs/验收/Parent体系验收记录.md)。

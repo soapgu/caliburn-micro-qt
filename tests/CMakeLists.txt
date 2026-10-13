@@ -184,3 +184,13 @@ target_link_libraries(CaliburnFrameworkLoggingTests PRIVATE Qt6::Test)
 add_dependencies(CaliburnFrameworkLoggingTests CaliburnFrameworkLoggingProbe)
 add_test(NAME framework_logging COMMAND CaliburnFrameworkLoggingTests)
 set_tests_properties(framework_logging PROPERTIES TIMEOUT 120)
+
+# QObject 及独立能力组合，使用 typed QML 属性验证实际装配。
+add_executable(CaliburnObjectCapabilitiesTests cpp/tst_object_capabilities.cpp)
+qt_add_resources(CaliburnObjectCapabilitiesTests object_fixtures PREFIX /tests
+    FILES fixtures/ObjectWindow.qml fixtures/ObjectDialog.qml)
+target_link_libraries(CaliburnObjectCapabilitiesTests PRIVATE
+    CaliburnMicroQtplugin Caliburn::MicroQt Qt6::Test Qt6::Quick Qt6::QuickControls2)
+add_test(NAME object_capabilities COMMAND CaliburnObjectCapabilitiesTests)
+set_tests_properties(object_capabilities PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 60)

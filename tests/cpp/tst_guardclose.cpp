@@ -25,7 +25,7 @@ protected:
     void onDeactivate(bool close) override { if (close) ++closes; }
 };
 
-class GuardPlain : public ViewModelBase, public IGuardClose
+class GuardPlain : public QObject, public IGuardClose
 {
     Q_OBJECT
     Q_INTERFACES(IGuardClose)
@@ -38,7 +38,7 @@ class DeferredStrategy : public ICloseStrategy
 {
 public:
     CloseCallback result;
-    void execute(const QList<ViewModelBase *> &, CloseCallback callback) override { result = std::move(callback); }
+    void execute(const QList<QObject *> &, CloseCallback callback) override { result = std::move(callback); }
 };
 
 class GuardCloseTests : public QObject
@@ -187,7 +187,7 @@ private slots:
         outer.activateItem(std::move(nested)); outer.activate();
         bool allowed = false; outer.canClose([&](bool result) { allowed = result; });
         QVERIFY(allowed); QCOMPARE(old->checks, 1); QCOMPARE(current->checks, 1);
-        QCOMPARE(inner->getChildren(), QList<ViewModelBase *>{current});
+        QCOMPARE(inner->getChildren(), QList<QObject *>{current});
         QCOMPARE(old->parentViewModel(), inner);
         current->answer = false; outer.canClose([&](bool result) { allowed = result; });
         QVERIFY(!allowed); QCOMPARE(current->closes, 0);
@@ -239,7 +239,7 @@ private slots:
     void strategyExceptionAfterPermissionDoesNotRollback()
     {
         class ThrowAfterStrategy : public ICloseStrategy {
-            void execute(const QList<ViewModelBase *> &, CloseCallback callback) override {
+            void execute(const QList<QObject *> &, CloseCallback callback) override {
                 callback(true); throw std::runtime_error("策略许可后异常");
             }
         };

@@ -21,8 +21,9 @@ QVariantList ConductorCollectionOneActiveBase::items() const
     return result;
 }
 
-bool ConductorCollectionOneActiveBase::validateItemChange(ViewModelBase *item) const
+bool ConductorCollectionOneActiveBase::validateItemChange(QObject *item) const
 {
+    if (!acceptsItem(item)) return false;
     if (item->parent() || item->thread() != thread()) {
         qCWarning(FrameworkLog::conductor, "Collection.OneActive: adopted item must have no QObject parent and belong to the conductor thread");
         return false;
@@ -44,7 +45,7 @@ bool ConductorCollectionOneActiveBase::validateItemChange(ViewModelBase *item) c
     return true;
 }
 
-void ConductorCollectionOneActiveBase::addMember(ViewModelBase *item)
+void ConductorCollectionOneActiveBase::addMember(QObject *item)
 {
     qCDebug(FrameworkLog::conductor).noquote() << "Adding collection member:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item);
     m_items.append(item);
@@ -55,7 +56,7 @@ void ConductorCollectionOneActiveBase::addMember(ViewModelBase *item)
     emit itemsChanged();
 }
 
-void ConductorCollectionOneActiveBase::removeMember(ViewModelBase *item)
+void ConductorCollectionOneActiveBase::removeMember(QObject *item)
 {
     if (!m_items.removeOne(item)) return;
     qCDebug(FrameworkLog::conductor).noquote() << "Removing collection member:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item);
@@ -64,7 +65,7 @@ void ConductorCollectionOneActiveBase::removeMember(ViewModelBase *item)
     emit itemsChanged();
 }
 
-void ConductorCollectionOneActiveBase::adoptItem(std::unique_ptr<ViewModelBase> item, bool select)
+void ConductorCollectionOneActiveBase::adoptItem(std::unique_ptr<QObject> item, bool select)
 {
     auto *next = item.get();
     next->setParent(this);
@@ -74,8 +75,9 @@ void ConductorCollectionOneActiveBase::adoptItem(std::unique_ptr<ViewModelBase> 
     else addMember(next);
 }
 
-void ConductorCollectionOneActiveBase::activateItem(ViewModelBase *item)
+void ConductorCollectionOneActiveBase::activateItem(QObject *item)
 {
+    if (!acceptsItem(item)) { onActivationProcessed(item, false); return; }
     qCDebug(FrameworkLog::conductor).noquote() << "Activation requested:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item);
     // Qt 所有权边界：新对象由 unique_ptr 接管；原先接管的对象可再次加入集合。
     if (item && item->parent() != this) {
@@ -92,12 +94,13 @@ void ConductorCollectionOneActiveBase::activateItem(ViewModelBase *item)
     changeActiveItem(item, false);
 }
 
-void ConductorCollectionOneActiveBase::deactivateItem(ViewModelBase *item, bool close)
+void ConductorCollectionOneActiveBase::deactivateItem(QObject *item, bool close)
 {
+    if (!acceptsItem(item)) return;
     qCDebug(FrameworkLog::conductor).noquote() << "Deactivation requested:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item) << "close:" << close;
     if (!item || item->parent() != this) return;
     if (!close) { ScreenExtensions::tryDeactivate(item, false); return; }
-    QPointer<ViewModelBase> target = item;
+    QPointer<QObject> target = item;
     checkClose({item}, [this, target](bool allowed) {
         if (!allowed || !target) return;
         if (!prepareCloseItem(target.data())) return;
@@ -105,8 +108,8 @@ void ConductorCollectionOneActiveBase::deactivateItem(ViewModelBase *item, bool 
     });
 }
 
-ViewModelBase *ConductorCollectionOneActiveBase::determineNextItemToActivate(
-        const QList<ViewModelBase *> &items, int lastIndex)
+QObject *ConductorCollectionOneActiveBase::determineNextItemToActivate(
+        const QList<QObject *> &items, int lastIndex)
 {
     const int previous = lastIndex - 1;
     if (previous == -1 && items.size() > 1) return items.at(1);
@@ -114,7 +117,7 @@ ViewModelBase *ConductorCollectionOneActiveBase::determineNextItemToActivate(
     return nullptr;
 }
 
-ViewModelBase *ConductorCollectionOneActiveBase::ensureItem(ViewModelBase *item)
+QObject *ConductorCollectionOneActiveBase::ensureItem(QObject *item)
 {
     if (!item)
         item = determineNextItemToActivate(m_items, activeItem() ? m_items.indexOf(activeItem()) : 0);
@@ -123,7 +126,7 @@ ViewModelBase *ConductorCollectionOneActiveBase::ensureItem(ViewModelBase *item)
     return ConductorBase::ensureItem(item);
 }
 
-bool ConductorCollectionOneActiveBase::closeMember(ViewModelBase *item)
+bool ConductorCollectionOneActiveBase::closeMember(QObject *item)
 {
     if (!item) return false;
     if (item == activeItem())
@@ -135,7 +138,7 @@ bool ConductorCollectionOneActiveBase::closeMember(ViewModelBase *item)
     return true;
 }
 
-void ConductorCollectionOneActiveBase::memberDestroyed(ViewModelBase *identity)
+void ConductorCollectionOneActiveBase::memberDestroyed(QObject *identity)
 {
     qCDebug(FrameworkLog::conductor).noquote() << "Destroyed collection member removed:" << FrameworkLog::identity(this)
                                             << "address:" << static_cast<const void *>(identity);

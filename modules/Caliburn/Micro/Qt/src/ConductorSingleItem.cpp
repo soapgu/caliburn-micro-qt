@@ -6,13 +6,14 @@
 
 ConductorSingleItem::ConductorSingleItem(QObject *parent) : ConductorBaseWithActiveItem(parent) {}
 
-QList<ViewModelBase *> ConductorSingleItem::getChildren() const
+QList<QObject *> ConductorSingleItem::getChildren() const
 {
-    return QList<ViewModelBase *>{activeItem()};
+    return QList<QObject *>{activeItem()};
 }
 
-bool ConductorSingleItem::validateItemChange(ViewModelBase *item) const
+bool ConductorSingleItem::validateItemChange(QObject *item) const
 {
+    if (!acceptsItem(item)) return false;
     if (!item)
         return true;
     if (item->parent() || item->thread() != thread()) {
@@ -37,12 +38,12 @@ bool ConductorSingleItem::validateItemChange(ViewModelBase *item) const
     return true;
 }
 
-void ConductorSingleItem::adoptAndActivate(std::unique_ptr<ViewModelBase> item)
+void ConductorSingleItem::adoptAndActivate(std::unique_ptr<QObject> item)
 {
     if (!item) { activateItem(nullptr); return; }
     QQmlEngine::setObjectOwnership(item.get(), QQmlEngine::CppOwnership);
     // std::function 要求可复制捕获；共享的是所有权容器，接管时仍转出 unique_ptr。
-    auto candidate = std::make_shared<std::unique_ptr<ViewModelBase>>(std::move(item));
+    auto candidate = std::make_shared<std::unique_ptr<QObject>>(std::move(item));
     checkClose(getChildren(), [this, candidate](bool allowed) {
         auto owned = std::move(*candidate);
         auto *next = owned.get();
@@ -53,8 +54,9 @@ void ConductorSingleItem::adoptAndActivate(std::unique_ptr<ViewModelBase> item)
     });
 }
 
-void ConductorSingleItem::activateItem(ViewModelBase *item)
+void ConductorSingleItem::activateItem(QObject *item)
 {
+    if (!acceptsItem(item)) { onActivationProcessed(item, false); return; }
     qCDebug(FrameworkLog::conductor).noquote() << "Activation requested:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item);
     // 旧对象可由业务再次选择；从未接管的新对象必须走 unique_ptr 入口。
     if (item && (item->parent() != this
@@ -69,7 +71,7 @@ void ConductorSingleItem::activateItem(ViewModelBase *item)
         }
         return;
     }
-    QPointer<ViewModelBase> target = item;
+    QPointer<QObject> target = item;
     const bool hadTarget = item != nullptr;
     checkClose(getChildren(), [this, target, hadTarget](bool allowed) {
         if (hadTarget && !target) return;
@@ -78,11 +80,12 @@ void ConductorSingleItem::activateItem(ViewModelBase *item)
     });
 }
 
-void ConductorSingleItem::deactivateItem(ViewModelBase *item, bool close)
+void ConductorSingleItem::deactivateItem(QObject *item, bool close)
 {
+    if (!acceptsItem(item)) return;
     qCDebug(FrameworkLog::conductor).noquote() << "Deactivation requested:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item) << "close:" << close;
     if (!item || item != activeItem()) return;
-    QPointer<ViewModelBase> target = item;
+    QPointer<QObject> target = item;
     checkClose({item}, [this, target, close](bool allowed) {
         if (allowed && target) changeActiveItem(nullptr, close);
     });

@@ -2,16 +2,16 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QList>
 
 class QQuickWindow;
-class ScreenViewModel;
 
 // 窗口与 VM 的私有桥接，不接管两者的所有权。
 class WindowConductor final : public QObject
 {
     Q_OBJECT
 public:
-    WindowConductor(QQuickWindow *window, ScreenViewModel *model, QObject *parent = nullptr);
+    WindowConductor(QQuickWindow *window, QObject *model, QObject *parent = nullptr);
     ~WindowConductor() override;
     void detach();
     bool isClosing() const { return m_checking || m_allowClose || m_windowClosed; }
@@ -31,7 +31,8 @@ private:
     void closeWindow();
 
     QPointer<QQuickWindow> m_window;
-    QPointer<ScreenViewModel> m_model;
+    QPointer<QObject> m_model;
+    QList<QMetaObject::Connection> m_connections;
     bool m_enabled = true;
     bool m_checking = false;
     bool m_allowClose = false;

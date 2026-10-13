@@ -20,7 +20,7 @@ protected:
 private:
     void record(const char *event) { if (events) *events << name + ':' + event; }
 };
-class PlainVm : public ViewModelBase {};
+class PlainVm : public QObject {};
 template<class C, class U, class = void> struct CanAdd : std::false_type {};
 template<class C, class U>
 struct CanAdd<C, U, std::void_t<decltype(std::declval<C &>().addItem(
@@ -31,7 +31,7 @@ static_assert(std::is_same_v<decltype(std::declval<Collection>().activeItem()), 
 static_assert(CanAdd<Collection, TrackedScreen>::value);
 static_assert(!CanAdd<Collection, PlainVm>::value);
 static_assert(!CanAdd<Collection, const TrackedScreen>::value);
-static_assert(!CanAdd<ConductorCollectionOneActive<>, QObject>::value);
+static_assert(CanAdd<ConductorCollectionOneActive<>, QObject>::value);
 static_assert(!std::is_copy_constructible_v<Collection>);
 
 class CollectionTests : public QObject
@@ -62,7 +62,7 @@ private slots:
         QCOMPARE(c.items().size(), 1);
         const auto variants = c.property("items").toList();
         QCOMPARE(variants.size(), 1);
-        QCOMPARE(variants.first().value<ViewModelBase *>(), first);
+        QCOMPARE(variants.first().value<QObject *>(), first);
         c.activateItem(first);
         c.activateItem(first);
         c.activateItem(std::make_unique<PlainVm>());

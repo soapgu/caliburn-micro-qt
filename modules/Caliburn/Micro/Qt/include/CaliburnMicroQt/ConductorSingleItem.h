@@ -12,14 +12,14 @@ class ConductorSingleItem : public ConductorBaseWithActiveItem
 
 public:
     explicit ConductorSingleItem(QObject *parent = nullptr);
-    QList<ViewModelBase *> getChildren() const override;
-    void activateItem(ViewModelBase *item) override;
-    void deactivateItem(ViewModelBase *item, bool close) override;
+    QList<QObject *> getChildren() const override;
+    void activateItem(QObject *item) override;
+    void deactivateItem(QObject *item, bool close) override;
     void canClose(CloseCallback callback) override;
 
 protected:
-    bool validateItemChange(ViewModelBase *item) const;
-    void adoptAndActivate(std::unique_ptr<ViewModelBase> item);
+    bool validateItemChange(QObject *item) const;
+    void adoptAndActivate(std::unique_ptr<QObject> item);
     void onActivate() override;
     void onDeactivate(bool close) override;
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <CaliburnMicroQt/ScreenViewModel.h>
+#include <QObject>
 #include <QHash>
 #include <QVariant>
 #include <functional>
@@ -36,7 +36,7 @@ protected:
     [[nodiscard]] bool registerRootFactory(
             std::function<std::unique_ptr<T>(std::shared_ptr<IWindowManager>)> factory)
     {
-        static_assert(std::is_base_of_v<ScreenViewModel, T>, "根 VM 必须继承 ScreenViewModel");
+        static_assert(std::is_base_of_v<QObject, T>, "根模型必须继承 QObject");
         if (m_state != State::Configuring)
             return fail(QStringLiteral("Root factories can only be registered during configure"));
         const auto *type = &T::staticMetaObject;
@@ -53,7 +53,7 @@ protected:
     template<class T>
     [[nodiscard]] bool displayRootViewFor(RootViewOptions options = {})
     {
-        static_assert(std::is_base_of_v<ScreenViewModel, T>, "根 VM 必须继承 ScreenViewModel");
+        static_assert(std::is_base_of_v<QObject, T>, "根模型必须继承 QObject");
         Q_UNUSED(options);
         if (!createRootViewModel(&T::staticMetaObject)) {
             m_rootDisplayFailed = true;
@@ -67,7 +67,7 @@ protected:
 
 private:
     enum class State { Ready, Configuring, Starting, Running, Stopping, Stopped };
-    using RootFactory = std::function<std::unique_ptr<ScreenViewModel>(std::shared_ptr<IWindowManager>)>;
+    using RootFactory = std::function<std::unique_ptr<QObject>(std::shared_ptr<IWindowManager>)>;
 
     bool initialize();
     bool createRootViewModel(const QMetaObject *type);
@@ -80,7 +80,7 @@ private:
     QGuiApplication &m_app;
     State m_state = State::Ready;
     QHash<const QMetaObject *, RootFactory> m_factories;
-    std::unique_ptr<ScreenViewModel> m_root;
+    std::unique_ptr<QObject> m_root;
     std::shared_ptr<WindowManager> m_windowManager;
     bool m_displayAttempted = false;
     bool m_rootDisplayed = false;

@@ -1,22 +1,27 @@
 #include "FrameworkLog.h"
 #include "WindowConductor.h"
 #include <CaliburnMicroQt/ScreenViewModel.h>
+#include <CaliburnMicroQt/IGuardClose.h>
 #include <QCloseEvent>
 #include <QDebug>
 #include <QQuickWindow>
 #include <exception>
+#include <utility>
 
-WindowConductor::WindowConductor(QQuickWindow *window, ScreenViewModel *model, QObject *parent)
+WindowConductor::WindowConductor(QQuickWindow *window, QObject *model, QObject *parent)
     : QObject(parent), m_window(window), m_model(model)
 {
     window->installEventFilter(this);
-    connect(model, &ScreenViewModel::closeRequested, this, &WindowConductor::requestClose);
-    connect(model, &ScreenViewModel::deactivated, this, [this](bool close) {
-        if (!close) return;
-        m_modelClosed = true;
-        if (m_enabled && !m_windowClosed)
-            QMetaObject::invokeMethod(this, [this] { closeWindow(); }, Qt::QueuedConnection);
-    });
+    if (auto *screen = qobject_cast<ScreenViewModel *>(model))
+        m_connections << connect(screen, &ScreenViewModel::closeRequested, this, &WindowConductor::requestClose);
+    if (auto *deactivator = qobject_cast<IDeactivate *>(model)) {
+        m_connections << deactivator->subscribeDeactivated(this, [this](bool close) {
+            if (!close) return;
+            m_modelClosed = true;
+            if (m_enabled && !m_windowClosed)
+                QMetaObject::invokeMethod(this, [this] { closeWindow(); }, Qt::QueuedConnection);
+        });
+    }
     connect(model, &QObject::destroyed, this, [this] { detach(); });
     connect(window, &QObject::destroyed, this, [this] { detach(); });
 }
@@ -30,6 +35,8 @@ void WindowConductor::detach()
 {
     m_enabled = false;
     if (m_window) m_window->removeEventFilter(this);
+    for (const auto &connection : std::as_const(m_connections)) disconnect(connection);
+    m_connections.clear();
     if (m_model) disconnect(m_model, nullptr, this, nullptr);
 }
 
@@ -67,7 +74,13 @@ void WindowConductor::checkClose()
     if (m_modelClosed) { closeWindow(); return; }
     QPointer<WindowConductor> owner = this;
     try {
-        m_model->canClose([owner](bool allowed) {
+        auto *guard = qobject_cast<IGuardClose *>(m_model.data());
+        if (!guard) {
+            m_checking = false;
+            closeWindow();
+            return;
+        }
+        guard->canClose([owner](bool allowed) {
             if (!owner || !owner->m_enabled || owner->m_windowClosed || owner->m_modelClosed) return;
             qCInfo(FrameworkLog::window).noquote() << "Window close permission resolved:" << FrameworkLog::identity(owner->m_window.data())
                                                   << "model:" << FrameworkLog::identity(owner->m_model.data()) << "allowed:" << allowed;

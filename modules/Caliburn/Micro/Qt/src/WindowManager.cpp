@@ -1,6 +1,8 @@
 #include "FrameworkLog.h"
 #include <CaliburnMicroQt/WindowManager.h>
 #include <CaliburnMicroQt/ViewLocator.h>
+#include <CaliburnMicroQt/ScreenViewModel.h>
+#include <CaliburnMicroQt/ScreenExtensions.h>
 #include "WindowConductor.h"
 #include <QQmlEngine>
 #include <QQmlApplicationEngine>
@@ -25,7 +27,7 @@ bool failWindow(const QString &message)
 // 仅拥有普通窗口资源；VM 由调用方持有，避免与业务的共享窗口服务形成所有权环。
 struct WindowManager::ManagedWindow
 {
-    QPointer<ScreenViewModel> model;
+    QPointer<QObject> model;
     QPointer<QQuickWindow> window;
     bool closeAttempted = false;
     QMetaObject::Connection closeConnection;
@@ -37,9 +39,10 @@ bool WindowManager::showWindow(const QVariant &viewModel)
 {
     if (QThread::currentThread() != thread())
         return failWindow(QStringLiteral("Showing a window requires the service thread"));
-    auto *model = qobject_cast<ScreenViewModel *>(viewModel.value<QObject *>());
-    if (!model || model->thread() != thread() || model->parentViewModel())
-        return failWindow(QStringLiteral("Window model must be a Screen on the service thread without a logical parent"));
+    auto *model = viewModel.value<QObject *>();
+    auto *child = qobject_cast<IChild *>(model);
+    if (!model || model->thread() != thread() || (child && child->parentViewModel()))
+        return failWindow(QStringLiteral("Window model must be a QObject on the service thread without a logical parent"));
     if (m_managedWindow || m_window || busy() || m_destroying)
         return failWindow(QStringLiteral("A managed window, owner window or pending request already exists"));
     qCDebug(FrameworkLog::window).noquote() << "Showing window; model:" << FrameworkLog::identity(model);
@@ -52,10 +55,11 @@ bool WindowManager::showWindow(const QVariant &viewModel)
     m_managedWindow = std::make_unique<ManagedWindow>();
     auto &managed = *m_managedWindow;
     managed.model = model;
-    managed.closeConnection = connect(model, &ScreenViewModel::attemptingDeactivation,
-            this, [this](bool close) {
-        if (close && m_managedWindow) m_managedWindow->closeAttempted = true;
-    });
+    if (auto *deactivator = qobject_cast<IDeactivate *>(model)) {
+        managed.closeConnection = deactivator->subscribeAttemptingDeactivation(this, [this](bool close) {
+            if (close && m_managedWindow) m_managedWindow->closeAttempted = true;
+        });
+    }
     QQmlEngine::setObjectOwnership(model, QQmlEngine::CppOwnership);
     auto fail = [this](const QString &message) {
         releaseWindows();
@@ -63,7 +67,7 @@ bool WindowManager::showWindow(const QVariant &viewModel)
     };
     try {
         // 保留当前先激活再加载的契约；CM 的创建/绑定/激活顺序单独迁移。
-        model->activate();
+        ScreenExtensions::tryActivate(model);
         managed.engine = std::make_unique<QQmlApplicationEngine>();
         managed.engine->setInitialProperties({{QStringLiteral("viewModel"), viewModel}});
         managed.engine->load(url);
@@ -100,7 +104,7 @@ void WindowManager::closeManagedWindow() noexcept
 {
     if (!m_managedWindow || !m_managedWindow->model || m_managedWindow->closeAttempted) return;
     m_managedWindow->closeAttempted = true;
-    try { m_managedWindow->model->deactivate(true); }
+    try { ScreenExtensions::tryDeactivate(m_managedWindow->model.data(), true); }
     catch (const std::exception &error) {
         qCCritical(FrameworkLog::window).noquote() << "WindowManager: model close failed:" << error.what();
         emit windowCleanupFailed();
@@ -141,7 +145,7 @@ void WindowManager::releaseWindows()
 struct WindowManager::Request
 {
     QPromise<DialogResult> promise;
-    QPointer<ScreenViewModel> vm;
+    QPointer<QObject> vm;
     QPointer<QObject> requester;
     QPointer<QQuickWindow> window;
     QPointer<QQuickItem> previousFocus;
@@ -218,13 +222,13 @@ void WindowManager::detachFromWindow()
 }
 
 bool WindowManager::busy() const { return bool(m_request) || m_finishing; }
-ScreenViewModel *WindowManager::currentDialog() const
+QObject *WindowManager::currentDialog() const
 {
     return m_request && !m_request->closing ? m_request->vm.data() : nullptr;
 }
 
 QFuture<DialogResult> WindowManager::showDialogAsync(
-        std::unique_ptr<ScreenViewModel> vm, QObject *requester)
+        std::unique_ptr<QObject> vm, QObject *requester)
 {
     qCDebug(FrameworkLog::window) << "Dialog requested";
     auto request = std::make_unique<Request>();
@@ -240,7 +244,10 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
         vm.release()->deleteLater();
         return reject(std::make_exception_ptr(std::invalid_argument("WindowManager: dialog model belongs to another thread")));
     }
-    if (!vm || !requester || vm->parent() || vm->parentViewModel() || vm->isActive()
+    auto *child = qobject_cast<IChild *>(vm.get());
+    auto *activator = qobject_cast<IActivate *>(vm.get());
+    if (!vm || !requester || vm->parent() || (child && child->parentViewModel())
+            || (activator && activator->isActive())
             || vm->thread() != thread() || requester->thread() != thread())
         return reject(std::make_exception_ptr(std::invalid_argument("WindowManager: invalid dialog model or requester")));
     if (busy() || m_destroying)
@@ -265,19 +272,25 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
         if (!m_starting && m_request->window)
             QMetaObject::invokeMethod(m_request->window, [this] { complete(std::nullopt); },
                                       Qt::QueuedConnection);
-    }) << connect(m_request->vm, &ScreenViewModel::attemptingDeactivation, this, [this](bool close) {
-        if (close && m_request) m_request->lifecycleAttempted = true;
-    }) << connect(m_request->vm, &ScreenViewModel::closeRequested, this, [this](DialogResult result) {
-        if (!m_request || m_request->closing || m_request->closePending
-                || (m_request->bridge && m_request->bridge->isClosing())) return;
-        // 在激活及桥接连接前保存结果，桥接收到同一信号时只负责请求关窗。
-        m_request->result = result;
-        m_request->closePending = true;
     });
+    if (auto *deactivator = qobject_cast<IDeactivate *>(m_request->vm.data())) {
+        m_request->connections << deactivator->subscribeAttemptingDeactivation(this, [this](bool close) {
+            if (close && m_request) m_request->lifecycleAttempted = true;
+        });
+    }
+    if (auto *screen = qobject_cast<ScreenViewModel *>(m_request->vm.data())) {
+        m_request->connections << connect(screen, &ScreenViewModel::closeRequested, this, [this](DialogResult result) {
+            if (!m_request || m_request->closing || m_request->closePending
+                    || (m_request->bridge && m_request->bridge->isClosing())) return;
+            // 在激活及桥接连接前保存结果，桥接收到同一信号时只负责请求关窗。
+            m_request->result = result;
+            m_request->closePending = true;
+        });
+    }
     m_starting = true;
     emit busyChanged();
     try {
-        if (!m_request->closing) m_request->vm->activate();
+        if (!m_request->closing) ScreenExtensions::tryActivate(m_request->vm.data());
         if (!m_request->closing) {
             QQmlComponent component(m_engine, QUrl(QStringLiteral(
                 "qrc:/qt/qml/Caliburn/Micro/Qt/DialogWindow.qml")));
@@ -363,7 +376,7 @@ void WindowManager::finish(bool restoreFocus)
     delete request->window.data();
     if (request->vm) {
         if (!request->lifecycleAttempted) {
-            try { request->vm->deactivate(true); }
+            try { ScreenExtensions::tryDeactivate(request->vm.data(), true); }
             catch (...) { if (!request->error) request->error = std::current_exception(); }
         }
         if (request->vm) request->vm->deleteLater();

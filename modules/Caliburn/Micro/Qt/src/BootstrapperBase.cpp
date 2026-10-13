@@ -3,6 +3,7 @@
 #include <CaliburnMicroQt/ViewLocator.h>
 #include <QQmlEngine>
 #include <CaliburnMicroQt/WindowManager.h>
+#include <CaliburnMicroQt/ScreenExtensions.h>
 #include <QDebug>
 #include <QGuiApplication>
 #include <QThread>
@@ -107,9 +108,11 @@ bool BootstrapperBase::createRootViewModel(const QMetaObject *type)
         return fail(QStringLiteral("Root model must have no QObject parent and belong to the application thread"));
 
     m_root = std::move(model);
-    connect(m_root.get(), &ScreenViewModel::attemptingDeactivation, this, [this](bool close) {
-        if (close) m_closeAttempted = true;
-    });
+    if (auto *deactivator = qobject_cast<IDeactivate *>(m_root.get())) {
+        deactivator->subscribeAttemptingDeactivation(this, [this](bool close) {
+            if (close) m_closeAttempted = true;
+        });
+    }
     QQmlEngine::setObjectOwnership(m_root.get(), QQmlEngine::CppOwnership);
     return true;
 }
@@ -125,7 +128,7 @@ void BootstrapperBase::closeRoot() noexcept
     if (!m_root || m_closeAttempted)
         return;
     m_closeAttempted = true;
-    if (!tryCleanup("Close root model", [this] { m_root->deactivate(true); }))
+    if (!tryCleanup("Close root model", [this] { ScreenExtensions::tryDeactivate(m_root.get(), true); }))
         m_cleanupFailed = true;
 }
 

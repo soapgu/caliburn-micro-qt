@@ -21,8 +21,8 @@ public:
     // 释放自建窗口/引擎并兜底关闭借用 VM；不删除 VM。
     void releaseWindows();
     bool busy() const override;
-    ScreenViewModel *currentDialog() const override;
-    QFuture<DialogResult> showDialogAsync(std::unique_ptr<ScreenViewModel> viewModel,
+    QObject *currentDialog() const override;
+    QFuture<DialogResult> showDialogAsync(std::unique_ptr<QObject> viewModel,
                                          QObject *requester) override;
 signals:
     // 普通窗口关闭生命周期异常已捕获；应用可据此保留失败退出码。

@@ -8,8 +8,8 @@ class DefaultCloseStrategy : public ICloseStrategy
 public:
     explicit DefaultCloseStrategy(bool closeConductedItemsWhenConductorCannotClose = false)
         : m_partialClose(closeConductedItemsWhenConductorCannotClose) {}
-    void execute(const QList<ViewModelBase *> &items, CloseCallback callback) override;
-    void executeWithResult(const QList<ViewModelBase *> &items, CloseStrategyCallback callback) override;
+    void execute(const QList<QObject *> &items, CloseCallback callback) override;
+    void executeWithResult(const QList<QObject *> &items, CloseStrategyCallback callback) override;
 private:
     bool m_partialClose;
 };

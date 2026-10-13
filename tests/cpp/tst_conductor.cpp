@@ -23,7 +23,7 @@ private:
     void record(const char *event) { if (events) *events << name + ':' + event; }
 };
 
-class PlainVm : public ViewModelBase
+class PlainVm : public QObject
 {
 public:
     explicit PlainVm(int *destroyed = nullptr) : destroyed(destroyed) {}
@@ -41,7 +41,7 @@ static_assert(std::is_same_v<decltype(std::declval<Conductor<TrackedScreen> &>()
 static_assert(CanAdopt<Conductor<>, PlainVm>::value);
 static_assert(CanAdopt<Conductor<ScreenViewModel>, TrackedScreen>::value);
 static_assert(!CanAdopt<Conductor<ScreenViewModel>, PlainVm>::value);
-static_assert(!CanAdopt<Conductor<>, QObject>::value);
+static_assert(CanAdopt<Conductor<>, QObject>::value);
 static_assert(!CanAdopt<Conductor<>, const PlainVm>::value);
 static_assert(!std::is_copy_constructible_v<Conductor<>>);
 
@@ -171,7 +171,7 @@ private slots:
         events.clear();
         conductor.deactivate(true);
         QCOMPARE(conductor.activeItem(), old);
-        QCOMPARE(conductor.getChildren(), QList<ViewModelBase *>{old});
+        QCOMPARE(conductor.getChildren(), QList<QObject *>{old});
         QCOMPARE(changed.count(), 0);
         const bool childInitialized = screenItem && (state == 2 || state == 3);
         QCOMPARE(events, childInitialized ? QStringList({"child:close"}) : QStringList{});
@@ -189,7 +189,7 @@ private slots:
         int destroyed = 0;
         auto conductor = std::make_unique<Conductor<>>();
         conductor->activateItem(std::make_unique<PlainVm>(&destroyed));
-        QPointer<ViewModelBase> weak = conductor->activeItem();
+        QPointer<QObject> weak = conductor->activeItem();
         conductor->initialize();
         conductor->deactivate(true);
         QCOMPARE(conductor->activeItem(), weak.data());
@@ -409,7 +409,7 @@ private slots:
         QVERIFY(property.isReadable());
         QVERIFY(property.isWritable());
         QVERIFY(property.hasNotifySignal());
-        QCOMPARE(property.metaType(), QMetaType::fromType<ViewModelBase *>());
+        QCOMPARE(property.metaType(), QMetaType::fromType<QObject *>());
         QVERIFY(meta->indexOfMethod("activateItem()") < 0);
         QVERIFY(meta->indexOfMethod("closeItem()") < 0);
     }

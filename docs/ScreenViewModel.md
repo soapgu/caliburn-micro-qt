@@ -14,7 +14,7 @@ void tryClose(DialogResult dialogResult = std::nullopt);
 void canClose(CloseCallback callback) override;
 ```
 
-ScreenViewModel 同时实现 IActivate、IDeactivate；isActive、activate、deactivate 覆盖对应虚方法。两个 Conductor 通过共享 ScreenExtensions 查询接口，非 Screen 对象也可自行实现生命周期能力。原有调用方式与默认 close=false 保留；新增虚接口改变 C++ 类布局，消费工程须重新编译。状态通知和 attemptingDeactivation/deactivated 信号仍由 Screen 提供，不属于本次纯 C++ 接口契约。
+ScreenViewModel 同时实现 IActivate、IDeactivate；isActive、activate、deactivate 覆盖对应虚方法。两个 Conductor 通过共享 ScreenExtensions 查询接口，非 Screen 对象也可自行实现生命周期能力。原有调用方式与默认 close=false 保留；新增虚接口改变 C++ 类布局，消费工程须重新编译。状态通知仍由 Screen 提供；IDeactivate/2.0 新增 subscribeAttemptingDeactivation(context, callback)、subscribeDeactivated(context, callback)，返回 QMetaObject::Connection。Screen 复用已有信号实现订阅，context 销毁时自动断开；通知及回调均遵循主线程约定。普通 QObject 实现该接口时，应在执行前发出尝试通知，正常完成后发出完成通知，异常时不伪造完成通知。
 
 两个 bool 是只读 Q_PROPERTY，分别使用 isInitializedChanged、isActiveChanged 通知，初始 false。派生类通过 protected 虚函数 onInitialize()、onActivate()、onDeactivate(bool close) 扩展，默认空实现。完整声明见 [ScreenViewModel.h](../modules/Caliburn/Micro/Qt/include/CaliburnMicroQt/ScreenViewModel.h)。
 

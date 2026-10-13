@@ -3,7 +3,7 @@
 #include <QtTest>
 #include <stdexcept>
 
-class ActivateOnlyVm : public ViewModelBase, public IActivate
+class ActivateOnlyVm : public QObject, public IActivate
 {
     Q_OBJECT
     Q_INTERFACES(IActivate)
@@ -14,13 +14,22 @@ public:
     int activations = 0;
 };
 
-class DeactivateOnlyVm : public ViewModelBase, public IDeactivate
+class DeactivateOnlyVm : public QObject, public IDeactivate
 {
     Q_OBJECT
     Q_INTERFACES(IDeactivate)
 public:
-    void deactivate(bool close) override { closes.append(close); }
+    void deactivate(bool close) override {
+        emit attempting(close); closes.append(close); emit completed(close);
+    }
+    QMetaObject::Connection subscribeAttemptingDeactivation(QObject *context, DeactivationCallback callback) override
+    { return connect(this, &DeactivateOnlyVm::attempting, context, std::move(callback)); }
+    QMetaObject::Connection subscribeDeactivated(QObject *context, DeactivationCallback callback) override
+    { return connect(this, &DeactivateOnlyVm::completed, context, std::move(callback)); }
     QList<bool> closes;
+signals:
+    void attempting(bool close);
+    void completed(bool close);
 };
 
 // 通过继承获得激活接口，自己声明停用接口；不依赖 Screen。
@@ -29,8 +38,17 @@ class LifecycleVm : public ActivateOnlyVm, public IDeactivate
     Q_OBJECT
     Q_INTERFACES(IDeactivate)
 public:
-    void deactivate(bool close) override { active = false; closes.append(close); }
+    void deactivate(bool close) override {
+        emit attempting(close); active = false; closes.append(close); emit completed(close);
+    }
+    QMetaObject::Connection subscribeAttemptingDeactivation(QObject *context, DeactivationCallback callback) override
+    { return connect(this, &LifecycleVm::attempting, context, std::move(callback)); }
+    QMetaObject::Connection subscribeDeactivated(QObject *context, DeactivationCallback callback) override
+    { return connect(this, &LifecycleVm::completed, context, std::move(callback)); }
     QList<bool> closes;
+signals:
+    void attempting(bool close);
+    void completed(bool close);
 };
 
 class LifecycleTests : public QObject
@@ -131,7 +149,7 @@ private slots:
         class Probe : public Conductor<> {
         public:
             std::function<void()> duringEnsure;
-            ViewModelBase *ensureItem(ViewModelBase *item) override {
+            QObject *ensureItem(QObject *item) override {
                 if (duringEnsure) duringEnsure();
                 return ConductorBase::ensureItem(item);
             }

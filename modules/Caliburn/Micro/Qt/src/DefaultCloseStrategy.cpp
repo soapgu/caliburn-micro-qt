@@ -1,15 +1,15 @@
 #include "FrameworkLog.h"
 #include <CaliburnMicroQt/DefaultCloseStrategy.h>
-#include <CaliburnMicroQt/ViewModelBase.h>
+#include <QObject>
 #include <QPointer>
 #include <memory>
 
 namespace {
 struct Evaluation : std::enable_shared_from_this<Evaluation>
 {
-    QList<QPointer<ViewModelBase>> items;
+    QList<QPointer<QObject>> items;
     CloseStrategyCallback callback;
-    QList<QPointer<ViewModelBase>> closable;
+    QList<QPointer<QObject>> closable;
     bool partialClose = false;
     int index = 0;
     bool result = true;
@@ -23,7 +23,7 @@ struct Evaluation : std::enable_shared_from_this<Evaluation>
         while (!waiting) {
             if (index == items.size()) {
                 auto complete = std::move(callback);
-                QList<ViewModelBase *> available;
+                QList<QObject *> available;
                 if (partialClose)
                     for (const auto &item : closable)
                         if (item) available.append(item.data());
@@ -52,12 +52,12 @@ struct Evaluation : std::enable_shared_from_this<Evaluation>
 };
 }
 
-void DefaultCloseStrategy::execute(const QList<ViewModelBase *> &items, CloseCallback callback)
+void DefaultCloseStrategy::execute(const QList<QObject *> &items, CloseCallback callback)
 {
     executeWithResult(items, [callback = std::move(callback)](bool allowed, const auto &) { callback(allowed); });
 }
 
-void DefaultCloseStrategy::executeWithResult(const QList<ViewModelBase *> &items, CloseStrategyCallback callback)
+void DefaultCloseStrategy::executeWithResult(const QList<QObject *> &items, CloseStrategyCallback callback)
 {
     auto state = std::make_shared<Evaluation>();
     state->callback = std::move(callback);

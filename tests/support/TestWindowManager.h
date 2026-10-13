@@ -1,6 +1,7 @@
 #pragma once
 
 #include <CaliburnMicroQt/WindowManager.h>
+#include <CaliburnMicroQt/ScreenViewModel.h>
 #include <QPromise>
 #include <stdexcept>
 
@@ -15,8 +16,8 @@ public:
     int requests = 0;
     int cancellations = 0;
     bool busy() const override { return bool(m_promise); }
-    ScreenViewModel *currentDialog() const override { return m_vm.get(); }
-    QFuture<DialogResult> showDialogAsync(std::unique_ptr<ScreenViewModel> vm, QObject *requester) override
+    QObject *currentDialog() const override { return m_vm.get(); }
+    QFuture<DialogResult> showDialogAsync(std::unique_ptr<QObject> vm, QObject *requester) override
     {
         ++requests;
         if (m_promise) {
@@ -31,7 +32,8 @@ public:
         m_promise = std::make_unique<QPromise<DialogResult>>();
         m_promise->start();
         auto future = m_promise->future();
-        connect(m_vm.get(), &ScreenViewModel::closeRequested, this, [this](DialogResult result) {
+        if (auto *screen = qobject_cast<ScreenViewModel *>(m_vm.get()))
+        connect(screen, &ScreenViewModel::closeRequested, this, [this](DialogResult result) {
             if (!result) ++cancellations;
             if (!result && deferCancellation) {
                 disconnect(m_requesterDestroyed);
@@ -69,7 +71,7 @@ public:
     }
 private:
     std::unique_ptr<QPromise<DialogResult>> m_promise;
-    std::unique_ptr<ScreenViewModel> m_vm;
+    std::unique_ptr<QObject> m_vm;
     QMetaObject::Connection m_requesterDestroyed;
 };
 

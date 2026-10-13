@@ -17,14 +17,14 @@ void ConductorBase::setCloseStrategy(std::shared_ptr<ICloseStrategy> strategy)
     m_closeStrategy = std::move(strategy);
 }
 
-void ConductorBase::checkClose(const QList<ViewModelBase *> &items, CloseCallback continuation)
+void ConductorBase::checkClose(const QList<QObject *> &items, CloseCallback continuation)
 {
     checkCloseResult(items, [continuation = std::move(continuation)](bool allowed, const auto &) {
         continuation(allowed);
     });
 }
 
-void ConductorBase::checkCloseResult(const QList<ViewModelBase *> &items, CloseStrategyCallback continuation)
+void ConductorBase::checkCloseResult(const QList<QObject *> &items, CloseStrategyCallback continuation)
 {
     qCDebug(FrameworkLog::conductor).noquote() << "Checking close permission:" << FrameworkLog::identity(this) << "items:" << items.size();
     const auto identity = FrameworkLog::identity(this);
@@ -41,26 +41,26 @@ void ConductorBase::checkCloseResult(const QList<ViewModelBase *> &items, CloseS
     });
 }
 
-ViewModelBase *ConductorBase::ensureItem(ViewModelBase *item)
+QObject *ConductorBase::ensureItem(QObject *item)
 {
     if (auto *child = qobject_cast<IChild *>(item); child && child->parentViewModel() != this)
         setLogicalParent(item, this);
     return item;
 }
 
-bool ConductorBase::hasLogicalParent(ViewModelBase *item)
+bool ConductorBase::hasLogicalParent(QObject *item)
 {
     auto *child = qobject_cast<IChild *>(item);
     return child && child->parentViewModel();
 }
 
-void ConductorBase::setLogicalParent(ViewModelBase *item, QObject *parent)
+void ConductorBase::setLogicalParent(QObject *item, QObject *parent)
 {
     if (auto *child = qobject_cast<IChild *>(item))
         child->setParentViewModel(parent);
 }
 
-void ConductorBase::onActivationProcessed(ViewModelBase *item, bool success)
+void ConductorBase::onActivationProcessed(QObject *item, bool success)
 {
     qCDebug(FrameworkLog::conductor).noquote() << "Activation processed:" << FrameworkLog::identity(this)
                                             << "item:" << FrameworkLog::identity(item) << "success:" << success;

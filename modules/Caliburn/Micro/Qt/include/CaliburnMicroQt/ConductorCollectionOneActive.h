@@ -5,12 +5,12 @@
 #include <type_traits>
 #include <utility>
 
-template<class T = ViewModelBase>
+template<class T = QObject>
 class ConductorCollectionOneActive : public ConductorCollectionOneActiveBase
 {
-    static_assert(std::is_base_of_v<ViewModelBase, T>
+    static_assert(std::is_base_of_v<QObject, T>
                   && !std::is_const_v<T> && !std::is_volatile_v<T>,
-                  "Collection.OneActive 的 T 必须为非 const/volatile 的 ViewModelBase 派生类");
+                  "Collection.OneActive 的 T 必须为非 const/volatile 的 QObject 派生类");
 public:
     using ConductorCollectionOneActiveBase::ConductorCollectionOneActiveBase;
     T *activeItem() const
@@ -30,7 +30,7 @@ public:
     {
         if (!item || !validateItemChange(item.get()))
             return false;
-        adoptItem(std::unique_ptr<ViewModelBase>(std::move(item)), false);
+        adoptItem(std::unique_ptr<QObject>(std::move(item)), false);
         return true;
     }
     template<class U, std::enable_if_t<std::is_base_of_v<T, U>
@@ -42,11 +42,20 @@ public:
             onActivationProcessed(item.get(), false);
             return;
         }
-        adoptItem(std::unique_ptr<ViewModelBase>(std::move(item)), true);
+        adoptItem(std::unique_ptr<QObject>(std::move(item)), true);
     }
-    void activateItem(T *item) { ConductorCollectionOneActiveBase::activateItem(item); }
+    template<class U, std::enable_if_t<std::is_convertible_v<U *, T *>, int> = 0>
+    void activateItem(U *item) { ConductorCollectionOneActiveBase::activateItem(item); }
     void setActiveItem(T *item) { ConductorBaseWithActiveItem::setActiveItem(item); }
     void activateItem(std::nullptr_t) { ConductorCollectionOneActiveBase::activateItem(nullptr); }
-    void deactivateItem(T *item, bool close) { ConductorCollectionOneActiveBase::deactivateItem(item, close); }
+    template<class U, std::enable_if_t<std::is_convertible_v<U *, T *>, int> = 0>
+    void deactivateItem(U *item, bool close) { ConductorCollectionOneActiveBase::deactivateItem(item, close); }
+    void deactivateItem(std::nullptr_t, bool) {}
     void closeItem(T *item) { static_cast<IConductor *>(this)->deactivateItem(item, true); }
+
+protected:
+    bool acceptsItem(QObject *item) const override
+    {
+        return !item || dynamic_cast<T *>(item) != nullptr;
+    }
 };

@@ -130,7 +130,7 @@ private slots:
         QVERIFY(dialogWindow(first));
         QVERIFY(!dialogWindow(second) && !other.busy());
         QCOMPARE(QSizeF(layout->width(), layout->height()), businessSize);
-        manager.currentDialog()->tryClose();
+        qobject_cast<ScreenViewModel *>(manager.currentDialog())->tryClose();
         QTRY_VERIFY(future.isFinished());
         QCOMPARE(future.result(), DialogResult{});
         QCOMPARE(QSizeF(layout->width(), layout->height()), businessSize);

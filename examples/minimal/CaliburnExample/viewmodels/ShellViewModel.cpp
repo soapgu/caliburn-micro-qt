@@ -55,7 +55,7 @@ void ShellViewModel::showDetail()
         throw std::invalid_argument("Shell factory must return a non-null adoptable Detail");
 }
 
-bool ShellViewModel::prepareCloseItem(ViewModelBase *item)
+bool ShellViewModel::prepareCloseItem(QObject *item)
 {
     if (item && item == detail() && item == activeItem()) ensureHome();
     return true;

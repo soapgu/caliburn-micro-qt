@@ -79,3 +79,9 @@ DetailView 返回按钮仍绑定页面活动状态与非空逻辑 Parent。showD
 5A、5B 均已实现并完成本机验收，见 [5A](验收/5A验收记录.md)、[5B](验收/5B验收记录.md)。Home 和 Detail 使用同一 shared_ptr<IWindowManager>；两个工厂都按值捕获计数及窗口服务，每次调用在局部注入器中绑定二者。不同 buildShell 实例仍相互隔离。
 
 窗口服务由框架创建并登记所属窗口，按需创建独立 ApplicationModal 窗口，Shell 不声明宿主或接线属性。ConfirmationRequest 只保存文案；重置由 Home 完成，成员关闭由 Conductor 完成，弹窗关闭由 WindowConductor 与窗口服务完成。主窗口关闭与根请求由 WindowManager 创建的私有窗口桥接接入守卫；Bootstrapper 只委托显示并编排应用退出；缓存继续留待后续，麒麟待验证。
+
+## QObject 根工厂
+
+registerRootFactory<T> 和 displayRootViewFor<T> 允许 QObject 派生类型，内部工厂返回 unique_ptr<QObject>；typed QVariant 保留具体 T* 供 QML 初始属性注入。根对象仍由 Bootstrapper 持有，窗口服务只借用，不要求 Screen 或完整生命周期接口。根关闭兜底仅在存在 IDeactivate 时调用，按尝试通知避免重复关闭。
+
+退出顺序保持准备窗口退出、根关闭、onExit、释放普通 View/引擎、删除根模型；onExit 时根和普通 View 仍存活。示例 Shell 继续继承 Conductor<ScreenViewModel>，业务 DI 结构不变。迁移步骤见 [接口化迁移](接口化迁移.md)。

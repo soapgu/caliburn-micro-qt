@@ -148,7 +148,7 @@ int main(int argc, char **argv)
             return 0;
         }
         if (!windows.currentDialog()) return 15;
-        windows.currentDialog()->tryClose(true);
+        qobject_cast<ScreenViewModel *>(windows.currentDialog())->tryClose(true);
         QTimer timeout;
         timeout.setSingleShot(true);
         QObject::connect(&timeout, &QTimer::timeout, &app, [] { QCoreApplication::exit(16); });

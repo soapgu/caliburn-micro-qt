@@ -32,7 +32,7 @@ signals:
     void navigationChanged();
 protected:
     void onActivate() override;
-    bool prepareCloseItem(ViewModelBase *item) override;
+    bool prepareCloseItem(QObject *item) override;
 private:
     HomeViewModel *ensureHome();
     HomeViewModelFactory m_homeFactory;

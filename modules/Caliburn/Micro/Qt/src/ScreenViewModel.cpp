@@ -1,6 +1,7 @@
 #include <CaliburnMicroQt/ScreenViewModel.h>
 #include <CaliburnMicroQt/IConductor.h>
 #include "FrameworkLog.h"
+#include <utility>
 
 ScreenViewModel::ScreenViewModel(QObject *parent) : ViewModelBase(parent) {}
 
@@ -65,4 +66,16 @@ void ScreenViewModel::tryClose(DialogResult dialogResult)
 void ScreenViewModel::canClose(CloseCallback callback)
 {
     callback(true);
+}
+
+QMetaObject::Connection ScreenViewModel::subscribeAttemptingDeactivation(
+        QObject *context, DeactivationCallback callback)
+{
+    return connect(this, &ScreenViewModel::attemptingDeactivation, context, std::move(callback));
+}
+
+QMetaObject::Connection ScreenViewModel::subscribeDeactivated(
+        QObject *context, DeactivationCallback callback)
+{
+    return connect(this, &ScreenViewModel::deactivated, context, std::move(callback));
 }

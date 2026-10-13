@@ -10,7 +10,7 @@ ConductorBaseWithActiveItem::~ConductorBaseWithActiveItem()
     QObject::disconnect(m_currentDestroyed);
 }
 
-void ConductorBaseWithActiveItem::changeActiveItem(ViewModelBase *item, bool closePrevious)
+void ConductorBaseWithActiveItem::changeActiveItem(QObject *item, bool closePrevious)
 {
     const auto identity = FrameworkLog::identity(this);
     const auto previous = FrameworkLog::identity(activeItem());

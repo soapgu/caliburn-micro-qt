@@ -95,7 +95,7 @@ private slots:
         QObject requester;
         auto dialog = manager.showDialogAsync(std::make_unique<DialogProbe>(), &requester);
         QVERIFY(manager.busy() && dialogWindow(window));
-        manager.currentDialog()->tryClose();
+        qobject_cast<ScreenViewModel *>(manager.currentDialog())->tryClose();
         QTRY_VERIFY(dialog.isFinished());
         QCOMPARE(dialog.result(), DialogResult{});
         vm->tryClose(true); // 普通窗口忽略结果，仍询问守卫。
@@ -376,7 +376,7 @@ private slots:
         auto unmapped = manager.showDialogAsync(std::make_unique<UnmappedDialog>(), &requester);
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, unmapped.result());
         auto first = manager.showDialogAsync(std::make_unique<DialogProbe>(), &requester);
-        auto *current = manager.currentDialog();
+        auto *current = qobject_cast<ScreenViewModel *>(manager.currentDialog());
         auto next = std::make_unique<DialogProbe>(); QPointer<DialogProbe> consumed = next.get();
         auto busy = manager.showDialogAsync(std::move(next), &requester);
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, busy.result()); QVERIFY(!consumed);
@@ -479,7 +479,7 @@ private slots:
         auto second = manager.showDialogAsync(std::make_unique<DialogProbe>(), &nextRequester);
         QCoreApplication::processEvents();
         QVERIFY(manager.busy() && !second.isFinished());
-        manager.currentDialog()->tryClose();
+        qobject_cast<ScreenViewModel *>(manager.currentDialog())->tryClose();
         QTRY_VERIFY(second.isFinished()); QCOMPARE(second.result(), DialogResult{});
     }
     void failedExternalCloseIsNotRetried() {
@@ -522,7 +522,7 @@ private slots:
             else home.reset();
         };
         openConfirmation();
-        QPointer<ScreenViewModel> confirmation = manager->currentDialog(); QVERIFY(confirmation);
+        QPointer<ScreenViewModel> confirmation = qobject_cast<ScreenViewModel *>(manager->currentDialog()); QVERIFY(confirmation);
         auto *window = dialogWindow(owner); QVERIFY(window);
         QSignalSpy requests(confirmation, &ScreenViewModel::closeRequested);
         QSignalSpy completed(confirmation, &ScreenViewModel::deactivated);
