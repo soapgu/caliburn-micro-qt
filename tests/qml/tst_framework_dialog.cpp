@@ -1,13 +1,16 @@
 #include "../support/DialogWindowSupport.h"
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
-#include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/ViewLocator.h>
 #include <CaliburnMicroQt/WindowManager.h>
+#include <QDir>
+#include <QFile>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQmlExtensionPlugin>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QTemporaryDir>
 #include <QThread>
 #include <QtTest>
 #include <memory>
@@ -27,7 +30,7 @@ class FrameworkDialogTests : public QObject
 private slots:
     void initTestCase() {
         QQuickStyle::setStyle(QStringLiteral("Basic"));
-        QVERIFY(ViewRegistry::registerView<ScreenViewModel>(QUrl("qrc:/tests/fixtures/FrameworkWindow.qml")));
+        QVERIFY(ViewLocator::registerView<ScreenViewModel>(QUrl("qrc:/tests/fixtures/FrameworkWindow.qml")));
     }
 
     void registryMapping()
@@ -36,27 +39,57 @@ private slots:
         WindowManager manager;
         auto model = confirmation();
         const QUrl defaultUrl(QStringLiteral("qrc:/qt/qml/Caliburn/Micro/Qt/ConfirmActionView.qml"));
-        QCOMPARE(ViewRegistry::viewUrl(model.get()), defaultUrl); // 无 Bootstrapper、无显式登记。
+        QCOMPARE(ViewLocator::viewUrl(model.get()), defaultUrl); // 无 Bootstrapper、无显式登记。
         const QString mode = qEnvironmentVariable("CMQT_CONFIRM_MAPPING");
-        const QUrl selected = mode.isEmpty() ? defaultUrl : QUrl(mode == "missing"
-            ? QStringLiteral("qrc:/tests/absent-confirm.qml")
-            : QStringLiteral("qrc:/tests/fixtures/OverrideConfirm.qml"));
-        if (!mode.isEmpty()) {
-            QVERIFY(ViewRegistry::registerView<ConfirmActionViewModel>(selected));
-            QVERIFY(ViewRegistry::registerView<ConfirmActionViewModel>(selected));
-            QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: conflicting type mapping ConfirmActionViewModel");
-            QVERIFY(!ViewRegistry::registerView<ConfirmActionViewModel>(defaultUrl));
+        QUrl selected = defaultUrl;
+        QString expectedName;
+        QTemporaryDir brokenRoot;
+        QVERIFY(brokenRoot.isValid());
+        const QUrl applicationRoot(QStringLiteral("qrc:/confirm-override/"));
+        if (mode == "missingRoot") {
+            QVERIFY(ViewLocator::addSearchRoot({QUrl("qrc:/absent-root/")}));
+        } else if (mode == "broken" || mode == "wrongType") {
+            // 文件存在且已选定，装配失败必须结束请求，不能再使用框架候选。
+            QVERIFY(QDir(brokenRoot.path()).mkdir(QStringLiteral("views")));
+            QFile file(brokenRoot.filePath(QStringLiteral("views/ConfirmActionView.qml")));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            const QByteArray source = mode == "broken" ? QByteArray("import QtQuick; Item { invalid syntax")
+                : QByteArray("import QtQuick; import Caliburn.Micro.Qt 1.0; Item { required property WindowManager viewModel }");
+            QCOMPARE(file.write(source), qint64(source.size()));
+            file.close();
+            QVERIFY(ViewLocator::addSearchRoot({QUrl::fromLocalFile(brokenRoot.path())}));
+            selected = QUrl::fromLocalFile(file.fileName());
+        } else if (!mode.isEmpty()) {
+            if (mode == "restricted") {
+                QVERIFY(ViewLocator::addSearchRoot({applicationRoot, QStringLiteral("Application")}));
+                QCOMPARE(ViewLocator::viewUrl(model.get()), defaultUrl); // 全局类型不匹配应用前缀。
+            }
+            const QUrl searchRoot = mode == "flat"
+                ? QUrl(QStringLiteral("qrc:/confirm-override/views/")) : applicationRoot;
+            QVERIFY(ViewLocator::addSearchRoot({searchRoot}));
+            selected = QUrl(QStringLiteral("qrc:/confirm-override/views/ConfirmActionView.qml"));
+            QCOMPARE(ViewLocator::viewUrl(model.get()), selected);
+            expectedName = QStringLiteral("conventionConfirm");
         }
-        QCOMPARE(ViewRegistry::viewUrl(model.get()), selected);
-        QVERIFY(ViewRegistry::freeze());
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: registration rejected after freeze");
-        QVERIFY(!ViewRegistry::registerView<ConfirmActionViewModel>(defaultUrl));
+        if (mode == "override" || mode == "missing") {
+            selected = QUrl(mode == "missing" ? QStringLiteral("qrc:/tests/absent-confirm.qml")
+                : QStringLiteral("qrc:/tests/fixtures/OverrideConfirm.qml"));
+            expectedName = QStringLiteral("overrideConfirm");
+            QVERIFY(ViewLocator::registerView<ConfirmActionViewModel>(selected));
+            QVERIFY(ViewLocator::registerView<ConfirmActionViewModel>(selected));
+            QTest::ignoreMessage(QtWarningMsg, "ViewLocator: conflicting type mapping ConfirmActionViewModel");
+            QVERIFY(!ViewLocator::registerView<ConfirmActionViewModel>(defaultUrl));
+        }
+        QCOMPARE(ViewLocator::viewUrl(model.get()), selected);
+        QVERIFY(ViewLocator::freeze());
+        QTest::ignoreMessage(QtWarningMsg, "ViewLocator: registration rejected after freeze");
+        QVERIFY(!ViewLocator::registerView<ConfirmActionViewModel>(defaultUrl));
         auto *window = showManagedWindow(manager, &root);
         QVERIFY(window);
         QObject requester;
         auto *vm = model.get();
         auto future = manager.showDialogAsync(std::move(model), &requester);
-        if (mode == "missing") {
+        if (mode == "missing" || mode == "broken" || mode == "wrongType") {
             QTRY_VERIFY(future.isFinished());
             QVERIFY_THROWS_EXCEPTION(std::runtime_error, future.result());
             QVERIFY(!manager.busy());
@@ -66,8 +99,8 @@ private slots:
         QVERIFY(host);
         auto *view = host->property("dialogItem").value<QQuickItem *>();
         QVERIFY(view);
-        if (!mode.isEmpty())
-            QCOMPARE(view->objectName(), QStringLiteral("overrideConfirm"));
+        if (!expectedName.isEmpty())
+            QCOMPARE(view->objectName(), expectedName);
         vm->accept();
         QTRY_VERIFY(future.isFinished());
         QCOMPARE(future.result(), DialogResult(true));

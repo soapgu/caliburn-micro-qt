@@ -1,6 +1,7 @@
 #pragma once
 
-#include <CaliburnMicroQt/ViewModelBase.h>
+#include <QObject>
+#include <QtQml/qqmlregistration.h>
 #include <QPointer>
 #include <QUrl>
 
@@ -9,12 +10,12 @@ class ViewHostState : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    Q_PROPERTY(ViewModelBase *model READ model WRITE setModel NOTIFY modelChanged)
+    Q_PROPERTY(QObject *model READ model WRITE setModel NOTIFY modelChanged)
 
 public:
     explicit ViewHostState(QObject *parent = nullptr) : QObject(parent) {}
-    ViewModelBase *model() const { return m_model.data(); }
-    void setModel(ViewModelBase *model);
+    QObject *model() const { return m_model.data(); }
+    void setModel(QObject *model);
     Q_INVOKABLE bool matchesView(QObject *view) const;
     Q_INVOKABLE void reportLoadStarted(const QUrl &url);
     Q_INVOKABLE void reportLoadSucceeded(const QUrl &url) const;
@@ -26,6 +27,6 @@ signals:
 private:
     QString m_loadIdentity;
     QUrl m_loadUrl;
-    QPointer<ViewModelBase> m_model;
+    QPointer<QObject> m_model;
     QMetaObject::Connection m_destroyed;
 };

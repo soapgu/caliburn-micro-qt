@@ -100,13 +100,15 @@ private slots:
     }
     void windowsAndDialogs()
     {
-        const auto result = run(QStringLiteral("window"));
+        const auto result = run(QStringLiteral("window"), QStringLiteral("caliburn.microqt.view.debug=true"));
         onceInBoth(result, "Window shown:");
         onceInBoth(result, "Dialog shown:");
         onceInBoth(result, "Window closed: DialogWindow_");
         onceInBoth(result, "Window closed: WindowProbe_");
         onceInBoth(result, "Dialog completed:");
         QVERIFY(result.file.contains("result: accepted"));
+        QVERIFY(result.file.contains("Convention view found; type: ConfirmActionViewModel"));
+        QVERIFY(result.file.contains("qrc:/qt/qml/Caliburn/Micro/Qt/ConfirmActionView.qml"));
         const auto failure = run(QStringLiteral("dialogFailure"));
         onceInBoth(failure, "Dialog failed:");
         QVERIFY(failure.file.contains("qrc:/missing-dialog.qml"));
@@ -120,6 +122,18 @@ private slots:
         onceInBoth(result, "Bootstrapper exited; exit code: 0");
         QVERIFY(result.file.contains("[caliburn.microqt.bootstrapper]"));
         QVERIFY(result.file.indexOf("Startup completed:") < result.file.indexOf("Bootstrapper exited;"));
+    }
+    void locatorDiagnostics()
+    {
+        const auto enabled = run(QStringLiteral("bootstrapper"), QStringLiteral("caliburn.microqt.view.debug=true"));
+        for (const auto *marker : {"View search root added:", "View locator frozen;", "View search scope; type: ShellViewModel",
+                                  "View candidate; type: HomeViewModel", "Convention view found; type: HomeViewModel"}) {
+            QVERIFY2(enabled.console.contains(marker), marker);
+            QVERIFY2(enabled.file.contains(marker), marker);
+        }
+        const auto disabled = run(QStringLiteral("bootstrapper"), QStringLiteral("caliburn.microqt.view.debug=false"));
+        QVERIFY(!disabled.file.contains("View candidate;"));
+        QVERIFY(disabled.file.contains("View assembled: HomeViewModel@0x"));
     }
     void filteringAndPattern()
     {

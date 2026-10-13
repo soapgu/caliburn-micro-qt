@@ -2,7 +2,7 @@
 #include "../support/TestWindowManager.h"
 #include <AppBootstrapper.h>
 #include <ViewModelComposition.h>
-#include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/ViewLocator.h>
 #include <CaliburnMicroQt/WindowManager.h>
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
 #include <QQmlComponent>
@@ -114,8 +114,8 @@ protected:
         m_observation.order << "startup";
         if (m_scenario == "startupException") throw std::runtime_error("测试启动异常");
         if (m_scenario == "lateRegistration") {
-            QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: registration rejected after freeze");
-            if (ViewRegistry::registerView<ShellViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))))
+            QTest::ignoreMessage(QtWarningMsg, "ViewLocator: registration rejected after freeze");
+            if (ViewLocator::registerView<ShellViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))))
                 return;
         }
         if (m_scenario == "noRoot")
@@ -194,15 +194,15 @@ private:
         if (m_scenario == "remoteView")
             url = QUrl(QStringLiteral("https://example.invalid/ShellView.qml"));
 
-        if (!ViewRegistry::registerView<ShellViewModel>(url))
+        if (!ViewLocator::registerView<ShellViewModel>(url))
             return false;
         if (m_scenario == "configureQuery") {
             ShellViewModel probe(makeHomeFactory(), makeDetailFactory());
-            if (ViewRegistry::viewUrl(&probe) != url)
+            if (ViewLocator::viewUrl(&probe) != url)
                 return false;
         }
-        return ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")))
-            && ViewRegistry::registerView<DetailViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/DetailView.qml")));
+        return ViewLocator::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")))
+            && ViewLocator::registerView<DetailViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/DetailView.qml")));
     }
     std::unique_ptr<ShellViewModel> CreateShell(std::shared_ptr<IWindowManager> windows)
     {
@@ -253,7 +253,7 @@ public:
 protected:
     bool configure() override
     {
-        if (badConfirmation && !ViewRegistry::registerView<ConfirmActionViewModel>(QUrl("qrc:/tests/missing-confirm.qml")))
+        if (badConfirmation && !ViewLocator::registerView<ConfirmActionViewModel>(QUrl("qrc:/tests/missing-confirm.qml")))
             return false;
         return registerRootFactory<ShellViewModel>([this](std::shared_ptr<IWindowManager> service) {
             windows = std::static_pointer_cast<WindowManager>(service);
@@ -271,9 +271,9 @@ protected:
                 if (close) ++closes;
             });
             return root;
-        }) && ViewRegistry::registerView<ShellViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))
-            && ViewRegistry::registerView<HomeViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))
-            && ViewRegistry::registerView<DetailViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/DetailView.qml"));
+        }) && ViewLocator::registerView<ShellViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))
+            && ViewLocator::registerView<HomeViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))
+            && ViewLocator::registerView<DetailViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/DetailView.qml"));
     }
     void onStartup() override
     {
@@ -384,7 +384,7 @@ private slots:
             }
             QVERIFY(!observation.shell && !observation.home && !observation.window);
             if (scenario == "configureFailure" || scenario == "emptyFactory")
-                QVERIFY(ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))));
+                QVERIFY(ViewLocator::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))));
             if (entersLoop) {
                 QVERIFY(observation.exitBeforeReturn);
                 if (scenario != "windowCloseException") QVERIFY(observation.exitReturned);

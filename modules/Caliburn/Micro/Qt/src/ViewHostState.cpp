@@ -8,7 +8,7 @@ bool ViewHostState::matchesView(QObject *view) const
     return m_model && view && view->property("viewModel").value<QObject *>() == m_model.data();
 }
 
-void ViewHostState::setModel(ViewModelBase *model)
+void ViewHostState::setModel(QObject *model)
 {
     if (QThread::currentThread() != thread() || (model && model->thread() != thread())) {
         qCWarning(FrameworkLog::view, "ViewHost: model and host must belong to the same thread");

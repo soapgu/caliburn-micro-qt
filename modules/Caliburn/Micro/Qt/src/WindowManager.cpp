@@ -1,6 +1,6 @@
 #include "FrameworkLog.h"
 #include <CaliburnMicroQt/WindowManager.h>
-#include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/ViewLocator.h>
 #include "WindowConductor.h"
 #include <QQmlEngine>
 #include <QQmlApplicationEngine>
@@ -43,7 +43,7 @@ bool WindowManager::showWindow(const QVariant &viewModel)
     if (m_managedWindow || m_window || busy() || m_destroying)
         return failWindow(QStringLiteral("A managed window, owner window or pending request already exists"));
     qCDebug(FrameworkLog::window).noquote() << "Showing window; model:" << FrameworkLog::identity(model);
-    const QUrl url = ViewRegistry::viewUrl(model);
+    const QUrl url = ViewLocator::viewUrl(model);
     if (url.isEmpty())
         return failWindow(QStringLiteral("No view mapping found for the window model"));
     if (url.scheme() != QStringLiteral("qrc") && !url.isLocalFile())
@@ -247,7 +247,7 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
         return reject(std::make_exception_ptr(std::runtime_error("WindowManager: a dialog request is already pending")));
     if (!m_window || !m_engine)
         return reject(std::make_exception_ptr(std::runtime_error("WindowManager: no usable owner window")));
-    if (ViewRegistry::viewUrl(vm.get()).isEmpty())
+    if (ViewLocator::viewUrl(vm.get()).isEmpty())
         return reject(std::make_exception_ptr(std::runtime_error("WindowManager: dialog model has no view mapping")));
     request->modelIdentity = FrameworkLog::identity(vm.get());
     request->requester = requester;

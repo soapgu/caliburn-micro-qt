@@ -2,7 +2,7 @@
 #include <CaliburnMicroQt/ViewModelBase.h>
 #include <HomeViewModel.h>
 #include <ShellViewModel.h>
-#include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/ViewLocator.h>
 #include <QtTest>
 #include <type_traits>
 #include <memory>
@@ -130,18 +130,18 @@ class CoreTests : public QObject
 private slots:
     void initTestCase()
     {
-        QVERIFY(ViewRegistry::viewUrl(nullptr).isEmpty());
+        QVERIFY(ViewLocator::viewUrl(nullptr).isEmpty());
         for (const QUrl &url : {QUrl(), QUrl(QStringLiteral("views/Home.qml")),
                                QUrl(QStringLiteral("http://["))}) {
-            QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: view URL must be valid, non-empty and absolute");
-            QVERIFY(!ViewRegistry::registerView<HomeViewModel>(url));
+            QTest::ignoreMessage(QtWarningMsg, "ViewLocator: view URL must be valid, non-empty and absolute");
+            QVERIFY(!ViewLocator::registerView<HomeViewModel>(url));
         }
         const QUrl home(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"));
-        QVERIFY(ViewRegistry::registerView<HomeViewModel>(home));
-        QVERIFY(ViewRegistry::registerView<HomeViewModel>(home));
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: conflicting type mapping HomeViewModel");
-        QVERIFY(!ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/different.qml"))));
-        QVERIFY(ViewRegistry::registerView<ShellViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))));
+        QVERIFY(ViewLocator::registerView<HomeViewModel>(home));
+        QVERIFY(ViewLocator::registerView<HomeViewModel>(home));
+        QTest::ignoreMessage(QtWarningMsg, "ViewLocator: conflicting type mapping HomeViewModel");
+        QVERIFY(!ViewLocator::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/different.qml"))));
+        QVERIFY(ViewLocator::registerView<ShellViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))));
     }
 
     void screenLifecycle()
@@ -278,21 +278,21 @@ private slots:
     {
         HomeViewModel home(std::make_shared<CounterService>(), testWindows());
         ShellViewModel shell(makeHomeFactory(), makeDetailFactory());
-        ViewRegistry registry;
+        ViewLocator registry;
         const QUrl homeUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"));
-        QCOMPARE(ViewRegistry::viewUrl(&home), homeUrl);
+        QCOMPARE(ViewLocator::viewUrl(&home), homeUrl);
         QCOMPARE(registry.resolve(&home), homeUrl);
-        QCOMPARE(ViewRegistry::viewUrl(&shell), QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml")));
+        QCOMPARE(ViewLocator::viewUrl(&shell), QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml")));
         DerivedHome unknown(std::make_shared<CounterService>(), testWindows());
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: no view registered for type DerivedHome");
-        QVERIFY(ViewRegistry::viewUrl(&unknown).isEmpty());
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: registration, freeze and lookup require the application thread");
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: registration, freeze and lookup require the application thread");
+        QTest::ignoreMessage(QtWarningMsg, "ViewLocator: no view registered for type DerivedHome");
+        QVERIFY(ViewLocator::viewUrl(&unknown).isEmpty());
+        QTest::ignoreMessage(QtWarningMsg, "ViewLocator: registration, freeze and lookup require the application thread");
+        QTest::ignoreMessage(QtWarningMsg, "ViewLocator: registration, freeze and lookup require the application thread");
         QUrl workerUrl;
         bool workerFrozen = true;
         auto worker = std::unique_ptr<QThread>(QThread::create([&] {
-            workerUrl = ViewRegistry::viewUrl(&home);
-            workerFrozen = ViewRegistry::freeze();
+            workerUrl = ViewLocator::viewUrl(&home);
+            workerFrozen = ViewLocator::freeze();
         }));
         worker->start();
         QVERIFY(worker->wait(5000));
@@ -300,13 +300,13 @@ private slots:
         QVERIFY(!workerFrozen);
         // 成功、未知类型和非法线程查询都不能结束配置；非法线程冻结也无副作用。
         const QUrl derivedUrl(QStringLiteral("qrc:/derived.qml"));
-        QVERIFY(ViewRegistry::registerView<DerivedHome>(derivedUrl));
-        QCOMPARE(ViewRegistry::viewUrl(&unknown), derivedUrl);
-        QVERIFY(ViewRegistry::freeze());
-        QVERIFY(ViewRegistry::freeze());
-        QTest::ignoreMessage(QtWarningMsg, "ViewRegistry: registration rejected after freeze");
-        QVERIFY(!ViewRegistry::registerView<HomeViewModel>(homeUrl));
-        QCOMPARE(ViewRegistry::viewUrl(&home), homeUrl);
+        QVERIFY(ViewLocator::registerView<DerivedHome>(derivedUrl));
+        QCOMPARE(ViewLocator::viewUrl(&unknown), derivedUrl);
+        QVERIFY(ViewLocator::freeze());
+        QVERIFY(ViewLocator::freeze());
+        QTest::ignoreMessage(QtWarningMsg, "ViewLocator: registration rejected after freeze");
+        QVERIFY(!ViewLocator::registerView<HomeViewModel>(homeUrl));
+        QCOMPARE(ViewLocator::viewUrl(&home), homeUrl);
         QCOMPARE(registry.resolve(&home), homeUrl);
     }
 

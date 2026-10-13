@@ -22,7 +22,7 @@ FocusScope {
         loading.requestedUrl = ""
         if (!state.model)
             return
-        const url = ViewRegistry.resolve(state.model)
+        const url = ViewLocator.resolve(state.model)
         if (url.toString().length === 0) {
             fail("ViewHost: model has no valid view mapping")
             return

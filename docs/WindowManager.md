@@ -48,7 +48,7 @@ void releaseWindows();     // 释放自建窗口与引擎，兜底关闭仍未�
 
 ## 展示与关闭守卫
 
-每次请求创建内部 DialogWindow 与新的业务 View，沿用所属窗口的 QML 引擎、ViewRegistry 和 ViewHost，业务 View 仍须以 Item 为根并声明匹配的 typed viewModel。缺失资源、非 Item、语法错误或注入不匹配均结束请求并交付异常。初始窗口尺寸取业务 View 隐式尺寸加 20 像素内容边距，并限制在所属屏幕可用区域内。
+每次请求创建内部 DialogWindow 与新的业务 View，沿用所属窗口的 QML 引擎、ViewLocator 和 ViewHost，业务 View 仍须以 Item 为根并声明匹配的 typed viewModel。缺失资源、非 Item、语法错误或注入不匹配均结束请求并交付异常。初始窗口尺寸取业务 View 隐式尺寸加 20 像素内容边距，并限制在所属屏幕可用区域内。
 
 弹窗 VM 的 tryClose(result)、Escape 和标题栏关闭都经私有 WindowConductor 调用 canClose。原关闭事件立即拒绝，排队检查许可；许可通过后恢复关闭，跳过本桥接的重复询问，原有 QML onClosing 仍可拒绝。
 
@@ -70,7 +70,7 @@ showDialogAsync 按值消费 unique_ptr，拒绝时同样回收候选。只接�
 
 打开前保存所属窗口焦点，显示后激活弹窗并聚焦业务 View。正常关闭后排队激活所属窗口、恢复有效且可见启用的原焦点，否则使用后备焦点。已有新弹窗、强制清理、所属窗口不可见或销毁时跳过恢复。
 
-ConfirmationRequest 保存文案，ConfirmActionViewModel 仅接收 ConfirmationRequest，通过 tryClose(true/false) 提交接受或取消，不依赖窗口服务。确认视图默认映射由 ViewRegistry 提供，可在冻结前显式覆盖；覆盖加载失败不回退。Home 重置和 Detail 离开确认保留 Future 业务续接，只有 true 授权业务操作。页面以 QPointer 借用自己的确认框，停用时调用 tryClose(std::nullopt) 请求关闭；关闭检查排队执行，守卫或 QML 可拒绝。请求者销毁时由窗口服务自动强制清理，不提供公开的按请求者取消接口。
+ConfirmationRequest 保存文案，ConfirmActionViewModel 仅接收 ConfirmationRequest，通过 tryClose(true/false) 提交接受或取消，不依赖窗口服务。确认视图经 ViewLocator 的统一规则在框架搜索根内定位；应用可在匹配的搜索根下部署 `views/ConfirmActionView.qml`，也可在冻结前显式登记覆盖。选定覆盖后加载或注入失败不回退。Home 重置和 Detail 离开确认保留 Future 业务续接，只有 true 授权业务操作。页面以 QPointer 借用自己的确认框，停用时调用 tryClose(std::nullopt) 请求关闭；关闭检查排队执行，守卫或 QML 可拒绝。请求者销毁时由窗口服务自动强制清理，不提供公开的按请求者取消接口。
 
 ## 迁移与 CM 对齐边界
 
@@ -79,3 +79,5 @@ ConfirmationRequest 保存文案，ConfirmActionViewModel 仅接收 Confirmation
 旧 DialogHost、DialogHostState 及其 manager/available/requestId/failed/dismiss/released 手动宿主协议已移除。应用应删除旧 QML 宿主声明，由 Bootstrapper 委托 showWindow 创建窗口，或在独立用法中直接调用 showWindow。原公开 attachToWindow / detachFromWindow 已收为 private，外部窗口手动接入不再支持。内部 DialogWindow 不作为公开可创建的 QML 类型，测试和业务不得依赖其内部属性作为 SDK。
 
 与 CM 3.2.0 对齐：独立窗口包装普通 View；窗口与 VM 统一守卫及双向关闭桥接。保留的适配差异是 QFuture 异步结果、Qt 对象所有权与延迟回收。单服务只允许一个弹窗；弹窗守卫中再次打开弹窗仍按忙状态失败，不支持嵌套模态窗口。系统强制退出与资源清理不等待交互许可。
+
+第七批的根窗口定位、弹窗预检查和内部 ViewHost 均经 [ViewLocator](ViewLocator.md) 查询。窗口服务继续接受当前约束下的 Screen 模型；普通 QObject 的支持仅限定位和页面装配。选定资源的加载、根类型或注入错误不会触发其他候选尝试。进一步接口化列入 [后续设计](计划/后续版本ToDoList.md#窗口管理与-conductor-的进一步接口化待设计待实施)。

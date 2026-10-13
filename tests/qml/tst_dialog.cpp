@@ -1,7 +1,7 @@
 #include "../support/DialogWindowSupport.h"
 #include <CaliburnMicroQt/WindowManager.h>
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
-#include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/ViewLocator.h>
 #include <ViewModelComposition.h>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
@@ -17,7 +17,7 @@
 Q_IMPORT_QML_PLUGIN(CaliburnMicroQtPlugin)
 Q_IMPORT_QML_PLUGIN(CaliburnExampleModulePlugin)
 
-class CustomDialogVm : public ScreenViewModel
+class CustomDialogViewModel : public ScreenViewModel
 {
     Q_OBJECT
 public:
@@ -45,16 +45,16 @@ class DialogTests : public QObject
 private slots:
     void initTestCase() {
         QQuickStyle::setStyle("Basic");
-        qmlRegisterUncreatableType<CustomDialogVm>("DialogTest", 1, 0, "CustomDialogVm", "测试 VM");
-        QVERIFY(ViewRegistry::registerView<ShellViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/ShellView.qml")));
-        QVERIFY(ViewRegistry::registerView<HomeViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")));
-        QVERIFY(ViewRegistry::registerView<DetailViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/DetailView.qml")));
-        QVERIFY(ViewRegistry::registerView<CustomDialogVm>(QUrl("qrc:/tests/fixtures/CustomDialog.qml")));
-        QVERIFY(ViewRegistry::registerView<MissingDialog>(QUrl("qrc:/tests/absent.qml")));
-        QVERIFY(ViewRegistry::registerView<NonVisualDialog>(QUrl("qrc:/tests/fixtures/NonVisual.qml")));
-        QVERIFY(ViewRegistry::registerView<SyntaxDialog>(QUrl("qrc:/tests/fixtures/SyntaxError.qml")));
-        QVERIFY(ViewRegistry::registerView<BadInjectionDialog>(QUrl("qrc:/tests/fixtures/MissingProperty.qml")));
-        QVERIFY(ViewRegistry::freeze());
+        qmlRegisterUncreatableType<CustomDialogViewModel>("DialogTest", 1, 0, "CustomDialogViewModel", "测试 VM");
+        QVERIFY(ViewLocator::registerView<ShellViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/ShellView.qml")));
+        QVERIFY(ViewLocator::registerView<HomeViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")));
+        QVERIFY(ViewLocator::registerView<DetailViewModel>(QUrl("qrc:/qt/qml/CaliburnExample/views/DetailView.qml")));
+        QVERIFY(ViewLocator::addSearchRoot({QUrl("qrc:/tests/fixtures/")}));
+        QVERIFY(ViewLocator::registerView<MissingDialog>(QUrl("qrc:/tests/absent.qml")));
+        QVERIFY(ViewLocator::registerView<NonVisualDialog>(QUrl("qrc:/tests/fixtures/NonVisual.qml")));
+        QVERIFY(ViewLocator::registerView<SyntaxDialog>(QUrl("qrc:/tests/fixtures/SyntaxError.qml")));
+        QVERIFY(ViewLocator::registerView<BadInjectionDialog>(QUrl("qrc:/tests/fixtures/MissingProperty.qml")));
+        QVERIFY(ViewLocator::freeze());
     }
 
     void homeAcceptCancelAndModalInput() {
@@ -153,8 +153,8 @@ private slots:
         auto *window = showManagedWindow(*windows, shell.get()); QVERIFY(window);
         QVERIFY(QTest::qWaitForWindowExposed(window));
         auto *manager = windows.get();
-        auto vm = std::make_unique<CustomDialogVm>();
-        QPointer<CustomDialogVm> weak = vm.get();
+        auto vm = std::make_unique<CustomDialogViewModel>();
+        QPointer<CustomDialogViewModel> weak = vm.get();
         auto future = manager->showDialogAsync(std::move(vm), shell.get());
         auto *button = dialogControl(window, "customDialogAccept"); QVERIFY(button);
         auto *host = dialogWindow(window); QVERIFY(host);
@@ -199,7 +199,7 @@ private slots:
         WindowCleanup cleanup{*windows};
         QVERIFY(showManagedWindow(*windows, shell.get()));
         auto *manager = windows.get();
-        auto future = manager->showDialogAsync(std::make_unique<CustomDialogVm>(), shell.get());
+        auto future = manager->showDialogAsync(std::make_unique<CustomDialogViewModel>(), shell.get());
         windows->releaseWindows();
         QTRY_VERIFY(future.isFinished());
         QCOMPARE(future.result(), DialogResult{});

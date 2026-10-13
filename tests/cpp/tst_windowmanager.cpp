@@ -1,5 +1,5 @@
 #include <CaliburnMicroQt/WindowManager.h>
-#include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/ViewLocator.h>
 #include <CaliburnMicroQt/Conductor.h>
 #include <HomeViewModel.h>
 #include <DetailViewModel.h>
@@ -72,13 +72,13 @@ class WindowManagerTests : public QObject
 private slots:
     void initTestCase() {
         QQuickStyle::setStyle("Basic");
-        QVERIFY(ViewRegistry::registerView<DialogProbe>(QUrl("qrc:/tests/fixtures/Probe.qml")));
-        QVERIFY(ViewRegistry::registerView<ScreenViewModel>(QUrl("qrc:/tests/fixtures/Probe.qml")));
-        QVERIFY(ViewRegistry::registerView<WindowProbe>(QUrl("qrc:/tests/fixtures/WindowProbe.qml")));
-        QVERIFY(ViewRegistry::registerView<MissingWindowProbe>(QUrl("qrc:/tests/missing-window.qml")));
-        QVERIFY(ViewRegistry::registerView<NonWindowProbe>(QUrl("qrc:/tests/fixtures/NonVisual.qml")));
-        QVERIFY(ViewRegistry::registerView<RemoteWindowProbe>(QUrl("https://example.invalid/Window.qml")));
-        QVERIFY(ViewRegistry::freeze());
+        QVERIFY(ViewLocator::registerView<DialogProbe>(QUrl("qrc:/tests/fixtures/Probe.qml")));
+        QVERIFY(ViewLocator::registerView<ScreenViewModel>(QUrl("qrc:/tests/fixtures/Probe.qml")));
+        QVERIFY(ViewLocator::registerView<WindowProbe>(QUrl("qrc:/tests/fixtures/WindowProbe.qml")));
+        QVERIFY(ViewLocator::registerView<MissingWindowProbe>(QUrl("qrc:/tests/missing-window.qml")));
+        QVERIFY(ViewLocator::registerView<NonWindowProbe>(QUrl("qrc:/tests/fixtures/NonVisual.qml")));
+        QVERIFY(ViewLocator::registerView<RemoteWindowProbe>(QUrl("https://example.invalid/Window.qml")));
+        QVERIFY(ViewLocator::freeze());
     }
     // 普通窗口独立于 Bootstrapper；借用 VM、执行守卫并负责正常关闭生命周期。
     void normalWindowWithoutBootstrapper() {

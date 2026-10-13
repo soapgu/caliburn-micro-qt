@@ -2,7 +2,7 @@
 
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
-> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/验收/4C验收记录.md)。Parent 与统一 Conductor 协议增量已实现并完成本机验收，见 [独立记录](docs/验收/Parent体系验收记录.md)。受管页面 tryClose 与 Detail 内返回已实现并完成本机验收，见 [tryClose 记录](docs/验收/tryClose验收记录.md)。5A 重置确认与弹窗基础设施已实现，5B 退出确认与关闭守卫已完成本机验收，见 [5B 记录](docs/验收/5B验收记录.md)；CM 直接回调与单项管理精简已完成本机复验，见 [精简验收记录](docs/验收/CM关闭守卫精简验收记录.md)。根窗口守卫、双向关闭桥接与 Bootstrapper 钩子已完成本机验收，见 [根窗口验收记录](docs/验收/根窗口关闭守卫与生命周期验收记录.md)；第六批待实施，麒麟与外部消费工程待验证。
+> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/验收/4C验收记录.md)。Parent 与统一 Conductor 协议增量已实现并完成本机验收，见 [独立记录](docs/验收/Parent体系验收记录.md)。受管页面 tryClose 与 Detail 内返回已实现并完成本机验收，见 [tryClose 记录](docs/验收/tryClose验收记录.md)。5A 重置确认与弹窗基础设施已实现，5B 退出确认与关闭守卫已完成本机验收，见 [5B 记录](docs/验收/5B验收记录.md)；CM 直接回调与单项管理精简已完成本机复验，见 [精简验收记录](docs/验收/CM关闭守卫精简验收记录.md)。根窗口守卫、双向关闭桥接与 Bootstrapper 钩子已完成本机验收，见 [根窗口验收记录](docs/验收/根窗口关闭守卫与生命周期验收记录.md)；第六批日志已实现并完成本机验收；第七批视图约定定位已实现并完成本机验收，见 [第七批记录](docs/验收/第七批验收记录.md)；麒麟与外部消费工程待第八批验证。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
 
@@ -17,6 +17,19 @@ Qt 已有属性绑定、信号、元对象系统和动态加载等基础机制�
 这里的“严格遵循 MVVM”指本项目的设计约定。目前没有自动强制检查架构的能力；是否遵守这些边界，仍需要应用设计、代码评审和后续测试共同保证。
 
 框架自动创建窗口服务并登记根窗口，以独立应用级模态窗口承载弹窗 View，内置确认视图无需应用登记。根工厂可接收 `std::shared_ptr<IWindowManager>` 并注入业务 VM；Shell 只描述业务界面。窗口登记与独立模态窗口用法见 [Bootstrapper](docs/Bootstrapper.md) 和 [WindowManager](docs/WindowManager.md)，本轮验证见 [独立模态窗口验收记录](docs/验收/独立模态窗口验收记录.md)。
+
+## 视图约定定位
+
+```cpp
+#include <CaliburnMicroQt/ViewLocator.h>
+// configure 中一次配置；Bootstrapper 成功配置后自动冻结。
+return ViewLocator::addSearchRoot({
+    QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/"))});
+```
+
+第七批以 ViewLocator 统一根窗口、页面和弹窗定位。示例 Shell、Home、Detail 不再逐项登记；特殊视图可用 `ViewLocator::registerView<T>(url)` 显式覆盖。定位顺序为显式映射、约定搜索；支持 ViewModel → View、同命名空间及 ViewModels → Views 目录布局。框架资源目录自动作为最后一个搜索根，应用也可通过搜索根下的 `views/ConfirmActionView.qml` 覆盖内置确认视图。
+
+Locator 和 ViewHost 接受普通 QObject，具体类型须有自己的 Q_OBJECT，View 继续声明 required typed viewModel，属性变化由模型自己的 NOTIFY 驱动。窗口、Bootstrapper 和 Conductor 保留原有类型约束。ViewRegistry 不再是公开 C++ / QML 接口；所有旧调用迁移至 Locator，不保留兼容转发。完整规则见 [ViewLocator](docs/ViewLocator.md)，Page、context、自定义规则及进一步接口化见 [后续待办](docs/计划/后续版本ToDoList.md)。
 
 ## 架构原则
 
@@ -36,7 +49,7 @@ flowchart LR
     VM -->|调用用例与订阅变化| Model[Model / 服务]
     VM -->|属性与通知| View[QML View]
     View -->|事件处理器直接调用方法| VM
-    Host[ViewHost + ViewRegistry] -->|定位、创建并注入 VM| View
+    Host[ViewHost + ViewLocator] -->|定位、创建并注入 VM| View
 ```
 
 ## 与 Caliburn.Micro 的概念对应
@@ -49,7 +62,7 @@ flowchart LR
 | IChild / IParent / IConductor | 纯 C++ 协议与 ConductorBase | Screen 提供只读逻辑 Parent；统一子项快照和已接管对象的激活、停用接口。 |
 | Screen | ScreenViewModel | 框架自动驱动，先提交状态再执行钩子；初始化一次，激活与普通停用幂等，已初始化对象每次关闭都执行钩子；异常不回滚已提交状态。 |
 | Conductor<T> | Conductor<T> + ConductorSingleItem | 已实现公共活动项基类；按 CM 顺序关闭旧项、激活新项后提交选择，回收由所有者安排。4B 已接入 Shell，4C 已实现 Collection.OneActive，切换保留旧项。 |
-| ViewLocator / ViewModelBinder | ViewRegistry、ViewHost | 按应用提供的 VM 类型映射定位 View，创建前注入 viewModel。 |
+| ViewLocator / ViewModelBinder | ViewLocator、ViewHost | 显式映射优先，按搜索根及命名空间约定定位，创建前注入 typed viewModel。 |
 | ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
 | IWindowManager / WindowManager 的模态职责 | IWindowManager、WindowManager、内部 DialogWindow | 已实现独立 QQuickWindow 模态弹窗及关闭守卫，保留 Future；普通窗口管理留待后续。 |
 | IGuardClose / 关闭策略 | Conductor 关闭守卫与直接许可回调 | 5B 已实现 Detail 退出确认，覆盖成员关闭、单项替换及普通停用、父级关闭许可；保留同步生命周期。 |
@@ -58,7 +71,7 @@ flowchart LR
 
 ## 类型清单与实现状态
 
-这是六批迭代的完整目标清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewRegistry、ViewHost、BootstrapperBase、Parent 统一协议以及单项与集合型 Conductor。5A 弹窗与重置确认已实现并完成本机验收；5B 关闭守卫已实现并完成本机验收，详见 [第五批阶段划分](docs/计划/迭代实现计划.md#第五批阶段划分)。
+这是当前迭代的类型清单；“拥有”表示所有权契约。当前已实现 ViewModelBase、ScreenViewModel、ViewLocator、ViewHost、BootstrapperBase、Parent 统一协议以及单项与集合型 Conductor。5A 弹窗与重置确认已实现并完成本机验收；5B 关闭守卫已实现并完成本机验收，详见 [第五批阶段划分](docs/计划/迭代实现计划.md#第五批阶段划分)。
 
 | 类型 | 形态 | 职责 |
 | --- | --- | --- |
@@ -69,7 +82,7 @@ flowchart LR
 | ConductorBaseWithActiveItem | 公共活动项基类 | 可读写 activeItem、统一切换顺序和销毁通知。 |
 | ConductorSingleItem / Conductor<T> | C++ Screen 子类与模板层 | 一个当前项；子项普通停用清空选择并留存 VM，切换关闭旧当前项。 |
 | ConductorCollectionOneActiveBase / ConductorCollectionOneActive<T> | C++ Screen 子类与模板层 | 保留多个 VM，仅当前项激活；关闭当前项按前一项优先选择剩余成员。 |
-| ViewRegistry | C++，向 QML 提供单例入口 | 按应用登记的 VM 类型查询 QML View 地址，不拥有 VM。 |
+| ViewLocator | C++ 配置入口与 QML 查询单例 | 统一登记、配置、冻结和 QObject 视图定位，不拥有模型；ViewRegistry 已内部化。 |
 | ViewHost | QML 组件 | 使用 Loader 定位和加载 View，并注入唯一 viewModel 属性。 |
 | ViewHostState | 公开、可创建的 QML 辅助类型 | 保护 VM 借用并验证 View 注入；页面装配优先使用 ViewHost，见 [公开接口](docs/ViewHost.md#4-借用与所有权)。 |
 | BootstrapperBase | C++ 应用启动基类 | 编排配置、根对象创建、窗口加载、生命周期及退出清理，不依赖 DI 库。 |

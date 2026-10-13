@@ -1,8 +1,10 @@
 # ViewModelBase：类型基础与通知辅助
 
-> 状态：第一批已实现本文基类与类型化通知辅助，macOS arm64 / Qt 6.8.3 验收通过，见 [记录](验收/第一批验收记录.md)。下文接口片段省略模板定义，完整定义位于框架公开头文件；Screen 已在第三批实现，见 [生命周期专题](ScreenViewModel.md)；Conductor 待第四批。
+第七批中，ViewModelBase 是可选的通知便利基类。[ViewLocator](ViewLocator.md) 与 ViewHost 可直接接收普通 QObject，具体模型自行声明 Q_OBJECT、Q_PROPERTY 和 NOTIFY；窗口、Bootstrapper 根工厂及 Conductor 仍保留当前类型约束。
 
-ViewModelBase 是所有框架与业务 VM 的共同 QObject 基类，提供两项能力：**作为框架接口的类型锚点，以及辅助派生 VM 比较、赋值并发送通知**。
+> 状态：第一批已实现本文基类与类型化通知辅助，macOS arm64 / Qt 6.8.3 验收通过，见 [记录](验收/第一批验收记录.md)。下文接口片段省略模板定义，完整定义位于框架公开头文件；Screen 和 Conductor 已实现，见 [生命周期专题](ScreenViewModel.md) 与 [Conductor](Conductor.md)。
+
+ViewModelBase 是 Screen 和 Conductor 当前接口使用的 QObject 基类，也可供业务 VM 继承，提供类型锚点以及比较、赋值和发送通知的辅助功能。
 
 它不增加 displayName、业务属性或生命周期状态。第一批已实现该基类与类型化通知辅助，用 ShellViewModel 的单页面按钮和文字绑定验证；Screen 生命周期已在第三批加入。模块归属见 [模块与项目结构](模块与项目结构.md)，交付顺序见 [迭代实现计划](计划/迭代实现计划.md)。
 
@@ -10,11 +12,11 @@ ViewModelBase 是所有框架与业务 VM 的共同 QObject 基类，提供两�
 
 | 使用位置 | ViewModelBase 的作用 |
 | --- | --- |
-| `ViewHost.model` | 接收 ViewModelBase 派生对象，视图注册表根据实际 VM 类型定位 View。 |
+| `ViewHost.model` | 接收 QObject，ViewModelBase 是可选基类；Locator 根据实际元对象定位。 |
 | `ScreenViewModel` | 在共同类型和通知辅助之上增加初始化、激活、停用；不把生命周期放回基类。 |
 | 用户 `ShellViewModel`、`HomeViewModel` 等 | 继承框架共同类型，自己声明属性、信号、操作与业务依赖。 |
 
-框架可以接收用户模块的具体 VM，但不需要包含用户 VM 头文件。普通 QObject 不是本项目的 VM 类型，不能直接作为这些类型化入口的替代对象。框架读取的是实际派生对象的元对象，不因使用基类指针而丢失派生类属性。
+框架可以接收用户模块的具体 VM，无须包含用户 VM 头文件。普通 QObject 可直接定位并进入 ViewHost，但不能替代窗口、根工厂和 Conductor 当前要求的类型。框架读取实际派生对象的元对象，不因使用 QObject 指针而丢失派生属性。
 
 ## 2. 完整成员契约
 

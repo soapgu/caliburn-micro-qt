@@ -5,7 +5,7 @@
 #include <CaliburnMicroQt/WindowManager.h>
 #include <ShellViewModel.h>
 #include <ViewModelComposition.h>
-#include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/ViewLocator.h>
 #include <QFile>
 #include <QLibraryInfo>
 #include <QQmlApplicationEngine>
@@ -82,17 +82,15 @@ private slots:
     void initTestCase()
     {
         QQuickStyle::setStyle(QStringLiteral("Basic"));
-        QVERIFY(ViewRegistry::registerView<ShellViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))));
-        QVERIFY(ViewRegistry::registerView<DetailViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/DetailView.qml"))));
-        QVERIFY(ViewRegistry::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))));
-        QVERIFY(ViewRegistry::registerView<MissingResourceVm>(QUrl(QStringLiteral("qrc:/tests/missing.qml"))));
-        QVERIFY(ViewRegistry::registerView<WrongTypeVm>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))));
-        QVERIFY(ViewRegistry::registerView<MissingPropertyVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/MissingProperty.qml"))));
-        QVERIFY(ViewRegistry::registerView<MissingRequiredVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/MissingRequired.qml"))));
-        QVERIFY(ViewRegistry::registerView<NonVisualVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/NonVisual.qml"))));
-        QVERIFY(ViewRegistry::registerView<SyntaxVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/SyntaxError.qml"))));
-        QVERIFY(ViewRegistry::registerView<MismatchVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/Mismatch.qml"))));
-        QVERIFY(ViewRegistry::freeze());
+        QVERIFY(ViewLocator::addSearchRoot({QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/"))}));
+        QVERIFY(ViewLocator::registerView<MissingResourceVm>(QUrl(QStringLiteral("qrc:/tests/missing.qml"))));
+        QVERIFY(ViewLocator::registerView<WrongTypeVm>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"))));
+        QVERIFY(ViewLocator::registerView<MissingPropertyVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/MissingProperty.qml"))));
+        QVERIFY(ViewLocator::registerView<MissingRequiredVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/MissingRequired.qml"))));
+        QVERIFY(ViewLocator::registerView<NonVisualVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/NonVisual.qml"))));
+        QVERIFY(ViewLocator::registerView<SyntaxVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/SyntaxError.qml"))));
+        QVERIFY(ViewLocator::registerView<MismatchVm>(QUrl(QStringLiteral("qrc:/tests/fixtures/Mismatch.qml"))));
+        QVERIFY(ViewLocator::freeze());
     }
 
     void registeredTypesAreNotCreatable_data()
@@ -110,6 +108,20 @@ private slots:
         QTest::newRow("conductor") << QByteArray("import Caliburn.Micro.Qt 1.0; ConductorSingleItem {}");
         QTest::newRow("screen") << QByteArray("import Caliburn.Micro.Qt 1.0; ScreenViewModel {}");
         QTest::newRow("home") << QByteArray("import CaliburnExample 1.0; HomeViewModel {}");
+    }
+
+    void registryIsNotPublic()
+    {
+        QQmlEngine engine;
+        useEmbeddedModules(engine);
+        QQmlComponent removed(&engine);
+        removed.setData("import Caliburn.Micro.Qt 1.0; ViewRegistry {}", QUrl());
+        QVERIFY(removed.isError());
+        QVERIFY(removed.errorString().contains("ViewRegistry is not a type"));
+        auto *locator = engine.singletonInstance<ViewLocator *>("Caliburn.Micro.Qt", "ViewLocator");
+        QVERIFY(locator);
+        QCOMPARE(locator->metaObject()->indexOfMethod("freeze()"), -1);
+        QCOMPARE(locator->metaObject()->indexOfMethod("addSearchRoot(ViewSearchRoot)"), -1);
     }
 
     void registeredTypesAreNotCreatable()
@@ -184,12 +196,12 @@ private slots:
     {
         HomeViewModel home(std::make_shared<CounterService>(), testWindows());
         QPointer<HomeViewModel> weak = &home;
-        const QUrl expected = ViewRegistry::viewUrl(&home);
-        QPointer<ViewRegistry> firstSingleton;
+        const QUrl expected = ViewLocator::viewUrl(&home);
+        QPointer<ViewLocator> firstSingleton;
         for (int i = 0; i < 2; ++i) {
             QQmlEngine engine;
             useEmbeddedModules(engine);
-            auto *registry = engine.singletonInstance<ViewRegistry *>("Caliburn.Micro.Qt", "ViewRegistry");
+            auto *registry = engine.singletonInstance<ViewLocator *>("Caliburn.Micro.Qt", "ViewLocator");
             QVERIFY(registry);
             QCOMPARE(registry->resolve(&home), expected);
             if (i == 0)
@@ -410,7 +422,7 @@ private slots:
         useEmbeddedModules(engine);
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
         engine.setInitialProperties({{"viewModel", QVariant::fromValue(&shell)}});
-        engine.load(ViewRegistry::viewUrl(&shell));
+        engine.load(ViewLocator::viewUrl(&shell));
         QCOMPARE(engine.rootObjects().size(), 1);
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().front());
         QVERIFY(window);
@@ -438,7 +450,7 @@ private slots:
         useEmbeddedModules(engine);
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
         engine.setInitialProperties({{"viewModel", QVariant::fromValue(shell.get())}});
-        engine.load(ViewRegistry::viewUrl(shell.get()));
+        engine.load(ViewLocator::viewUrl(shell.get()));
         QCOMPARE(engine.rootObjects().size(), 1);
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().front());
         QVERIFY(window && homeItem(window));
@@ -628,7 +640,7 @@ private slots:
         useEmbeddedModules(engine);
         QSignalSpy warnings(&engine, &QQmlEngine::warnings);
         engine.setInitialProperties({{"viewModel", QVariant::fromValue(shell.get())}});
-        engine.load(ViewRegistry::viewUrl(shell.get()));
+        engine.load(ViewLocator::viewUrl(shell.get()));
         QVERIFY(engine.rootObjects().size() == 1);
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         QVERIFY(window && QTest::qWaitForWindowExposed(window));

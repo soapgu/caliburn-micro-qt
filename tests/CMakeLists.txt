@@ -1,4 +1,15 @@
 # 纯 C++ 测试不加载 QML；普通目标避免 Qt 的导入扫描额外链接插件及模块库。
+add_executable(CaliburnViewLocatorTests cpp/tst_viewlocator.cpp)
+set_source_files_properties(fixtures/PreviewView.qml PROPERTIES QT_RESOURCE_ALIAS views/PreviewView.qml)
+qt_add_resources(CaliburnViewLocatorTests locator_fixtures PREFIX /locator FILES fixtures/PreviewView.qml)
+target_link_libraries(CaliburnViewLocatorTests PRIVATE CaliburnMicroQtplugin Caliburn::MicroQt Qt6::Test Qt6::Quick)
+# 配置在进程内共享，每行规则在独立进程中执行，不提供生产 reset 接口。
+foreach(scenario IN ITEMS layouts rootOrder prefix case config mapping freeze threads qrc objectExplicit objectConvention noFallback nonVisual injection missingOverride)
+    add_test(NAME viewlocator_${scenario} COMMAND CaliburnViewLocatorTests "rules:${scenario}")
+    set_tests_properties(viewlocator_${scenario} PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 30)
+endforeach()
+
 add_executable(CaliburnLoggingProbe support/LoggingProbe.cpp
     ../examples/minimal/CaliburnExample/services/ExampleLog.cpp)
 target_include_directories(CaliburnLoggingProbe PRIVATE
@@ -113,7 +124,7 @@ set_tests_properties(windowmanager PROPERTIES
 add_executable(CaliburnDialogTests qml/tst_dialog.cpp)
 qt_add_resources(CaliburnDialogTests dialog_fixtures
     PREFIX /tests
-    FILES fixtures/CustomDialog.qml fixtures/NonVisual.qml
+    FILES fixtures/CustomDialogView.qml fixtures/NonVisual.qml
           fixtures/SyntaxError.qml fixtures/MissingProperty.qml
 )
 target_link_libraries(CaliburnDialogTests PRIVATE
@@ -126,18 +137,21 @@ set_tests_properties(dialog PROPERTIES
     TIMEOUT 60
 )
 
-# 框架默认映射、应用覆盖和无效覆盖使用独立进程，避免静态注册表互相影响。
+# 内置根、应用约定覆盖、显式覆盖和无效覆盖使用独立进程，避免共享配置互相影响。
 # 测试通过 Q_IMPORT_QML_PLUGIN 注册框架插件，普通目标避免 Qt 再次自动链接。
 add_executable(CaliburnFrameworkDialogTests qml/tst_framework_dialog.cpp)
 qt_add_resources(CaliburnFrameworkDialogTests framework_dialog_fixtures
     PREFIX /tests FILES fixtures/OverrideConfirm.qml fixtures/FrameworkWindow.qml)
+qt_add_resources(CaliburnFrameworkDialogTests convention_dialog_fixture
+    PREFIX /confirm-override BASE fixtures/convention
+    FILES fixtures/convention/views/ConfirmActionView.qml)
 # 插件依赖框架库，按插件在前、框架库在后的顺序链接，避免重复静态库。
 target_link_libraries(CaliburnFrameworkDialogTests PRIVATE
     CaliburnMicroQtplugin Caliburn::MicroQt Qt6::Test Qt6::Quick Qt6::QuickControls2)
 add_test(NAME framework_dialog COMMAND CaliburnFrameworkDialogTests)
 set_tests_properties(framework_dialog PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 30)
-foreach(mapping IN ITEMS override missing)
+foreach(mapping IN ITEMS override missing convention flat missingRoot restricted broken wrongType)
     add_test(NAME framework_dialog_${mapping} COMMAND CaliburnFrameworkDialogTests registryMapping)
     set_tests_properties(framework_dialog_${mapping} PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;CMQT_CONFIRM_MAPPING=${mapping}"

@@ -41,7 +41,7 @@ int main(int argc, char *argv[])
 | `bool registerRootFactory<T>(std::function<std::unique_ptr<T>(std::shared_ptr<IWindowManager>)> factory)` | 只允许在 configure 中登记，每个类型只能登记一次；拒绝空工厂，登记时不创建对象。工厂统一接收框架窗口服务并返回 unique_ptr<T>。 |
 | `bool displayRootViewFor<T>(RootViewOptions options = {})` | 只允许在 onStartup 中调用；每个 Bootstrapper 只允许一次显示尝试，T 必须继承 ScreenViewModel。RootViewOptions 当前为空，预留根窗口设置扩展。 |
 
-示例 AppBootstrapper::configure 设置 Basic 样式，登记 Shell/Home/Detail 映射，并用 `[](std::shared_ptr<IWindowManager> windows) { return buildShell(std::move(windows)); }` 提供 Shell 工厂。onStartup 只调用 `displayRootViewFor<ShellViewModel>()`。当前装配通过 Home/Detail 工厂和共享服务构造 Shell，显示时可省略选项，也可显式调用 `displayRootViewFor<ShellViewModel>(RootViewOptions{})`，行为相同。
+示例 AppBootstrapper::configure 设置 Basic 样式，配置 `qrc:/qt/qml/CaliburnExample/` 搜索根，使 Shell/Home/Detail 通过约定定位，并用 `[](std::shared_ptr<IWindowManager> windows) { return buildShell(std::move(windows)); }` 提供 Shell 工厂。onStartup 只调用 `displayRootViewFor<ShellViewModel>()`。当前装配通过 Home/Detail 工厂和共享服务构造 Shell，显示时可省略选项，也可显式调用 `displayRootViewFor<ShellViewModel>(RootViewOptions{})`，行为相同。
 
 ## 工厂与所有权
 
@@ -55,7 +55,7 @@ m_root 负责根 VM 最终删除及失败/强制退出时的生命周期兜底�
 
 ## 自动关联与独立窗口展示
 
-WindowManager::showWindow 创建根 QQuickWindow 后自行登记所属窗口，并显式显示窗口，不修改业务内容树；服务按需创建独立的 ApplicationModal 窗口。ShellView 不需要声明弹窗宿主，ShellViewModel 不需要暴露窗口服务。确认视图默认映射由 ViewRegistry 提供，应用只登记业务映射。
+WindowManager::showWindow 创建根 QQuickWindow 后自行登记所属窗口，并显式显示窗口，不修改业务内容树；服务按需创建独立的 ApplicationModal 窗口。ShellView 不需要声明弹窗宿主，ShellViewModel 不需要暴露窗口服务。ViewLocator 自动提供框架搜索根，内置确认视图通过约定定位；应用可配置业务搜索根并部署同名视图，或显式登记覆盖。
 
 不经过 Bootstrapper 时，同样通过 showWindow 显示借用 VM 的普通窗口，再展示弹窗。attachToWindow / detachFromWindow 是 WindowManager 私有的内部关联机制，不再支持外部 QML 窗口手动接入。Bootstrapper 的根工厂统一接收框架窗口服务。
 
@@ -64,7 +64,7 @@ WindowManager::showWindow 创建根 QQuickWindow 后自行登记所属窗口，�
 ## 启动与退出顺序
 
 1. run 在应用主线程创建框架 WindowManager，再显式执行 configure，不在构造函数里调用虚方法。
-2. configure 成功后调用 ViewRegistry::freeze()，然后进入 onStartup 并调用根工厂。所有映射登记必须在 configure 中完成；配置阶段查询不会提前冻结。
+2. configure 成功后调用 ViewLocator::freeze()，然后进入 onStartup 并调用根工厂。所有映射登记和搜索根配置必须在 configure 中完成；配置阶段查询不会提前冻结。
 3. displayRootView 委托 showWindow，由服务校验 VM、所属窗口和 View 地址，拒绝空映射与远程 URL。
 4. 服务初始化并激活根 Screen；Shell 的 Conductor 基类驱动 Home。
 5. 服务创建 QQmlApplicationEngine，类型化注入 viewModel，加载根 View。
@@ -114,3 +114,5 @@ Screen 的 tryClose 有 Parent 时委托 IConductor；无逻辑 Parent 时发送
 5A/5B 的能力及历史验收继续保留。当前增量补齐根窗口双向桥接及 CM 风格 void 启动、退出钩子，见 [根窗口验收记录](验收/根窗口关闭守卫与生命周期验收记录.md)。旧 bool onStartup 重写需迁移为 void；onExit 从事件循环返回后前移到 aboutToQuit。配置和启动失败仍补调退出通知。直接 exit 或强制清理不询问守卫，多窗口和系统强制终止交互不在范围内。
 
 独立模态窗口改造后，aboutToQuit 和最终 shutdown 都在根生命周期之前解除窗口服务关联，强制完成弹窗 Future，并保证弹窗 View/窗口先于引擎释放。onExit 时根 VM 和根 View 仍存活。见 [独立模态窗口验收](验收/独立模态窗口验收记录.md)。
+
+第七批将配置冻结与根窗口定位统一迁入 [ViewLocator](ViewLocator.md)。示例仅配置一次模块资源根，Shell、Home 和 Detail 无需逐项登记。定位与 ViewHost 支持普通 QObject，但 Bootstrapper 根工厂仍要求 ScreenViewModel，不改变所有权和生命周期。

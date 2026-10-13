@@ -1,41 +1,27 @@
 # ViewHost：视图定位、动态加载与所有权
 
-第三批已实现 ViewRegistry 与 ViewHost，属于静态框架模块 `Caliburn.Micro.Qt 1.0`。本机验收状态见 [第三批验收记录](验收/第三批验收记录.md)。生命周期由 [ScreenViewModel](ScreenViewModel.md) 提供，宿主负责 View 装配。
+第七批通过 ViewLocator 统一定位，ViewHost 负责动态创建和 typed 模型注入，属于静态框架模块 `Caliburn.Micro.Qt 1.0`。生命周期由 [ScreenViewModel](ScreenViewModel.md) 提供，宿主不驱动模型生命周期。
 
-## 1. 登记与查询
+## 1. 配置与查询
 
-应用在配置阶段登记业务映射，完成后显式冻结。使用 BootstrapperBase 时，它在 configure 成功后自动调用 freeze()；独立使用注册表与宿主时，由应用在创建界面前调用：
+登记、搜索根配置、冻结和查询统一通过 [ViewLocator](ViewLocator.md)。ViewRegistry 已内部化，旧公开头文件和 QML 类型已移除，不保留兼容入口。应用在 configure 中配置搜索根及少量显式覆盖，BootstrapperBase 在配置成功后冻结。
 
 ```cpp
-const bool registered = ViewRegistry::registerView<HomeViewModel>(
-    QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml")));
-const bool frozen = ViewRegistry::freeze();
-const QUrl url = ViewRegistry::viewUrl(home);
+const bool configured = ViewLocator::addSearchRoot({
+    QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/"))});
+const bool frozen = ViewLocator::freeze(); // 独立使用时显式调用。
+const QUrl url = ViewLocator::viewUrl(model);
 ```
 
-`registerView<T>(const QUrl&) -> bool` 编译期要求 T 继承 ViewModelBase。登记使用 T::staticMetaObject，查询使用运行时 QMetaObject；具体类型需要自己的 Q_OBJECT 才有独立映射身份。注册表不按名称猜路径，不沿基类回退。
+定位顺序为显式映射、约定搜索。框架目录自动作为最后一个搜索根，与应用目录使用相同规则；同组候选优先查询应用根。查询不自动冻结，各引擎单例共享进程配置，不持有模型。搜索根、候选顺序、错误行为与调用迁移见 Locator 专题。
 
-| 输入或时机 | 结果 |
-| --- | --- |
-| 有效、非空、绝对 URL | 登记成功；不提前检查资源存在性。 |
-| 相同类型与 URL 再次登记 | 冻结前返回 true。 |
-| 已显式登记的相同类型、不同 URL | 返回 false 并诊断，保留原映射。 |
-| 空、非法、相对 URL | 返回 false 并诊断，不修改表。 |
-| freeze() | 在应用主线程返回 true 并冻结；重复调用返回 true，随后任何登记均拒绝。非法线程调用返回 false，不改变配置。 |
-| 空对象查询 | 返回空 URL，不改变冻结状态。 |
-| 非空对象查询 | 冻结前后均可查询，不改变冻结状态；配置阶段查询后仍可继续登记。 |
-| 无应用映射但有框架默认映射 | 返回默认 URL，目前包含 ConfirmActionViewModel。 |
-| 无应用或默认映射的实际类型 | 诊断并返回空 URL，不使用基类映射。 |
-
-C++ 静态 `viewUrl(const ViewModelBase*)` 与 QML 单例 `resolve(ViewModelBase*)` 共用进程级表。freeze() 是 C++ 配置入口，不向 QML 暴露。每个引擎拥有自己的查询单例，销毁或重建引擎不丢失映射或冻结状态。表只保存元对象和 URL，不保存 VM。登记、冻结和查询均限定在应用主线程，非法线程调用诊断并拒绝；展示 VM 的生命周期由调用方保证在应用主线程执行。未知类型及非法查询也不冻结注册表；运行期不提供解冻或清空接口。
-
-框架默认映射与应用映射分开保存，优先查询应用映射。ConfirmActionViewModel 无须由应用登记，独立使用 ViewRegistry 时也能取得默认确认视图。冻结前可用普通 registerView 显式覆盖默认映射，不算冲突；查询不会冻结配置。覆盖指向无效资源时正常报告加载失败，不退回默认视图。
+Locator 与宿主支持普通 QObject，不要求继承 ViewModelBase；具体模型自行提供 Q_OBJECT、Q_PROPERTY 和 NOTIFY，具体 View 仍声明 `required property XxxViewModel viewModel`，保留 typed 注入检查。ViewModelBase 仍提供 setAndNotify 便利功能。WindowManager、Bootstrapper 和 Conductor 保留现有类型约束，可定位不等于可作为受管窗口或 Conductor 成员。
 
 ## 2. 宿主接口与用法
 
 | 属性 | 契约 |
 | --- | --- |
-| model: ViewModelBase | 可读写，借用目标；默认 null。 |
+| model: QObject | 可读写，借用目标；默认 null。 |
 | 只读 item: Item | 成功装配的 View；未完成、清空或失败时 null。 |
 | 只读 errorString: string | 最近一次装配错误；新装配开始或空模型时清空。 |
 
@@ -57,7 +43,7 @@ ViewHost {
 ```mermaid
 flowchart LR
     Model[模型身份变化] --> Clear[卸载旧 View，清空 item 与错误]
-    Clear --> Resolve[查询注册表]
+    Clear --> Resolve[ViewLocator 查询]
     Resolve --> Load[Loader.setSource：初始属性 viewModel]
     Load --> Check[检查 Item 与 VM 身份]
     Check --> Item[公开成功装配的 item]
@@ -65,7 +51,7 @@ flowchart LR
 
 组件完成创建后才加载；身份变化先卸载旧实例，再调用 `Loader.setSource(url, { viewModel: model })`，使 required 属性在创建阶段得到值，不在 onLoaded 后补注入。[Qt Loader 初始属性机制](https://doc.qt.io/qt-6.8/qml-qtquick-loader.html#setSource-method)
 
-本批使用本地内嵌资源与同步 Loader。无映射、资源不存在、语法错误、required 属性缺失、类型不兼容、缺少 viewModel、创建过程中改写了 VM 身份以及非 Item 根对象都会留下空内容与错误文字，并输出诊断。失败不保留旧页面，不自动重试；换成有效模型可重新装配。Loader 错误文字保留请求 URL，详细 QML 原因由引擎诊断提供。
+宿主使用同步 Loader，可装配 Locator 返回的 qrc 或本地文件。无映射、资源不存在、语法错误、required 属性缺失、类型不兼容、缺少 viewModel、创建过程中改写了 VM 身份以及非 Item 根对象都会留下空内容与错误文字，并输出诊断。失败不保留旧页面，不自动重试；换成有效模型可重新装配。Loader 错误文字保留请求 URL，详细 QML 原因由引擎诊断提供。
 
 | 变化 | 结果 |
 | --- | --- |
@@ -86,7 +72,7 @@ ViewHostState 是 `Caliburn.Micro.Qt 1.0` 模块公开、可创建的 QML 辅助
 
 | ViewHostState 的 QML 接口 | 契约 |
 | --- | --- |
-| model: ViewModelBase | 可读写，默认 null；借用 VM，不接管所有权。赋值必须在辅助对象所属线程执行，非空 VM 必须属于同一线程；非法赋值输出诊断并保留旧模型。 |
+| model: QObject | 可读写，默认 null；借用 VM，不接管所有权。赋值必须在辅助对象所属线程执行，非空 VM 必须属于同一线程；非法赋值输出诊断并保留旧模型。 |
 | modelChanged() | 模型身份变化或当前模型销毁时通知；重复赋入同一对象不通知，VM 自身属性变化不触发此信号。 |
 | matchesView(view: QObject) -> bool | 当前模型和 view 均非空，且 view 的 viewModel 属性可转换为 QObject 指针并与当前模型指针相同时返回 true；否则返回 false。 |
 

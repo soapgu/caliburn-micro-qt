@@ -1,6 +1,6 @@
 #include "FrameworkLog.h"
 #include <CaliburnMicroQt/BootstrapperBase.h>
-#include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/ViewLocator.h>
 #include <QQmlEngine>
 #include <CaliburnMicroQt/WindowManager.h>
 #include <QDebug>
@@ -80,8 +80,8 @@ bool BootstrapperBase::initialize()
     QQmlEngine::setObjectOwnership(m_windowManager.get(), QQmlEngine::CppOwnership);
     if (!configure())
         return fail(QStringLiteral("configure failed"));
-    if (!ViewRegistry::freeze())
-        return fail(QStringLiteral("ViewRegistry freeze failed"));
+    if (!ViewLocator::freeze())
+        return fail(QStringLiteral("ViewLocator freeze failed"));
     m_state = State::Starting;
     onStartup();
     if (!m_rootDisplayed || m_rootDisplayFailed)

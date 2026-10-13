@@ -3,7 +3,7 @@ import QtQuick.Controls
 import DialogTest 1.0
 FocusScope {
     id: root
-    required property CustomDialogVm viewModel
+    required property CustomDialogViewModel viewModel
     implicitWidth: 280
     implicitHeight: 140
     Button {

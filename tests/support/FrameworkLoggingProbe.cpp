@@ -3,7 +3,7 @@
 #include "AppBootstrapper.h"
 #include <CaliburnMicroQt/Conductor.h>
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
-#include <CaliburnMicroQt/ViewRegistry.h>
+#include <CaliburnMicroQt/ViewLocator.h>
 #include <CaliburnMicroQt/WindowManager.h>
 #include <QGuiApplication>
 #include <QQmlComponent>
@@ -119,7 +119,7 @@ int main(int argc, char **argv)
         const auto url = scenario == QStringLiteral("view")
             ? QUrl(QStringLiteral("qrc:/tests/fixtures/Probe.qml"))
             : QUrl(QStringLiteral("qrc:/missing-view.qml"));
-        if (!ViewRegistry::registerView<ProbeScreen>(url) || !ViewRegistry::freeze()) return 8;
+        if (!ViewLocator::registerView<ProbeScreen>(url) || !ViewLocator::freeze()) return 8;
         ProbeScreen model;
         QQmlEngine engine;
         QQmlComponent component(&engine);
@@ -132,10 +132,10 @@ int main(int argc, char **argv)
         return (scenario == QStringLiteral("view") ? loaded && !failed : !loaded && failed) ? 0 : 10;
     }
     if (scenario == QStringLiteral("window") || scenario == QStringLiteral("dialogFailure")) {
-        if (!ViewRegistry::registerView<ProbeScreen>(QUrl(QStringLiteral("qrc:/tests/fixtures/WindowProbe.qml")))) return 11;
+        if (!ViewLocator::registerView<ProbeScreen>(QUrl(QStringLiteral("qrc:/tests/fixtures/WindowProbe.qml")))) return 11;
         if (scenario == QStringLiteral("dialogFailure"))
-            ViewRegistry::registerView<ConfirmActionViewModel>(QUrl(QStringLiteral("qrc:/missing-dialog.qml")));
-        if (!ViewRegistry::freeze()) return 19;
+            ViewLocator::registerView<ConfirmActionViewModel>(QUrl(QStringLiteral("qrc:/missing-dialog.qml")));
+        if (!ViewLocator::freeze()) return 19;
         ProbeScreen model;
         WindowManager windows;
         if (!windows.showWindow(QVariant::fromValue(&model))) return 12;
