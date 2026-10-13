@@ -74,11 +74,14 @@ bool LoggingRuntime::initialize(const LoggingOptions &options)
     std::vector<spdlog::sink_ptr> sinks;
     auto console = std::make_shared<spdlog::sinks::stderr_color_sink_mt>(
         colorModeFor(options.consoleColor));
-    // 默认使用 Debug 青色、Info 绿色、Warning 加粗黄色；错误使用红色前景。
+    // Debug 使用深灰色（Windows 为普通灰色）、Info 绿色、Warning 加粗黄色；错误使用红色前景。
 #ifdef _WIN32
+    console->set_color(spdlog::level::debug, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
     console->set_color(spdlog::level::err, FOREGROUND_RED);
     console->set_color(spdlog::level::critical, FOREGROUND_RED | FOREGROUND_INTENSITY);
 #else
+    // Qt Creator 20.0.1 不识别 ANSI 90；使用其支持的 RGB 色码明确指定灰色。
+    console->set_color(spdlog::level::debug, "\x1b[38;2;128;128;128m");
     console->set_color(spdlog::level::err, console->red);
     console->set_color(spdlog::level::critical, console->red_bold);
 #endif

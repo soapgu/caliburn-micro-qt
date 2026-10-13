@@ -87,7 +87,7 @@ private slots:
         }
         QCOMPARE(clean.join('\n').toUtf8(), result.file);
         if (colored) {
-            for (const auto &entry : {qMakePair(QByteArray("[debug]"), QByteArray("\x1b[36m")),
+            for (const auto &entry : {qMakePair(QByteArray("[debug]"), QByteArray("\x1b[38;2;128;128;128m")),
                                       qMakePair(QByteArray("[info]"), QByteArray("\x1b[32m")),
                                       qMakePair(QByteArray("[warning]"), QByteArray("\x1b[33m\x1b[1m")),
                                       qMakePair(QByteArray("[critical]"), QByteArray("\x1b[31m"))}) {
