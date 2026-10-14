@@ -88,6 +88,18 @@ jobs:
           cmake --build build/release --target CaliburnLoggingTests CaliburnFrameworkLoggingTests
           ctest --test-dir build/release -R '^(logging|framework_logging)$' --output-on-failure
 
+      - name: 验证仓库外的独立消费工程
+        run: |
+          cmake -E copy_directory examples/standalone "$RUNNER_TEMP/caliburn-consumer"
+          cmake -S "$RUNNER_TEMP/caliburn-consumer" -B build/standalone -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DCALIBURN_SOURCE_DIR="$GITHUB_WORKSPACE" \
+            -DFETCHCONTENT_FULLY_DISCONNECTED=ON
+          cmake --build build/standalone
+          cmake --build build/standalone --target all_qmllint
+          ctest --test-dir build/standalone --output-on-failure \
+            --output-junit "$GITHUB_WORKSPACE/reports/standalone.xml"
+
       - name: 保存测试报告与配置日志
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -95,10 +107,12 @@ jobs:
           name: ci-reports-${{ matrix.os }}
           path: |
             reports/ctest.xml
+            reports/standalone.xml
             build/debug/build.log
             build/debug/Testing/Temporary/LastTest.log
             build/debug/CMakeFiles/CMakeConfigureLog.yaml
             build/framework-only/CMakeFiles/CMakeConfigureLog.yaml
             build/release/Testing/Temporary/LastTest.log
+            build/standalone/Testing/Temporary/LastTest.log
           retention-days: 7
           if-no-files-found: warn

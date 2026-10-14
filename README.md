@@ -2,7 +2,7 @@
 
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
-> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/验收/4C验收记录.md)。Parent 与统一 Conductor 协议增量已实现并完成本机验收，见 [独立记录](docs/验收/Parent体系验收记录.md)。受管页面 tryClose 与 Detail 内返回已实现并完成本机验收，见 [tryClose 记录](docs/验收/tryClose验收记录.md)。5A 重置确认与弹窗基础设施已实现，5B 退出确认与关闭守卫已完成本机验收，见 [5B 记录](docs/验收/5B验收记录.md)；CM 直接回调与单项管理精简已完成本机复验，见 [精简验收记录](docs/验收/CM关闭守卫精简验收记录.md)。根窗口守卫、双向关闭桥接与 Bootstrapper 钩子已完成本机验收，见 [根窗口验收记录](docs/验收/根窗口关闭守卫与生命周期验收记录.md)；第六批日志已实现并完成本机验收；第七批视图约定定位已实现并完成本机验收，见 [第七批记录](docs/验收/第七批验收记录.md)；麒麟与外部消费工程待第八批验证。
+> 当前状态：前四批本机验收完成。框架提供属性通知、Screen 生命周期、视图注册与宿主、Bootstrapper、单项及集合型 Conductor。示例采用 Shell 根窗口、Home 计数与只读 Detail 导航，Home VM 常驻，View 每次新建；两页共享计数服务。独立构建、全部 CTest、qmllint、仅框架构建、Cocoa 与实际窗口结果见 [4C 验收记录](docs/验收/4C验收记录.md)。Parent 与统一 Conductor 协议增量已实现并完成本机验收，见 [独立记录](docs/验收/Parent体系验收记录.md)。受管页面 tryClose 与 Detail 内返回已实现并完成本机验收，见 [tryClose 记录](docs/验收/tryClose验收记录.md)。5A 重置确认与弹窗基础设施已实现，5B 退出确认与关闭守卫已完成本机验收，见 [5B 记录](docs/验收/5B验收记录.md)；CM 直接回调与单项管理精简已完成本机复验，见 [精简验收记录](docs/验收/CM关闭守卫精简验收记录.md)。根窗口守卫、双向关闭桥接与 Bootstrapper 钩子已完成本机验收，见 [根窗口验收记录](docs/验收/根窗口关闭守卫与生命周期验收记录.md)；第六批日志已实现并完成本机验收；第七批视图约定定位已实现并完成本机验收，见 [第七批记录](docs/验收/第七批验收记录.md)；第八批已完成 macOS/麒麟自动验证与独立消费工程接入；Qt Creator 人工 GUI 验收待用户确认，见 [第八批记录](docs/验收/第八批验收记录.md)。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
 
@@ -149,7 +149,7 @@ Shell 是本项目的应用入口命名约定，与 qt-snake-lab 的入口命名
 
 | 项目 | 设计基线 |
 | --- | --- |
-| Qt | 6.8.3，Qt Quick / QML；已验证 macOS arm64，麒麟待验证。 |
+| Qt | 6.8.3，Qt Quick / QML；macOS arm64 与麒麟 x86_64 自动验证通过；本轮人工 GUI 验收待确认。 |
 | C++ | C++17，QObject 属性、信号与元对象系统。 |
 | 构建 | CMake 3.21 及以上、Ninja、qt_add_qml_module；框架/示例用户模块为静态库。 |
 | 应用装配 | Boost.Ext.DI v1.3.2 由 FetchContent 获取，下载官方单头文件并校验 SHA-256；许可证随仓库保留。 |
@@ -208,7 +208,7 @@ macOS 启动 `build/debug/bin/CaliburnExampleApp.app`，也可执行：
 ./build/debug/bin/CaliburnExampleApp.app/Contents/MacOS/CaliburnExampleApp
 ```
 
-Linux 的预期入口为 `build/debug/bin/CaliburnExampleApp`，尚未在麒麟验证。CTest 的 QML 测试默认使用 offscreen/software；macOS 可额外运行 `QT_QPA_PLATFORM=cocoa ./build/debug/tests/CaliburnQmlTests`。真实窗口操作记录与离屏测试分别记录。
+Linux 入口为 `build/debug/bin/CaliburnExampleApp`；已在麒麟完成原生构建与离屏测试，Qt Creator 人工 GUI 验收待用户确认。CTest 的 QML 测试默认使用 offscreen/software；macOS 可额外运行 `QT_QPA_PLATFORM=cocoa ./build/debug/tests/CaliburnQmlTests`。真实窗口操作记录与离屏测试分别记录。
 
 当前示例还支持“加 2”按钮与无修饰数字键 `2`，计数超过 3 时禁用。文本框中的数字键用于输入文字，点击空白处恢复页面焦点；长按重复事件不会增加计数。
 
@@ -244,17 +244,17 @@ cmake -S . -B build/framework-only -G Ninja -DCMAKE_PREFIX_PATH="$QT_ROOT" \
 cmake --build build/framework-only
 ```
 
-当前提供源码模块接入，尚未实现安装导出包；外部消费工程和平台验证在第六批完善。静态 QML 模块的插件要求见 [Qt 官方说明](https://doc.qt.io/qt-6.8/qt-add-qml-module.html)。
+当前提供源码模块接入，尚未实现安装导出包。第八批新增只引用框架的 [独立消费工程](examples/standalone)；公开头文件、静态插件保留、资源别名和 Qt Creator 运行方式见 [下游接入](docs/下游接入.md)，平台结果见 [第八批验收记录](docs/验收/第八批验收记录.md)。
 
 ## 持续集成
 
-[GitHub Actions CI](https://github.com/soapgu/caliburn-micro-qt/actions/workflows/ci.yml) 在推送 main、向 main 提交 PR 或手动触发时运行。工作流固定 Qt 6.8.3，分别使用 Ubuntu 24.04 x64 与 macOS 15 arm64，覆盖框架和示例构建、全部 CTest、all_qmllint，以及关闭示例和测试后的仅框架构建与 QML 检查。
+[GitHub Actions CI](https://github.com/soapgu/caliburn-micro-qt/actions/workflows/ci.yml) 在推送 main、向 main 提交 PR 或手动触发时运行。工作流固定 Qt 6.8.3，分别使用 Ubuntu 24.04 x64 与 macOS 15 arm64，覆盖框架和示例构建、全部 CTest、all_qmllint、仅框架构建，以及仓库外独立消费工程的构建与集成测试。
 
 QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或麒麟验收。Qt 安装缓存用于减少重复下载，测试报告及配置日志保存 7 天，可在每次运行的附件中下载。工作流文件位于 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
 
 ## 当前状态与后续方向
 
-第一批已交付框架基础和 Shell 示例，第二批增加 add(int)、canAddTwo、“加 2”按钮和数字键 2 操作。文本框优先消费输入，页面过滤自动重复；Tab / Shift+Tab 显式切换焦点并跳过禁用按钮。第二批独立目录配置与构建、CTest、qmllint、Cocoa 测试和真实示例操作均通过。详情见 [第一批验收记录](docs/验收/第一批验收记录.md) 与 [第二批验收记录](docs/验收/第二批验收记录.md)。第三批已实现 ScreenViewModel、ViewRegistry 与 ViewHost，计数整体迁入 Home；自动检查及实际窗口验收通过，见 [第三批验收记录](docs/验收/第三批验收记录.md)。第四批 4A 已实现泛型单项 Conductor 核心与测试；4B 已改造 Shell 与共享计数服务，关闭后重建 Home 保留计数，见 [4B 验收记录](docs/验收/4B验收记录.md)；4C 已完成 Collection.OneActive 和 Detail 导航，见 [4C 验收记录](docs/验收/4C验收记录.md)；5A 通用模态弹窗与重置确认已通过本机验收，5B 退出确认与关闭守卫也已通过本机验收；麒麟与外部消费工程待验证。
+第一批已交付框架基础和 Shell 示例，第二批增加 add(int)、canAddTwo、“加 2”按钮和数字键 2 操作。文本框优先消费输入，页面过滤自动重复；Tab / Shift+Tab 显式切换焦点并跳过禁用按钮。第二批独立目录配置与构建、CTest、qmllint、Cocoa 测试和真实示例操作均通过。详情见 [第一批验收记录](docs/验收/第一批验收记录.md) 与 [第二批验收记录](docs/验收/第二批验收记录.md)。第三批已实现 ScreenViewModel、ViewRegistry 与 ViewHost，计数整体迁入 Home；自动检查及实际窗口验收通过，见 [第三批验收记录](docs/验收/第三批验收记录.md)。第四批 4A 已实现泛型单项 Conductor 核心与测试；4B 已改造 Shell 与共享计数服务，关闭后重建 Home 保留计数，见 [4B 验收记录](docs/验收/4B验收记录.md)；4C 已完成 Collection.OneActive 和 Detail 导航，见 [4C 验收记录](docs/验收/4C验收记录.md)；5A 通用模态弹窗与重置确认已通过本机验收，5B 退出确认与关闭守卫也已通过本机验收；第八批已完成 macOS/麒麟自动验证和仓库外独立消费接入，人工 GUI 验收待确认。
 
 后续每批同时交付框架功能、example、必要测试和验收记录，验收通过后进入下一批：
 
@@ -263,13 +263,14 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 | 1．单页面绑定 | 基类与类型化通知辅助；Shell 单页面计数文字及按钮 enabled/onClicked 显式绑定。 | 已完成，macOS arm64 验收通过 |
 | 2．参数与键盘 | Shell 同页演示 int 参数按钮与原生键盘事件，直接调用 VM，不增加框架输入组件。 | 已完成，macOS arm64 验收通过 |
 | 3．生命周期与视图装配 | Screen、注册表与 ViewHost；Shell 根入口、Home 计数页面及 VM 替换。 | 已完成，macOS arm64 验收通过 |
-| 4．页面组合与导航 | 4A 单项核心、4B 共享服务、4C 集合型与 Detail 均已完成。 | 第四批本机验收完成；麒麟待验证 |
-| 5A．重置确认 | IWindowManager / WindowManager 通用模态弹窗、确认 VM/View；当前已迁移为独立模态窗口，Home 重置确认、请求失效及焦点。 | 已实现，macOS arm64 验收通过；麒麟待验证 |
-| 5B．Detail 退出确认与关闭守卫 | Detail 确认、关闭策略、父级当前项/集合成员许可、直接回调及 void 入口。 | 已实现；本机验收通过，麒麟待验证 |
+| 4．页面组合与导航 | 4A 单项核心、4B 共享服务、4C 集合型与 Detail 均已完成。 | 第四批本机验收完成；麒麟自动检查通过，人工 GUI 待确认 |
+| 5A．重置确认 | IWindowManager / WindowManager 通用模态弹窗、确认 VM/View；当前已迁移为独立模态窗口，Home 重置确认、请求失效及焦点。 | 已实现，macOS arm64 验收通过；麒麟自动检查通过，人工 GUI 待确认 |
+| 5B．Detail 退出确认与关闭守卫 | Detail 确认、关闭策略、父级当前项/集合成员许可、直接回调及 void 入口。 | 已实现；本机验收通过，麒麟自动检查通过，人工 GUI 待确认 |
 | 5C．重构 | 统一窗口管理、tryClose、生命周期分派及 Conductor 结构。 | 已完成，历史验收保留 |
 | 6A．搭建日志体系 | Qt 分类日志、应用层 spdlog 控制台与轮转文件输出；FetchContent 管理示例依赖。 | 已实现，验收状态见 [6A 记录](docs/验收/6A验收记录.md) |
 | 6B．打印框架层日志 | 分类诊断与关键流程日志；框架和示例日志统一英文。 | 已实现并完成本机验收，见 [6B 记录](docs/验收/6B验收记录.md) |
-| 7．下游接入与平台验证 | 独立消费工程、静态模块接入及 macOS/麒麟验证。 | 未实施、未验证 |
+| 7．视图约定定位与自动装配 | ViewLocator 约定搜索、typed 注入与应用/框架资源定位。 | 已实现并完成本机验收，见 [第七批记录](docs/验收/第七批验收记录.md) |
+| 8．下游接入与平台验证 | 仓库外独立消费工程、静态插件/资源接入及 macOS/麒麟验证。 | 实现及两平台自动验证通过；Qt Creator 人工 GUI 验收待用户确认，见 [第八批记录](docs/验收/第八批验收记录.md) |
 
 第四批阶段与历史验收分别记录：
 
