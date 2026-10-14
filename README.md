@@ -240,6 +240,51 @@ cmake --build build/framework-only
 
 框架以源码静态 QML 模块接入，公开 CMake 目标为 `Caliburn::MicroQt`，QML 导入为 `Caliburn.Micro.Qt 1.0`；尚未提供安装导出包或 `find_package(CaliburnMicroQt)` 支持。[独立消费工程](examples/standalone) 具有自己的 VM、QML 模块、Bootstrapper 和集成测试，仅依赖框架，不引入示例模块、Boost.Ext.DI 或 spdlog。公开头文件、静态插件保留、资源别名和 Qt Creator 运行方式见 [下游接入](docs/下游接入.md)。
 
+## 推荐接入：FetchContent 跟随 main
+
+建议业务项目通过 CMake FetchContent 获取框架源码，跟随 `main` 分支更新。在业务项目完成 Qt 初始化后、定义业务 QML 模块前加入：
+
+```cmake
+include(FetchContent)
+
+# 仅引入框架，不构建框架仓库的示例和测试。
+set(CALIBURN_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+set(CALIBURN_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    CaliburnMicroQt
+    GIT_REPOSITORY https://github.com/soapgu/caliburn-micro-qt.git
+    GIT_TAG main
+)
+FetchContent_MakeAvailable(CaliburnMicroQt)
+```
+
+业务 QML 模块通过 `DEPENDENCIES TARGET CaliburnMicroQt` 声明导入依赖，并链接公开 C++ 目标。以下 `MyApplicationModule` 为业务模块示例名称，源码和 QML 文件按自己的项目填写：
+
+```cmake
+qt_add_qml_module(MyApplicationModule
+    STATIC
+    URI MyApplication
+    VERSION 1.0
+    RESOURCE_PREFIX /qt/qml
+    DEPENDENCIES TARGET CaliburnMicroQt
+    SOURCES HomeViewModel.h HomeViewModel.cpp
+    QML_FILES views/HomeView.qml
+)
+target_link_libraries(MyApplicationModule PUBLIC Caliburn::MicroQt)
+```
+
+C++ 使用 `#include <CaliburnMicroQt/ScreenViewModel.h>` 等公开头文件；QML 使用 `import Caliburn.Micro.Qt 1.0`。ViewLocator 按 URL 动态加载视图时，还须确保应用与框架的静态 QML 插件被链接并注册；完整配置参考 [独立消费工程](examples/standalone/CMakeLists.txt) 与 [入口插件导入](examples/standalone/main.cpp)。仅接入框架不会下载示例使用的 Boost.Ext.DI 或 spdlog。
+
+首次配置时下载源码，后续重新运行 CMake 配置时尝试同步远程 `main`，再重新构建应用。Qt Creator 中执行“运行 CMake”后构建；命令行可在业务项目根目录执行：
+
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$QT_ROOT"
+cmake --build build
+```
+
+`QT_ROOT` 指向本机 Qt kit。普通编译不一定重新运行 CMake，因此不会持续自动同步。同步需要网络可用，且未开启 `FETCHCONTENT_UPDATES_DISCONNECTED`、`FETCHCONTENT_UPDATES_DISCONNECTED_CALIBURNMICROQT` 或 `FETCHCONTENT_FULLY_DISCONNECTED`；也不要通过 `FETCHCONTENT_SOURCE_DIR_CALIBURNMICROQT` 覆盖为由自己维护的本地源码。更新行为见 [CMake FetchContent 文档](https://cmake.org/cmake/help/latest/module/FetchContent.html)。跟随 `main` 会同时接收框架接口变化，业务项目需相应调整；需要复现某次构建时，可将 `GIT_TAG` 改为具体标签或提交。
+
 ## 持续集成
 
 [GitHub Actions CI](https://github.com/soapgu/caliburn-micro-qt/actions/workflows/ci.yml) 在推送 main、向 main 提交 PR 或手动触发时运行。工作流固定 Qt 6.8.3，分别使用 Ubuntu 24.04 x64 与 macOS 15 arm64，覆盖框架和示例构建、全部 CTest、all_qmllint、仅框架构建、Release 日志默认级别与调用位置，以及仓库外独立消费工程的构建与集成测试。
