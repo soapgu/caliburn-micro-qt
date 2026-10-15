@@ -48,6 +48,7 @@ qt_add_qml_module(CaliburnMicroQt
         src/ViewRegistry.cpp
         src/ViewHostState.h
         src/ViewHostState.cpp
+        include/CaliburnMicroQt/WindowOptions.h
         include/CaliburnMicroQt/IWindowManager.h
         include/CaliburnMicroQt/WindowManager.h
         include/CaliburnMicroQt/ConfirmationRequest.h
@@ -62,4 +63,4 @@ target_include_directories(CaliburnMicroQt
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include/CaliburnMicroQt"
             "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
-target_link_libraries(CaliburnMicroQt PUBLIC Qt6::Core Qt6::Qml PRIVATE Qt6::Quick Qt6::QuickControls2)
+target_link_libraries(CaliburnMicroQt PUBLIC Qt6::Core Qt6::Gui Qt6::Qml PRIVATE Qt6::Quick Qt6::QuickControls2)

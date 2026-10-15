@@ -6,6 +6,7 @@
 #include <CaliburnMicroQt/ScreenExtensions.h>
 #include <QDebug>
 #include <QGuiApplication>
+#include <QQuickWindow>
 #include <QThread>
 #include <exception>
 
@@ -53,6 +54,9 @@ int BootstrapperBase::run()
     }
 
     qCDebug(FrameworkLog::bootstrapper).noquote() << "Starting bootstrapper:" << FrameworkLog::identity(this);
+    m_previousQuitOnLastWindowClosed = m_app.quitOnLastWindowClosed();
+    m_app.setQuitOnLastWindowClosed(false);
+    m_quitPolicyChanged = true;
     int exitCode = 1;
     try {
         if (initialize()) {
@@ -78,6 +82,14 @@ bool BootstrapperBase::initialize()
     m_state = State::Configuring;
     m_windowManager = std::make_shared<WindowManager>();
     connect(m_windowManager.get(), &WindowManager::windowCleanupFailed, this, [this] { m_cleanupFailed = true; });
+    connect(m_windowManager.get(), &IWindowManager::windowClosed, this, [this](QObject *model) {
+        if (model && model == m_root.get()) {
+            // 排队处理也覆盖 onStartup 尚未进入事件循环时根窗提前关闭。
+            QMetaObject::invokeMethod(this, [this] {
+                if (m_state == State::Running) m_app.quit();
+            }, Qt::QueuedConnection);
+        }
+    });
     QQmlEngine::setObjectOwnership(m_windowManager.get(), QQmlEngine::CppOwnership);
     if (!configure())
         return fail(QStringLiteral("configure failed"));
@@ -117,9 +129,21 @@ bool BootstrapperBase::createRootViewModel(const QMetaObject *type)
     return true;
 }
 
-bool BootstrapperBase::displayRootView(const QVariant &viewModel)
+bool BootstrapperBase::displayRootView(const QVariant &viewModel, RootViewOptions options)
 {
-    m_rootDisplayed = m_windowManager->showWindow(viewModel);
+    options.window.role = WindowRole::Primary;
+    m_rootDisplayed = m_windowManager->showWindow(viewModel, options.window);
+    if (m_rootDisplayed) {
+        if (auto *window = m_windowManager->windowFor(m_root.get())) {
+            connect(window, &QObject::destroyed, this, [this] {
+                if (m_state != State::Starting && m_state != State::Running) return;
+                m_cleanupFailed = true;
+                QMetaObject::invokeMethod(this, [this] {
+                    if (m_state == State::Running) m_app.exit(1);
+                }, Qt::QueuedConnection);
+            });
+        }
+    }
     return m_rootDisplayed;
 }
 
@@ -154,6 +178,10 @@ void BootstrapperBase::shutdown(bool invokeExit) noexcept
     m_root.reset();
     m_factories.clear();
     m_windowManager.reset();
+    if (m_quitPolicyChanged) {
+        m_app.setQuitOnLastWindowClosed(m_previousQuitOnLastWindowClosed);
+        m_quitPolicyChanged = false;
+    }
     m_state = State::Stopped;
 }
 

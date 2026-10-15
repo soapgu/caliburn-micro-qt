@@ -6,7 +6,10 @@
 
 ```cpp
 using DialogResult = std::optional<bool>;
-bool showWindow(const QVariant &viewModel);
+bool showWindow(const QVariant &viewModel, const WindowOptions &options = {});
+QQuickWindow *windowFor(QObject *viewModel) const;
+// 信号参数为 VM；只在普通窗口实际关闭后发送。
+void windowClosed(QObject *viewModel);
 QFuture<DialogResult> showDialogAsync(std::unique_ptr<QObject> viewModel,
                                     QObject *requester);
 ```
@@ -27,11 +30,11 @@ Screen.tryClose(result) 优先委托逻辑 Parent Conductor，否则通过内部
 
 showWindow 借用一个同线程、无逻辑 Parent 的 QObject，参数以 `QVariant::fromValue(具体类型指针)` 构造，保留具体类型供 QML required 属性注入。调用方持有 VM，服务设置 CppOwnership 并管理窗口资源；不会删除或接管普通窗口 VM。Bootstrapper 的 displayRootView 只委托此入口并记录结果。
 
-单服务支持一个自建普通窗口。已有普通窗口或弹窗请求未结束、或 Screen 已关联另一受管窗口时，在创建和激活候选前拒绝。仅接纳本地或 qrc 映射，普通 View 必须直接为 QQuickWindow，不包装 Item。服务创建 QQmlApplicationEngine、注入 typed 模型和初始 visible=false、加载并校验 View、登记所属窗口并建立关闭桥接，然后调用 create() 创建隐藏的原生窗口资源，再激活模型，最后显式 show。普通窗口不占用 busy/currentDialog；根激活钩子中可以使用已关联的所属窗口打开弹窗。
+单服务支持一个主窗和多个辅助窗。WindowOptions.role 默认为 WindowRole::Primary，重复主窗、弹窗请求未结束或 VM 已关联窗口时拒绝。WindowRole::Auxiliary 要求已有可用主窗；辅助窗独立创建引擎、桥接和原生窗口，不设置 parent/transientParent，不作为弹窗所属窗口。仅接纳本地或 qrc 映射，普通 View 必须直接为 QQuickWindow，不包装 Item。服务创建 QQmlApplicationEngine、注入 typed 模型和初始 visible=false、加载并校验 View、登记所属窗口并建立关闭桥接，然后调用 create() 创建隐藏的原生窗口资源，再激活模型，最后显式 show。普通窗口不占用 busy/currentDialog；根激活钩子中可以使用已关联的所属窗口打开弹窗。
 
 参数、映射和加载失败诊断后返回 false；加载失败不激活模型，立即释放部分创建资源，服务可再次显示。激活异常先解除桥接并销毁 View，再对已经进入展示生命周期的模型执行一次关闭收尾，原异常继续传播。实际普通窗口关闭后的停用由服务执行，已尝试关闭的生命周期不重复；关闭异常在 Qt 回调中捕获并发出 windowCleanupFailed，Bootstrapper 据此保留失败退出码。
 
-成功显示后的普通窗口关闭仅隐藏窗口，窗口、View 与引擎保留到显式释放，供应用 onExit 使用。调用方须让借用 VM 活到资源释放；VM 或窗口意外销毁时，在当前析构栈退出后排队清理剩余自建资源，旧清理随旧桥接销毁而取消。服务不保留对 Bootstrapper、根工厂或业务类型的依赖。
+主窗成功关闭后，强制清理辅助窗和在途弹窗，不再询问辅助窗守卫；主窗、View 与引擎保留到显式释放，供应用 onExit 使用。辅助窗成功关闭仅收尾自身，排队释放其 View/引擎，不影响主窗或其他辅助窗，也不自动重建。窗口关闭生命周期执行后发送 windowClosed(viewModel)，VM 若在钩子中销毁则参数为空。强制销毁/退出释放不发送此正常关闭信号。调用方须让借用 VM 活到资源释放；VM 或窗口意外销毁时，在当前析构栈退出后排队清理剩余自建资源，旧清理随旧桥接销毁而取消。服务不保留对 Bootstrapper、根工厂或业务类型的依赖。
 
 具体 WindowManager 提供两阶段清理：
 
@@ -44,13 +47,23 @@ void releaseWindows();     // 释放自建窗口与引擎，兜底关闭仍未�
 
 根 VM/引擎/桥接拆分与历史验证见 [职责迁移验收](验收/根窗口职责迁移验收记录.md)。当前已对齐 CM 3.2.0 的创建、绑定、激活、显示顺序及直接窗口关闭路径，见 [窗口直接关闭迁移](tryClose窗口直接关闭.md)；普通 Item 的通用窗口包装仍未支持。
 
+## 窗口配置与诊断
+
+WindowOptions 定义在公开头文件 WindowOptions.h：role 默认为 Primary；screen 是 QPointer<QScreen> 弱引用；geometry、flags、visibility 为可选覆盖；activateOnShow 默认 false。未指定的配置沿用 QML/Qt 行为。几何使用虚拟桌面逻辑坐标，setScreen 本身不会自动移动窗口。
+
+服务在创建原生资源前应用屏幕、flags 和几何，在激活后应用显示状态并按需请求激活。辅助窗固定为独立非模态顶层窗口。框架不内置四屏尺寸、X11 flags 或 DPI 策略，这些由应用决定。
+
+windowFor 在服务线程返回借用的 QQuickWindow*；VM 未关联或调用线程错误时返回 nullptr。调用方使用 QPointer 观察失效，仅在启动诊断/测试层读取几何、连接渲染信号，业务 VM 继续使用 tryClose。公开配置类型依赖 QtGui，框架 CMake 目标公开传递 Qt6::Gui。
+
+普通窗口关闭后发送 windowClosed(QObject *viewModel)，参数是 VM 而非窗口。Bootstrapper 仅处理根 VM 的关闭通知，辅助窗关闭不会触发应用退出。框架不为普通窗口自动绑定 Esc；既有模态弹窗 Escape 行为保持不变。
+
 ## 内部窗口关联
 
-`showWindow`、`showDialogAsync` 是公开展示入口。showWindow 在普通窗口加载后自动关联所属窗口、其 QML 引擎及后备焦点，不向业务内容树或 Overlay 插入宿主。
+`showWindow`、`showDialogAsync` 是公开展示入口。showWindow 在主窗加载后自动关联弹窗所属窗口、其 QML 引擎及后备焦点，不向业务内容树或 Overlay 插入宿主。
 
 `attachToWindow`、`detachFromWindow` 为 private，只供 WindowManager 内部建立和解除关联；不支持外部窗口手动接入，也不支持在普通窗口继续显示时由调用方单独解除弹窗关联。窗口资源及其关联状态由同一服务维护。
 
-不经过 Bootstrapper 时，同样先调用 showWindow 显示普通窗口，再通过 showDialogAsync 展示弹窗。切换普通窗口须先 releaseWindows，再调用 showWindow；不同服务分别管理各自创建的窗口。prepareForShutdown 是应用退出准备入口，执行后不能继续使用该窗口展示弹窗；恢复展示须释放旧窗口并重新创建。
+不经过 Bootstrapper 时，同样先调用 showWindow 显示普通窗口，再通过 showDialogAsync 展示弹窗。替换主窗须先 releaseWindows，再调用 showWindow；新增辅助窗使用 Auxiliary 角色，辅助窗候选加载或激活失败只清理该候选。prepareForShutdown 是应用退出准备入口，执行后不能继续使用该窗口展示弹窗；恢复展示须释放旧窗口并重新创建。
 
 退出准备、所属窗口或引擎销毁会强制清理弹窗并结束 Future，不询问交互守卫。普通窗口及引擎由服务持有，普通窗口 VM 仍由调用方持有。
 
@@ -82,7 +95,7 @@ ConfirmationRequest 保存文案，ConfirmActionViewModel 仅接收 Confirmation
 
 ## 迁移与 CM 对齐边界
 
-公开 closeDialog 已移除，调用方改用 vm->tryClose(result)；ConfirmActionViewModel 构造时不再传入窗口服务。相关消费工程需同步修改并重新编译。自定义实现 IWindowManager 的类须补充 showWindow；继承 WindowManager 的弹窗测试替身可沿用默认实现。普通窗口传入 typed QVariant 并借用 VM，不能复用 showDialogAsync 的 unique_ptr 接管约定。
+公开 closeDialog 已移除，调用方改用 vm->tryClose(result)；ConfirmActionViewModel 构造时不再传入窗口服务。相关消费工程需同步修改并重新编译。自定义实现 IWindowManager 的类须支持带 WindowOptions 的 showWindow 和 windowFor；继承 WindowManager 的弹窗测试替身可沿用默认实现。普通窗口传入 typed QVariant 并借用 VM，不能复用 showDialogAsync 的 unique_ptr 接管约定。
 
 旧 DialogHost、DialogHostState 及其 manager/available/requestId/failed/dismiss/released 手动宿主协议已移除。应用应删除旧 QML 宿主声明，由 Bootstrapper 委托 showWindow 创建窗口，或在独立用法中直接调用 showWindow。原公开 attachToWindow / detachFromWindow 已收为 private，外部窗口手动接入不再支持。内部 DialogWindow 不作为公开可创建的 QML 类型，测试和业务不得依赖其内部属性作为 SDK。
 

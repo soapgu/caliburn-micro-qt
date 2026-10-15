@@ -205,3 +205,19 @@ add_executable(CaliburnWindowViewBindingTests cpp/tst_windowviewbinding.cpp supp
 target_link_libraries(CaliburnWindowViewBindingTests PRIVATE Caliburn::MicroQt Qt6::Test)
 add_test(NAME windowviewbinding COMMAND CaliburnWindowViewBindingTests)
 set_tests_properties(windowviewbinding PROPERTIES TIMEOUT 30)
+
+add_executable(CaliburnMultiScreenTests cpp/tst_multiscreen.cpp)
+target_link_libraries(CaliburnMultiScreenTests PRIVATE
+    CaliburnMultiScreenModuleplugin CaliburnMultiScreenStartup Qt6::Test Qt6::Quick)
+foreach(scenario IN ITEMS layoutDecisions autoCloseParsing startupFailureRollback
+        windowsAndExit:auxiliary windowsAndExit:button windowsAndExit:primary windowsAndExit:early windowsAndExit:auto windowsAndExit:destroy)
+    string(REPLACE ":" "_" test_suffix "${scenario}")
+    add_test(NAME multiscreen_${test_suffix} COMMAND CaliburnMultiScreenTests "${scenario}")
+    set_tests_properties(multiscreen_${test_suffix} PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 15)
+endforeach()
+if(CALIBURN_BUILD_EXAMPLE)
+    add_test(NAME multiscreen_strict_rejected COMMAND CaliburnMultiScreenApp --strict-screens)
+    set_tests_properties(multiscreen_strict_rejected PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" WILL_FAIL TRUE TIMEOUT 15)
+endif()

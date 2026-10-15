@@ -182,6 +182,132 @@ private slots:
         QVERIFY(!second.isInitialized() && vm.isActive());
         manager.releaseWindows();
     }
+    void auxiliaryCloseKeepsPrimaryAndOtherWindows() {
+        WindowProbe primary, first, second;
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        QVERIFY(manager.showWindow(QVariant::fromValue(&primary)));
+        WindowOptions options; options.role = WindowRole::Auxiliary;
+        options.geometry = QRect(70, 80, 360, 240);
+        options.flags = Qt::Window | Qt::FramelessWindowHint;
+        first.activationAction = [&] {
+            auto *window = manager.windowFor(&first);
+            QVERIFY(window && window->handle());
+            QVERIFY(!window->isVisible());
+            QCOMPARE(window->geometry(), *options.geometry);
+            QVERIFY(window->flags().testFlag(Qt::FramelessWindowHint));
+            QVERIFY(!window->parent() && !window->transientParent());
+        };
+        QVERIFY(manager.showWindow(QVariant::fromValue(&first), options));
+        QVERIFY(manager.showWindow(QVariant::fromValue(&second), options));
+        QVERIFY(!manager.showWindow(QVariant::fromValue(&first), options));
+        QSignalSpy closed(&manager, &IWindowManager::windowClosed);
+        QSignalSpy stopped(&first, &ScreenViewModel::deactivated);
+        QPointer<QQuickWindow> firstWindow = manager.windowFor(&first);
+        first.tryClose();
+        QTRY_VERIFY(!firstWindow);
+        QCOMPARE(closed.count(), 1);
+        QCOMPARE(closed.first().first().value<QObject *>(), static_cast<QObject *>(&first));
+        QCOMPARE(stopped.count(), 1);
+        QVERIFY(primary.isActive() && second.isActive());
+        QVERIFY(manager.windowFor(&primary)->isVisible());
+        QVERIFY(manager.windowFor(&second)->isVisible());
+        QCOMPARE(manager.windowFor(&first), nullptr);
+    }
+    void primaryGuardAndCleanup() {
+        WindowProbe primary, auxiliary;
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        primary.allowed = false;
+        auxiliary.allowed = false; // 主窗获准退出后的强制收尾不再询问辅助窗。
+        QVERIFY(manager.showWindow(QVariant::fromValue(&primary)));
+        WindowOptions options; options.role = WindowRole::Auxiliary;
+        QVERIFY(manager.showWindow(QVariant::fromValue(&auxiliary), options));
+        QPointer<QQuickWindow> auxiliaryWindow = manager.windowFor(&auxiliary);
+        QSignalSpy stopped(&auxiliary, &ScreenViewModel::deactivated);
+        QSignalSpy closed(&manager, &IWindowManager::windowClosed);
+        primary.tryClose();
+        QTRY_COMPARE(primary.checks, 1);
+        QVERIFY(primary.isActive() && auxiliary.isActive());
+        QCOMPARE(closed.count(), 0);
+        primary.allowed = true;
+        primary.tryClose();
+        QTRY_COMPARE(closed.count(), 1);
+        QVERIFY(!auxiliaryWindow && !auxiliary.isActive());
+        QCOMPARE(auxiliary.checks, 0);
+        QCOMPARE(stopped.count(), 1);
+        QVERIFY(manager.windowFor(&primary)); // 根 View 保留到 onExit。
+        WindowProbe late;
+        QVERIFY(!manager.showWindow(QVariant::fromValue(&late), options));
+        manager.releaseWindows();
+        QCOMPARE(stopped.count(), 1);
+    }
+    void auxiliaryDoesNotChangeDialogOwner() {
+        WindowProbe primary, auxiliary;
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        QVERIFY(manager.showWindow(QVariant::fromValue(&primary)));
+        WindowOptions options; options.role = WindowRole::Auxiliary;
+        QVERIFY(manager.showWindow(QVariant::fromValue(&auxiliary), options));
+        QQuickWindow *owner = manager.windowFor(&primary);
+        QObject requester;
+        auto future = manager.showDialogAsync(std::make_unique<DialogProbe>(), &requester);
+        QPointer<QQuickWindow> dialog = dialogWindow(owner);
+        QVERIFY(dialog);
+        QCOMPARE(dialog->transientParent(), owner);
+        auxiliary.tryClose();
+        QTRY_VERIFY(!manager.windowFor(&auxiliary));
+        QVERIFY(dialog && !future.isFinished());
+        primary.tryClose();
+        QTRY_VERIFY(future.isFinished());
+        QCOMPARE(future.result(), DialogResult{});
+        QVERIFY(!dialog);
+        auto rejected = manager.showDialogAsync(std::make_unique<DialogProbe>(), &requester);
+        QVERIFY(rejected.isFinished());
+        QVERIFY_THROWS_EXCEPTION(std::runtime_error, rejected.result());
+    }
+
+    void auxiliaryFailureIsIsolated() {
+        WindowProbe primary, healthy, throwing;
+        NonWindowProbe invalid;
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        WindowOptions options; options.role = WindowRole::Auxiliary;
+        QVERIFY(!manager.showWindow(QVariant::fromValue(&healthy), options));
+        QVERIFY(manager.showWindow(QVariant::fromValue(&primary)));
+        QVERIFY(manager.showWindow(QVariant::fromValue(&healthy), options));
+        QVERIFY(!manager.showWindow(QVariant::fromValue(&invalid), options));
+        throwing.failActivate = true;
+        QVERIFY_THROWS_EXCEPTION(std::runtime_error,
+            (void)manager.showWindow(QVariant::fromValue(&throwing), options));
+        QVERIFY(primary.isActive() && healthy.isActive());
+        QVERIFY(manager.windowFor(&primary)->isVisible());
+        QVERIFY(manager.windowFor(&healthy)->isVisible());
+        QCOMPARE(manager.windowFor(&throwing), nullptr);
+    }
+    void auxiliaryUnexpectedDestruction_data() {
+        QTest::addColumn<bool>("destroyModel");
+        QTest::newRow("model") << true;
+        QTest::newRow("window") << false;
+    }
+    void auxiliaryUnexpectedDestruction() {
+        QFETCH(bool, destroyModel);
+        WindowProbe primary;
+        auto auxiliary = std::make_unique<WindowProbe>();
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        QVERIFY(manager.showWindow(QVariant::fromValue(&primary)));
+        WindowOptions options; options.role = WindowRole::Auxiliary;
+        QVERIFY(manager.showWindow(QVariant::fromValue(auxiliary.get()), options));
+        QPointer<QQuickWindow> window = manager.windowFor(auxiliary.get());
+        if (destroyModel) auxiliary.reset();
+        else delete window.data();
+        QTRY_VERIFY(!window);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        if (auxiliary) QVERIFY(!auxiliary->isActive());
+        QVERIFY(primary.isActive() && manager.windowFor(&primary)->isVisible());
+    }
+
     void normalWindowLoadFailure_data() {
         QTest::addColumn<QString>("kind");
         for (const auto *kind : {"missing", "nonWindow", "remote", "unmapped", "activate"})

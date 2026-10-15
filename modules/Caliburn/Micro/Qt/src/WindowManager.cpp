@@ -30,13 +30,24 @@ struct WindowManager::ManagedWindow
     QPointer<QObject> model;
     QPointer<QQuickWindow> window;
     bool closeAttempted = false;
+    bool closed = false;
     bool lifecycleStarted = false;
     QMetaObject::Connection closeConnection;
     std::unique_ptr<QQmlApplicationEngine> engine;
     std::unique_ptr<WindowConductor> bridge;
 };
 
-bool WindowManager::showWindow(const QVariant &viewModel)
+QQuickWindow *WindowManager::windowFor(QObject *viewModel) const
+{
+    if (QThread::currentThread() != thread() || !viewModel) return nullptr;
+    if (m_managedWindow && m_managedWindow->model == viewModel)
+        return m_managedWindow->window;
+    for (const auto &entry : m_auxiliaryWindows)
+        if (entry->model == viewModel) return entry->window;
+    return nullptr;
+}
+
+bool WindowManager::showWindow(const QVariant &viewModel, const WindowOptions &options)
 {
     if (QThread::currentThread() != thread())
         return failWindow(QStringLiteral("Showing a window requires the service thread"));
@@ -44,82 +55,95 @@ bool WindowManager::showWindow(const QVariant &viewModel)
     auto *child = qobject_cast<IChild *>(model);
     if (!model || model->thread() != thread() || (child && child->parentViewModel()))
         return failWindow(QStringLiteral("Window model must be a QObject on the service thread without a logical parent"));
-    if (m_managedWindow || m_window || busy() || m_destroying)
-        return failWindow(QStringLiteral("A managed window, owner window or pending request already exists"));
-    if (!WindowViewBinding::canBind(model))
+    const bool primary = options.role == WindowRole::Primary;
+    if (m_destroying || m_releasing || busy()
+            || (primary && (m_managedWindow || m_window))
+            || (!primary && (!m_managedWindow || m_managedWindow->closed || !m_window)))
+        return failWindow(QStringLiteral("Primary window unavailable, already registered, or window service busy"));
+    const bool registered = (m_managedWindow && m_managedWindow->model == model)
+        || std::any_of(m_auxiliaryWindows.begin(), m_auxiliaryWindows.end(),
+                      [model](const auto &entry) { return entry->model == model; });
+    if (registered || !WindowViewBinding::canBind(model))
         return failWindow(QStringLiteral("Window model already has an associated window"));
-    qCDebug(FrameworkLog::window).noquote() << "Showing window; model:" << FrameworkLog::identity(model);
+    if ((options.geometry && !options.geometry->isValid())
+            || (options.screen && options.screen->thread() != thread()))
+        return failWindow(QStringLiteral("Invalid window geometry or screen"));
     const QUrl url = ViewLocator::viewUrl(model);
-    if (url.isEmpty())
-        return failWindow(QStringLiteral("No view mapping found for the window model"));
-    if (url.scheme() != QStringLiteral("qrc") && !url.isLocalFile())
-        return failWindow(QStringLiteral("Window view must use a local or qrc URL"));
+    if (url.isEmpty() || (url.scheme() != QStringLiteral("qrc") && !url.isLocalFile()))
+        return failWindow(QStringLiteral("Window view must have a local or qrc mapping"));
 
-    m_managedWindow = std::make_unique<ManagedWindow>();
-    auto &managed = *m_managedWindow;
-    managed.model = model;
+    auto entry = std::make_unique<ManagedWindow>();
+    auto *managed = entry.get();
+    managed->model = model;
+    if (primary) m_managedWindow = std::move(entry);
+    else m_auxiliaryWindows.push_back(std::move(entry));
     if (auto *deactivator = qobject_cast<IDeactivate *>(model)) {
-        managed.closeConnection = deactivator->subscribeAttemptingDeactivation(this, [this](bool close) {
-            if (close && m_managedWindow) m_managedWindow->closeAttempted = true;
+        managed->closeConnection = deactivator->subscribeAttemptingDeactivation(this, [managed](bool close) {
+            if (close) managed->closeAttempted = true;
         });
     }
     QQmlEngine::setObjectOwnership(model, QQmlEngine::CppOwnership);
-    auto fail = [this](const QString &message) {
-        releaseWindows();
+    auto fail = [this, managed](const QString &message) {
+        releaseManagedWindow(managed);
         return failWindow(message);
     };
     try {
-        managed.engine = std::make_unique<QQmlApplicationEngine>();
-        // 框架在绑定和激活完成后统一显示，不让 QML 的初始 visible 提前展示。
-        managed.engine->setInitialProperties({{QStringLiteral("viewModel"), viewModel},
-                                              {QStringLiteral("visible"), false}});
-        managed.engine->load(url);
-        const auto roots = managed.engine->rootObjects();
+        managed->engine = std::make_unique<QQmlApplicationEngine>();
+        managed->engine->setInitialProperties({{QStringLiteral("viewModel"), viewModel},
+                                               {QStringLiteral("visible"), false}});
+        managed->engine->load(url);
+        const auto roots = managed->engine->rootObjects();
         auto *window = roots.size() == 1 ? qobject_cast<QQuickWindow *>(roots.first()) : nullptr;
         if (!window)
             return fail(QStringLiteral("Window view failed to load or its root is not a window: %1").arg(url.toString()));
-        if (!managed.model)
+        if (!managed->model)
             return fail(QStringLiteral("Window model was destroyed during view creation"));
-        managed.window = window;
-        if (!attachToWindow(window))
+        managed->window = window;
+        if (!primary) {
+            window->setParent(nullptr);
+            window->setTransientParent(nullptr);
+            window->setModality(Qt::NonModal);
+        }
+        if (options.screen) window->setScreen(options.screen);
+        if (options.flags) window->setFlags(*options.flags);
+        if (options.geometry) window->setGeometry(*options.geometry);
+        if (primary && !attachToWindow(window))
             return fail(QStringLiteral("Failed to attach the managed window"));
-        managed.bridge = std::make_unique<WindowConductor>(window, model);
-        connect(managed.bridge.get(), &WindowConductor::windowClosed,
-                this, &WindowManager::closeManagedWindow);
-        // 等当前对象及子 View 的析构栈退出再释放引擎；旧桥接销毁会取消旧清理。
-        auto releaseLater = [this] {
-            QMetaObject::invokeMethod(m_managedWindow->bridge.get(),
-                    [this] { releaseWindows(); }, Qt::QueuedConnection);
+        managed->bridge = std::make_unique<WindowConductor>(window, model);
+        connect(managed->bridge.get(), &WindowConductor::windowClosed, this,
+                [this, managed] { managedWindowClosed(managed); });
+        // 旧桥接作为队列上下文，资源提前释放后旧清理自动取消。
+        auto releaseLater = [this, managed] {
+            QMetaObject::invokeMethod(managed->bridge.get(),
+                    [this, managed] { releaseManagedWindow(managed); }, Qt::QueuedConnection);
         };
-        connect(model, &QObject::destroyed, managed.bridge.get(), releaseLater);
-        connect(window, &QObject::destroyed, managed.bridge.get(), releaseLater);
-        // 隐藏窗口也需要原生资源，否则 QWindow::close 不发送关闭事件。
+        connect(model, &QObject::destroyed, managed->bridge.get(), releaseLater);
+        connect(window, &QObject::destroyed, managed->bridge.get(), releaseLater);
         window->create();
         QPointer<QQuickWindow> target = window;
-        managed.lifecycleStarted = true;
-        ScreenExtensions::tryActivate(managed.model.data());
-        if (!m_managedWindow || !m_managedWindow->model || !target
-                || m_managedWindow->window != target)
-            return failWindow(QStringLiteral("Window or model became unavailable during activation"));
-        if (m_managedWindow->bridge->isClosed()) return true;
-        const auto windowIdentity = FrameworkLog::identity(target.data());
-        const auto modelIdentity = FrameworkLog::identity(m_managedWindow->model.data());
-        target->show();
-        qCInfo(FrameworkLog::window).noquote() << "Window shown:" << windowIdentity
-                                             << "model:" << modelIdentity << "URL:" << url.toString();
+        QPointer<WindowConductor> bridge = managed->bridge.get();
+        managed->lifecycleStarted = true;
+        ScreenExtensions::tryActivate(managed->model.data());
+        if (!bridge || !target) return failWindow(QStringLiteral("Window became unavailable during activation"));
+        if (!managed->model) return fail(QStringLiteral("Model became unavailable during activation"));
+        if (bridge->isClosed()) return true;
+        if (options.visibility) target->setVisibility(*options.visibility);
+        else target->show();
+        if (options.activateOnShow && target->isVisible()) target->requestActivate();
+        qCInfo(FrameworkLog::window).noquote() << "Window shown:" << FrameworkLog::identity(target.data())
+                                             << "model:" << FrameworkLog::identity(model) << "URL:" << url.toString();
         return true;
     } catch (...) {
-        releaseWindows();
+        releaseManagedWindow(managed);
         throw;
     }
 }
 
-void WindowManager::closeManagedWindow() noexcept
+void WindowManager::closeManagedWindow(ManagedWindow *managed) noexcept
 {
-    if (!m_managedWindow || !m_managedWindow->model || !m_managedWindow->lifecycleStarted
-            || m_managedWindow->closeAttempted) return;
-    m_managedWindow->closeAttempted = true;
-    try { ScreenExtensions::tryDeactivate(m_managedWindow->model.data(), true); }
+    if (!managed || !managed->model || !managed->lifecycleStarted || managed->closeAttempted) return;
+    managed->closeAttempted = true;
+    try { ScreenExtensions::tryDeactivate(managed->model.data(), true); }
     catch (const std::exception &error) {
         qCCritical(FrameworkLog::window).noquote() << "WindowManager: model close failed:" << error.what();
         emit windowCleanupFailed();
@@ -129,6 +153,25 @@ void WindowManager::closeManagedWindow() noexcept
     }
 }
 
+void WindowManager::managedWindowClosed(ManagedWindow *managed)
+{
+    if (managed->closed) return;
+    managed->closed = true;
+    const bool primary = managed == m_managedWindow.get();
+    QPointer<QObject> model = managed->model;
+    QPointer<WindowConductor> bridge = managed->bridge.get();
+    closeManagedWindow(managed);
+    if (!bridge) return;
+    if (primary) {
+        releaseAuxiliaryWindows();
+        // 保留主窗和引擎供 onExit 使用，仅结束在途弹窗。
+        complete(std::nullopt);
+    } else {
+        QMetaObject::invokeMethod(bridge, [this, managed] { releaseManagedWindow(managed); }, Qt::QueuedConnection);
+    }
+    emit windowClosed(model.data());
+}
+
 void WindowManager::prepareForShutdown()
 {
     if (QThread::currentThread() != thread()) {
@@ -136,7 +179,39 @@ void WindowManager::prepareForShutdown()
         return;
     }
     if (m_managedWindow && m_managedWindow->bridge) m_managedWindow->bridge->detach();
+    for (const auto &entry : m_auxiliaryWindows)
+        if (entry->bridge) entry->bridge->detach();
     detachFromWindow();
+}
+
+void WindowManager::releaseManagedWindow(ManagedWindow *managed)
+{
+    std::unique_ptr<ManagedWindow> entry;
+    if (m_managedWindow.get() == managed) {
+        releaseAuxiliaryWindows();
+        detachFromWindow();
+        entry = std::move(m_managedWindow);
+    } else {
+        auto found = std::find_if(m_auxiliaryWindows.begin(), m_auxiliaryWindows.end(),
+                [managed](const auto &candidate) { return candidate.get() == managed; });
+        if (found == m_auxiliaryWindows.end()) return;
+        entry = std::move(*found);
+        m_auxiliaryWindows.erase(found);
+    }
+    entry->bridge.reset();
+    // 先断开 View/引擎和窗口关联，再执行借用 VM 的关闭收尾。
+    entry->engine.reset();
+    closeManagedWindow(entry.get());
+    disconnect(entry->closeConnection);
+}
+
+void WindowManager::releaseAuxiliaryWindows()
+{
+    // 清理期间拒绝生命周期钩子重入创建窗口，避免遍历不断增长。
+    const bool previous = m_releasing;
+    m_releasing = true;
+    while (!m_auxiliaryWindows.empty()) releaseManagedWindow(m_auxiliaryWindows.back().get());
+    m_releasing = previous;
 }
 
 void WindowManager::releaseWindows()
@@ -145,16 +220,12 @@ void WindowManager::releaseWindows()
         failWindow(QStringLiteral("Window release requires the service thread"));
         return;
     }
+    if (m_releasing) return;
+    m_releasing = true;
     prepareForShutdown();
-    if (!m_managedWindow) return;
-    qCDebug(FrameworkLog::window).noquote() << "Releasing managed window resources; model:"
-                                          << FrameworkLog::identity(m_managedWindow->model.data());
-    m_managedWindow->bridge.reset();
-    m_managedWindow->engine.reset();
-    // 强制释放时 View 先于 VM 收尾；Bootstrapper 已关闭过的根不会重复关闭。
-    closeManagedWindow();
-    disconnect(m_managedWindow->closeConnection);
-    m_managedWindow.reset();
+    releaseAuxiliaryWindows();
+    if (m_managedWindow) releaseManagedWindow(m_managedWindow.get());
+    m_releasing = false;
 }
 
 struct WindowManager::Request
@@ -269,7 +340,7 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
         return reject(std::make_exception_ptr(std::invalid_argument("WindowManager: dialog model already has an associated window")));
     if (busy() || m_destroying)
         return reject(std::make_exception_ptr(std::runtime_error("WindowManager: a dialog request is already pending")));
-    if (!m_window || !m_engine)
+    if (!m_window || !m_engine || (m_managedWindow && m_managedWindow->closed))
         return reject(std::make_exception_ptr(std::runtime_error("WindowManager: no usable owner window")));
     if (ViewLocator::viewUrl(vm.get()).isEmpty())
         return reject(std::make_exception_ptr(std::runtime_error("WindowManager: dialog model has no view mapping")));

@@ -8,7 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Release 也保留日志调用位置；只作用于本项目及其子目录。
 add_compile_definitions(QT_MESSAGELOGCONTEXT)
 
-option(CALIBURN_BUILD_EXAMPLE "构建单页面示例" ${PROJECT_IS_TOP_LEVEL})
+option(CALIBURN_BUILD_EXAMPLE "构建示例应用" ${PROJECT_IS_TOP_LEVEL})
 option(CALIBURN_BUILD_TESTS "构建框架与示例测试" ${PROJECT_IS_TOP_LEVEL})
 
 find_package(Qt6 6.8.3 REQUIRED COMPONENTS Core Qml Quick)
@@ -23,6 +23,7 @@ add_subdirectory(modules/Caliburn/Micro/Qt)
 if(CALIBURN_BUILD_EXAMPLE OR CALIBURN_BUILD_TESTS)
     find_package(Qt6 6.8.3 REQUIRED COMPONENTS Quick QuickControls2)
     add_subdirectory(examples/minimal)
+    add_subdirectory(examples/multiscreen)
 endif()
 if(CALIBURN_BUILD_TESTS)
     enable_testing()

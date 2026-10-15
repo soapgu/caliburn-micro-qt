@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
 | `void onStartup()` | 默认空实现的虚方法；在 configure 成功并冻结映射后调用。应用显示根窗口，显示失败、重复显示或未显示均判定启动失败。 |
 | `void onExit()` | 默认空实现的虚方法。正常退出在 aboutToQuit 中、根关闭之后调用；失败清理补调。最多调用一次，成功展示后的根 VM 与 View 在钩子中仍存活；展示失败的部分窗口资源已经回收，须兼容部分初始化。 |
 | `bool registerRootFactory<T>(std::function<std::unique_ptr<T>(std::shared_ptr<IWindowManager>)> factory)` | 只允许在 configure 中登记，每个类型只能登记一次；拒绝空工厂，登记时不创建对象。工厂统一接收框架窗口服务并返回 unique_ptr<T>。 |
-| `bool displayRootViewFor<T>(RootViewOptions options = {})` | 只允许在 onStartup 中调用；每个 Bootstrapper 只允许一次显示尝试，T 必须继承 ScreenViewModel。RootViewOptions 当前为空，预留根窗口设置扩展。 |
+| `bool displayRootViewFor<T>(RootViewOptions options = {})` | 只允许在 onStartup 中调用；每个 Bootstrapper 只允许一次显示尝试，T 必须继承 QObject。RootViewOptions.window 传递 WindowOptions，根角色固定为 Primary。 |
 
 示例 AppBootstrapper::configure 设置 Basic 样式，配置 `qrc:/qt/qml/CaliburnExample/` 搜索根，使 Shell/Home/Detail 通过约定定位，并用 `[](std::shared_ptr<IWindowManager> windows) { return buildShell(std::move(windows)); }` 提供 Shell 工厂。onStartup 只调用 `displayRootViewFor<ShellViewModel>()`。当前装配通过 Home/Detail 工厂和共享服务构造 Shell，显示时可省略选项，也可显式调用 `displayRootViewFor<ShellViewModel>(RootViewOptions{})`，行为相同。
 
@@ -49,7 +49,7 @@ Bootstrapper 保存按 VM 元对象地址索引的根工厂；在 configure 前�
 
 registerRootFactory 直接把工厂保存为统一返回 unique_ptr<ScreenViewModel> 的 std::function，使用标准类型转换，不增加包装函数。displayRootViewFor 先查表调用工厂，校验并把 VM 保存到 m_root；然后取出具体 T* 构造 QVariant，委托 IWindowManager::showWindow。displayRootView 只记录显示结果，不创建引擎、窗口或 WindowConductor。
 
-m_root 负责根 VM 最终删除及失败/强制退出时的生命周期兜底；正常窗口关闭后的 VM 停用由 WindowManager 执行。窗口服务借用根 VM，并持有自己的引擎、窗口和私有桥接，不强持有根 VM，避免与业务持有的共享窗口服务形成所有权环。QVariant 保留具体指针类型供 QML required 属性注入，不接管对象。RootViewOptions 只在显示入口接收，当前不保存、不影响行为。
+m_root 负责根 VM 最终删除及失败/强制退出时的生命周期兜底；正常窗口关闭后的 VM 停用由 WindowManager 执行。窗口服务借用根 VM，并持有自己的引擎、窗口和私有桥接，不强持有根 VM，避免与业务持有的共享窗口服务形成所有权环。QVariant 保留具体指针类型供 QML required 属性注入，不接管对象。RootViewOptions.window 在显示入口传给窗口服务，覆盖屏幕、几何、flags、显示状态及是否激活；根角色固定为 Primary。
 
 根对象必须无 QObject 父对象，并位于应用主线程。Bootstrapper 在暴露根 VM 前设置 CppOwnership；子对象所有权由 Conductor 接管流程设置，Bootstrapper 不递归猜测对象图。
 
@@ -60,6 +60,12 @@ WindowManager::showWindow 创建根 QQuickWindow 后自行登记所属窗口，�
 不经过 Bootstrapper 时，同样通过 showWindow 显示借用 VM 的普通窗口，再展示弹窗。attachToWindow / detachFromWindow 是 WindowManager 私有的内部关联机制，不再支持外部 QML 窗口手动接入。Bootstrapper 的根工厂统一接收框架窗口服务。
 
 根 View 创建和绑定先于根模型激活。激活前窗口服务建立所属窗口、引擎、关闭桥接和窗口弱关联，因此根激活钩子可以直接 tryClose，或使用注入的 IWindowManager 打开确认弹窗。已有所属窗口或重复 Screen 关联时在创建和激活前拒绝；加载失败不激活，激活异常释放 View 并执行一次关闭收尾。
+
+## 多窗口退出编排
+
+run 暂时关闭 quitOnLastWindowClosed，结束后恢复原值。窗口服务在主窗实际关闭成功、清理辅助窗和在途弹窗后发送 windowClosed(根 VM)，Bootstrapper 排队退出；启动阶段发起关闭也不会丢失退出请求。辅助窗正常关闭不会退出应用，主窗守卫拒绝时所有仍打开的窗口保持运行。
+
+失败启动或外部 quit/exit 时遍历清理全部窗口。辅助 VM 由应用持有，须活到窗口服务释放其 View；多屏示例由派生 AppBootstrapper 持有辅助 VM，run 返回前框架已释放窗口。根 VM 和根 View 在 onExit 仍然存活，根最终在所有窗口释放后删除。
 
 ## 启动与退出顺序
 
@@ -76,11 +82,11 @@ WindowManager::showWindow 创建根 QQuickWindow 后自行登记所属窗口，�
 
 配置失败、缺少工厂、空对象、工厂或启动异常、缺少映射、QML 加载失败及根对象不是窗口都打印诊断并返回 1。正常退出保留 Qt 事件循环退出码；如果原退出码为 0 但清理失败，返回 1。
 
-第一版仅支持一个根窗口、本地或 qrc QML 和同步 Screen 生命周期。远程 QML、异步生命周期、多窗口管理和运行时模块加载不包含在当前接口中。
+Bootstrapper 保留一个根 VM，窗口服务支持一个主窗和多个辅助窗。仅支持本地或 qrc QML 和同步生命周期；远程 QML、异步生命周期和运行时模块加载不在范围内。
 
 ## 4C 集合导航接入与退出
 
-displayRootViewFor 接收当前为空的 RootViewOptions，run 接口不变；buildShell 提供接收框架窗口服务的重载。AppBootstrapper 配置 Shell/Home/Detail 映射，应用装配层提供共享服务及两个页面工厂。构造只选择 Home，激活由集合型 Conductor 传播。
+displayRootViewFor 接收 RootViewOptions，run 接口不变；buildShell 提供接收框架窗口服务的重载。AppBootstrapper 配置 Shell/Home/Detail 映射，应用装配层提供共享服务及两个页面工厂。构造只选择 Home，激活由集合型 Conductor 传播。
 
 从 Home 或 Detail 退出都只关闭根 Shell，集合型一次清空所有页面和选择，关闭并延迟回收成员。onExit 时根仍存活，子页可能已处理 DeferredDelete；测试分别验证当前子 View 先于子 VM、根 View 先于根 VM 释放，不要求旧页面活到根析构。
 

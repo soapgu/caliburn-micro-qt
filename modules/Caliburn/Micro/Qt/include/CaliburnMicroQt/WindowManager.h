@@ -3,6 +3,7 @@
 #include <CaliburnMicroQt/IWindowManager.h>
 #include <QPointer>
 #include <QPromise>
+#include <vector>
 
 class QQmlEngine;
 class QQuickWindow;
@@ -15,7 +16,8 @@ class WindowManager : public IWindowManager
 public:
     explicit WindowManager(QObject *parent = nullptr);
     ~WindowManager() override;
-    [[nodiscard]] bool showWindow(const QVariant &viewModel) override;
+    [[nodiscard]] bool showWindow(const QVariant &viewModel, const WindowOptions &options = {}) override;
+    QQuickWindow *windowFor(QObject *viewModel) const override;
     // 停用普通窗口桥接并结束弹窗；保留普通 View 供应用退出钩子使用。
     void prepareForShutdown();
     // 释放自建窗口/引擎并兜底关闭借用 VM；不删除 VM。
@@ -34,7 +36,12 @@ private:
     void detachFromWindow();
     struct ManagedWindow;
     std::unique_ptr<ManagedWindow> m_managedWindow;
-    void closeManagedWindow() noexcept;
+    std::vector<std::unique_ptr<ManagedWindow>> m_auxiliaryWindows;
+    void closeManagedWindow(ManagedWindow *managed) noexcept;
+    void releaseManagedWindow(ManagedWindow *managed);
+    void releaseAuxiliaryWindows();
+    void managedWindowClosed(ManagedWindow *managed);
+    bool m_releasing = false;
     struct Request;
     void complete(DialogResult result, std::exception_ptr error = {});
     void finish(bool restoreFocus = false);

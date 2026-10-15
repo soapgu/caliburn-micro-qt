@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <CaliburnMicroQt/WindowOptions.h>
 #include <QHash>
 #include <QVariant>
 #include <functional>
@@ -12,8 +13,8 @@ class QGuiApplication;
 class IWindowManager;
 class WindowManager;
 
-// 根窗口设置的扩展位置，目前不影响显示行为。
-struct RootViewOptions {};
+// 根窗口角色固定为 Primary，其余设置委托窗口服务。
+struct RootViewOptions { WindowOptions window; };
 
 // 方法采用 Qt 风格 camelCase，与 Caliburn.Micro 保持概念对应。
 // 运行单个根窗口；应用在 configure 中提供映射和对象工厂。
@@ -54,13 +55,12 @@ protected:
     [[nodiscard]] bool displayRootViewFor(RootViewOptions options = {})
     {
         static_assert(std::is_base_of_v<QObject, T>, "根模型必须继承 QObject");
-        Q_UNUSED(options);
         if (!createRootViewModel(&T::staticMetaObject)) {
             m_rootDisplayFailed = true;
             return false;
         }
         // 保留具体 T* 类型供 QML 注入；对象仍由 m_root 持有。
-        const bool displayed = displayRootView(QVariant::fromValue(static_cast<T *>(m_root.get())));
+        const bool displayed = displayRootView(QVariant::fromValue(static_cast<T *>(m_root.get())), options);
         if (!displayed) m_rootDisplayFailed = true;
         return displayed;
     }
@@ -71,7 +71,9 @@ private:
 
     bool initialize();
     bool createRootViewModel(const QMetaObject *type);
-    bool displayRootView(const QVariant &viewModel);
+    bool displayRootView(const QVariant &viewModel, RootViewOptions options);
+    bool m_previousQuitOnLastWindowClosed = true;
+    bool m_quitPolicyChanged = false;
     bool fail(const QString &message) const;
     void closeRoot() noexcept;
     void notifyExit() noexcept;
