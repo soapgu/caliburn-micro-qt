@@ -1,5 +1,6 @@
 #include "../support/DialogWindowSupport.h"
 #include "../support/TestWindowManager.h"
+#include "ViewModelLifetime.h"
 #include <AppBootstrapper.h>
 #include <ViewModelComposition.h>
 #include <CaliburnMicroQt/ViewLocator.h>
@@ -460,6 +461,7 @@ private slots:
             auto *window = bootstrapper.window.data();
             auto *windows = bootstrapper.windows.get();
             QVERIFY(shell && window && windows);
+            QVERIFY(!ViewModelLifetime::find(shell));
             QVERIFY(QTest::qWaitForWindowExposed(window));
             connect(windows, &IWindowManager::currentDialogChanged, &bootstrapper, [&, windows] {
                 if (windows->currentDialog()) ++prompts;

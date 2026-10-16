@@ -23,7 +23,18 @@ void ConductorBaseWithActiveItem::changeActiveItem(QObject *item, bool closePrev
     if (isActive())
         ScreenExtensions::tryActivate(item);
 
+    setActiveItemCore(item);
+    if (selectionChanged)
+        qCInfo(FrameworkLog::conductor).noquote() << "Active item changed:" << identity << "from:" << previous
+                                               << "to:" << FrameworkLog::identity(item);
+    emit activeItemChanged();
+    onActivationProcessed(item, true);
+}
+
+void ConductorBaseWithActiveItem::setActiveItemCore(QObject *item)
+{
     QObject::disconnect(m_currentDestroyed);
+    m_currentDestroyed = {};
     m_activeItem = item;
     if (item) {
         m_currentDestroyed = connect(item, &QObject::destroyed, this, [this] {
@@ -31,9 +42,4 @@ void ConductorBaseWithActiveItem::changeActiveItem(QObject *item, bool closePrev
             emit activeItemChanged();
         });
     }
-    if (selectionChanged)
-        qCInfo(FrameworkLog::conductor).noquote() << "Active item changed:" << identity << "from:" << previous
-                                               << "to:" << FrameworkLog::identity(item);
-    emit activeItemChanged();
-    onActivationProcessed(item, true);
 }

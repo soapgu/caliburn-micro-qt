@@ -24,6 +24,8 @@ signals:
     void activationProcessed(QObject *item, bool success);
 
 protected:
+    void takeOwnership(QObject *item);
+    void retireItem(QObject *item);
     void checkClose(const QList<QObject *> &items, CloseCallback continuation);
     void checkCloseResult(const QList<QObject *> &items, CloseStrategyCallback continuation);
     virtual QObject *ensureItem(QObject *item);

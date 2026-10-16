@@ -1,4 +1,5 @@
 #include "FrameworkLog.h"
+#include "ViewModelLifetime.h"
 #include <CaliburnMicroQt/ConductorSingleItem.h>
 #include <CaliburnMicroQt/ScreenExtensions.h>
 #include <QQmlEngine>
@@ -48,7 +49,7 @@ void ConductorSingleItem::adoptAndActivate(std::unique_ptr<QObject> item)
         auto owned = std::move(*candidate);
         auto *next = owned.get();
         if (!allowed) { onActivationProcessed(next, false); return; }
-        next->setParent(this);
+        takeOwnership(next);
         owned.release();
         changeActiveItem(next, true);
     });
@@ -58,8 +59,8 @@ void ConductorSingleItem::activateItem(QObject *item)
 {
     if (!acceptsItem(item)) { onActivationProcessed(item, false); return; }
     qCDebug(FrameworkLog::conductor).noquote() << "Activation requested:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item);
-    // 旧对象可由业务再次选择；从未接管的新对象必须走 unique_ptr 入口。
-    if (item && (item->parent() != this
+    // 普通停用保留的对象可再次选择；新对象必须走 unique_ptr 入口。
+    if (item && (ViewModelLifetime::isRetiring(item) || item->parent() != this
         || (qobject_cast<IChild *>(item) && qobject_cast<IChild *>(item)->parentViewModel() != this))) {
         onActivationProcessed(item, false);
         return;
@@ -98,7 +99,24 @@ void ConductorSingleItem::onActivate()
 
 void ConductorSingleItem::onDeactivate(bool close)
 {
-    ScreenExtensions::tryDeactivate(activeItem(), close);
+    auto *previous = activeItem();
+    ScreenExtensions::tryDeactivate(previous, close);
+    if (close && previous) {
+        setActiveItemCore(nullptr);
+        setLogicalParent(previous, nullptr);
+        emit activeItemChanged();
+        retireItem(previous);
+    }
+}
+
+void ConductorSingleItem::changeActiveItem(QObject *item, bool closePrevious)
+{
+    QPointer<QObject> previous = activeItem();
+    ConductorBaseWithActiveItem::changeActiveItem(item, closePrevious);
+    if (closePrevious && previous && previous != activeItem()) {
+        setLogicalParent(previous, nullptr);
+        retireItem(previous);
+    }
 }
 
 void ConductorSingleItem::canClose(CloseCallback callback)

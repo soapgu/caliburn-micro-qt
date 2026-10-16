@@ -77,11 +77,11 @@ private slots:
         QCOMPARE(weak->parent(), &conductor);
         QCOMPARE(changed.count(), 3);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(weak);
-        QCOMPARE(destroyed, 0);
+        QVERIFY(!weak);
+        QCOMPARE(destroyed, 1);
     }
 
-    void switchOrderAndRetainedOwnership()
+    void switchOrderAndDeferredDeletion()
     {
         QStringList events;
         int destroyed = 0;
@@ -109,8 +109,8 @@ private slots:
         QVERIFY(weak);
         QCOMPARE(destroyed, 0);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(weak);
-        QCOMPARE(destroyed, 0);
+        QVERIFY(!weak);
+        QCOMPARE(destroyed, 1);
         QCOMPARE(conductor.activeItem(), next);
     }
 
@@ -128,14 +128,16 @@ private slots:
         QCOMPARE(conductor.activeItem(), child);
         conductor.activate();
         conductor.deactivate(true); conductor.deactivate(true);
-        QCOMPARE(conductor.activeItem(), child);
+        QVERIFY(!conductor.activeItem());
         QVERIFY(!child->isActive());
-        QCOMPARE(changed.count(), 0);
+        QCOMPARE(changed.count(), 1);
+        QPointer<TrackedScreen> weak = child;
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!weak);
         conductor.activate();
-        QVERIFY(child->isActive());
+        QVERIFY(!conductor.activeItem());
         QCOMPARE(events, QStringList({"child:initialize", "child:activate", "child:deactivate",
-                                     "child:activate", "child:close", "child:close", "child:activate"}));
+                                     "child:activate", "child:close"}));
     }
 
 
@@ -167,21 +169,23 @@ private slots:
             conductor.activateItem(std::make_unique<PlainVm>(&destroyed));
         if (state == 3) conductor.deactivate();
         auto *old = conductor.activeItem();
+        QPointer<QObject> weak = old;
         QSignalSpy changed(&conductor, &ConductorBaseWithActiveItem::activeItemChanged);
         events.clear();
         conductor.deactivate(true);
-        QCOMPARE(conductor.activeItem(), old);
-        QCOMPARE(conductor.getChildren(), QList<QObject *>{old});
-        QCOMPARE(changed.count(), 0);
+        QCOMPARE(conductor.activeItem(), state == 0 ? old : nullptr);
+        QCOMPARE(conductor.getChildren(), QList<QObject *>{state == 0 ? old : nullptr});
+        QCOMPARE(changed.count(), state == 0 ? 0 : 1);
         const bool childInitialized = screenItem && (state == 2 || state == 3);
         QCOMPARE(events, childInitialized ? QStringList({"child:close"}) : QStringList{});
         conductor.deactivate(true);
-        QCOMPARE(events, childInitialized ? QStringList({"child:close", "child:close"}) : QStringList{});
+        QCOMPARE(events, childInitialized ? QStringList({"child:close"}) : QStringList{});
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QCOMPARE(destroyed, 0);
+        QCOMPARE(destroyed, state == 0 ? 0 : 1);
+        QCOMPARE(bool(weak), state == 0);
         conductor.activate();
-        QCOMPARE(conductor.activeItem(), old);
-        if (screenItem) QVERIFY(qobject_cast<ScreenViewModel *>(old)->isActive());
+        QCOMPARE(conductor.activeItem(), weak.data());
+        if (state == 0 && screenItem) QVERIFY(qobject_cast<ScreenViewModel *>(old)->isActive());
     }
 
     void parentCloseBeforeDeferredDeletion()
@@ -192,7 +196,7 @@ private slots:
         QPointer<QObject> weak = conductor->activeItem();
         conductor->initialize();
         conductor->deactivate(true);
-        QCOMPARE(conductor->activeItem(), weak.data());
+        QVERIFY(!conductor->activeItem());
         QVERIFY(weak);
         conductor.reset();
         QVERIFY(!weak);
@@ -268,7 +272,7 @@ private slots:
         conductor.closeItem(old);
         conductor.closeItem(nullptr);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(weak);
+        QVERIFY(!weak);
     }
 
     void rejectedCandidatesKeepOwnership()
@@ -391,12 +395,16 @@ private slots:
         QSignalSpy outerChanged(&outer, &ConductorBaseWithActiveItem::activeItemChanged);
         QSignalSpy innerChanged(nested, &ConductorBaseWithActiveItem::activeItemChanged);
         outer.deactivate(true); outer.deactivate(true);
-        QCOMPARE(outer.activeItem(), nested);
-        QCOMPARE(nested->activeItem(), leaf);
-        QCOMPARE(outerChanged.count(), 0); QCOMPARE(innerChanged.count(), 0);
-        QCOMPARE(events, QStringList({"leaf:initialize", "leaf:activate", "leaf:deactivate", "leaf:close", "leaf:close"}));
+        QVERIFY(!outer.activeItem());
+        QVERIFY(!nested->activeItem());
+        QCOMPARE(outerChanged.count(), 1); QCOMPARE(innerChanged.count(), 1);
+        QCOMPARE(events, QStringList({"leaf:initialize", "leaf:activate", "leaf:deactivate", "leaf:close"}));
         outer.activate();
-        QVERIFY(nested->isActive() && leaf->isActive());
+        QVERIFY(!outer.activeItem());
+        QPointer<QObject> pendingNested = nested;
+        QPointer<QObject> pendingLeaf = leaf;
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!pendingNested && !pendingLeaf);
     }
 
     void metaObjectContract()

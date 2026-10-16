@@ -30,7 +30,7 @@ ScreenViewModel 同时实现 IActivate、IDeactivate；isActive、activate、dea
 | deactivate(true)，已初始化 | 先设非活动，再执行关闭钩子；包括已停用、已关闭或初始化后从未激活的对象，每次调用都执行钩子，活动状态实际改变才通知。 |
 | deactivate(true)，未初始化 | 无操作。 |
 
-初始化一生只执行一次。Screen 基类关闭不删除、不重置初始化或业务字段；关闭后可重新激活。初始化通知最多一次，活动通知只在 bool 改变时发送。停用条件与 [CM 3.2 Screen](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/Screen.cs) 一致：`isActive || (isInitialized && close)`；不维护额外关闭标记或待清理资源扩展。未初始化的 Conductor 同样跳过关闭生命周期，保留当前项及父树所有权；已初始化单项 Conductor 只关闭当前项并保留选择；集合关闭全部成员并清空集合，但保留 ActiveItem 引用。关闭不自动删除 VM。
+初始化一生只执行一次。独立 Screen 基类关闭不删除、不重置初始化或业务字段；关闭后可重新激活。初始化通知最多一次，活动通知只在 bool 改变时发送。停用条件与 [CM 3.2 Screen](https://github.com/Caliburn-Micro/Caliburn.Micro/blob/3.2.0/src/Caliburn.Micro/Screen.cs) 一致：`isActive || (isInitialized && close)`；Screen 本身不维护额外关闭标记。未初始化的 Conductor 同样跳过关闭生命周期，保留当前项及父树所有权；已初始化单项 Conductor 关闭当前项后清空选择，集合关闭全部成员后同时清空集合与选择。关闭退出管理的成员由 Conductor 等待全部受管 View 释放后回收，不能重新激活，见 [Conductor](Conductor.md)。
 
 5B 的有效停用还会在状态提交前发送 attemptingDeactivation(close)，钩子正常结束后发送 deactivated(close)。状态提交顺序同样对齐 CM 3.2.0：初始化、激活和停用均先提交状态，再调用对应钩子；Qt 适配保留值实际改变才通知的行为。状态通知只表示属性已改变，不表示钩子或子对象转换已经完成。生命周期钩子抛异常时原样传播，已提交状态不回滚；例如激活钩子失败后 isActive 仍为 true，后续重复 activate 不自动重试，需先 deactivate 再 activate。初始化钩子失败后 isInitialized 仍为 true，不重复执行初始化钩子。
 

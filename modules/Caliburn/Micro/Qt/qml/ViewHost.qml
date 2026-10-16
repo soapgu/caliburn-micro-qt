@@ -61,6 +61,8 @@ FocusScope {
                 root.fail("ViewHost: QML view loading failed " + loading.requestedUrl)
         }
         onLoaded: {
+            // 仅为 Conductor 已接管的模型登记，失败装配的 View 也参与释放等待。
+            state.retainView(item)
             if (!(item instanceof Item)) {
                 root.fail("ViewHost: view root must be an Item")
                 return

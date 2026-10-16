@@ -76,10 +76,10 @@ class LifecycleTests : public QObject
         QPointer<LifecycleVm> weak = child;
         conductor.deactivate(true);
         QCOMPARE(child->closes, QList<bool>({false, true}));
-        QCOMPARE(conductor.activeItem(), child);
+        QVERIFY(!conductor.activeItem());
         QVERIFY(weak);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(weak);
+        QVERIFY(!weak);
     }
 
     template<class C>
@@ -129,6 +129,7 @@ class LifecycleTests : public QObject
         conductor.activate();
         conductor.activateItem(std::make_unique<LifecycleVm>());
         auto *first = conductor.activeItem();
+        conductor.deactivateItem(first, false); // 普通停用保留对象，可由属性入口恢复。
         conductor.activateItem(std::make_unique<LifecycleVm>());
         QVERIFY(conductor.setProperty("activeItem", QVariant::fromValue(first)));
         QCOMPARE(conductor.activeItem(), first);

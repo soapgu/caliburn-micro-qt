@@ -193,8 +193,8 @@ private slots:
         QVERIFY(weak);
         c.closeItem(old);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(weak);
-        QCOMPARE(destroyed, 0);
+        QVERIFY(!weak);
+        QCOMPARE(destroyed, 1);
         QCOMPARE(c.activeItem(), expected < 0 ? nullptr : original[expected]);
     }
 
@@ -222,15 +222,15 @@ private slots:
         c.deactivate(true);
         c.deactivate(true);
         QVERIFY(c.items().isEmpty());
-        QCOMPARE(c.activeItem(), second);
+        QVERIFY(!c.activeItem());
         QCOMPARE(events, QStringList({"b:close"})); // 从未初始化的项仍沿用 Screen 关闭无操作。
-        QCOMPARE(membership.count(), 2);
-        QCOMPARE(selection.count(), 0);
+        QCOMPARE(membership.count(), 1);
+        QCOMPARE(selection.count(), 1);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QCOMPARE(destroyed, 0);
+        QCOMPARE(destroyed, 3);
         c.activate();
-        QCOMPARE(c.activeItem(), second);
-        QVERIFY(second->isActive());
+        QVERIFY(!c.activeItem());
+        QVERIFY(c.items().isEmpty());
     }
 
     void parentClosesAllInitializedScreensOnce()
@@ -248,11 +248,57 @@ private slots:
         c.deactivate(true);
         c.deactivate(true);
         QCOMPARE(events, QStringList({"a:close", "b:close"}));
-        QCOMPARE(members.count(), 2);
-        QCOMPARE(selected.count(), 0);
+        QCOMPARE(members.count(), 1);
+        QCOMPARE(selected.count(), 1);
         QVERIFY(!a->isActive() && !b->isActive());
         QVERIFY(c.items().isEmpty());
-        QCOMPARE(c.activeItem(), b);
+        QVERIFY(!c.activeItem());
+    }
+
+    void parentCloseCommitsConsistentState_data()
+    {
+        QTest::addColumn<int>("count");
+        QTest::newRow("empty") << 0;
+        QTest::newRow("one") << 1;
+        QTest::newRow("two") << 2;
+    }
+
+    void parentCloseCommitsConsistentState()
+    {
+        QFETCH(int, count);
+        Collection c;
+        c.activate();
+        QList<QPointer<ScreenViewModel>> pages;
+        for (int i = 0; i < count; ++i) {
+            c.activateItem(std::make_unique<TrackedScreen>());
+            pages << c.activeItem();
+        }
+        QStringList notifications;
+        const auto verifyEmpty = [&] {
+            QVERIFY(c.items().isEmpty());
+            QVERIFY(!c.activeItem());
+            QVERIFY(c.getChildren().isEmpty());
+        };
+        connect(&c, &Collection::activeItemChanged, &c, [&] {
+            verifyEmpty(); notifications << "active";
+        });
+        connect(&c, &Collection::itemsChanged, &c, [&] {
+            verifyEmpty(); notifications << "items";
+        });
+        for (const auto &page : pages) {
+            connect(page, &ScreenViewModel::parentViewModelChanged, &c, verifyEmpty);
+        }
+        QSignalSpy processed(&c, &ConductorBase::activationProcessed);
+        c.deactivate(true);
+        verifyEmpty();
+        QCOMPARE(notifications, count ? QStringList({"active", "items"}) : QStringList{});
+        c.deactivate(true);
+        QCOMPARE(notifications.size(), count ? 2 : 0);
+        QCOMPARE(processed.count(), 0);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        for (const auto &page : pages) QVERIFY(!page);
+        c.activate();
+        verifyEmpty();
     }
 
     void unexpectedDeletionDoesNotNavigate()

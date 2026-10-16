@@ -48,6 +48,8 @@ qt_add_qml_module(CaliburnMicroQt
         src/ViewRegistry.cpp
         src/ViewHostState.h
         src/ViewHostState.cpp
+        src/ViewModelLifetime.h
+        src/ViewModelLifetime.cpp
         include/CaliburnMicroQt/WindowOptions.h
         include/CaliburnMicroQt/IWindowManager.h
         include/CaliburnMicroQt/WindowManager.h

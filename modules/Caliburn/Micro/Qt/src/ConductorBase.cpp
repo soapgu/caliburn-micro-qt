@@ -1,9 +1,23 @@
 #include "FrameworkLog.h"
+#include "ViewModelLifetime.h"
+#include <QQmlEngine>
 #include <CaliburnMicroQt/ConductorBase.h>
 #include <CaliburnMicroQt/DefaultCloseStrategy.h>
 #include <utility>
 
 ConductorBase::ConductorBase(QObject *parent) : ScreenViewModel(parent) {}
+
+void ConductorBase::takeOwnership(QObject *item)
+{
+    item->setParent(this);
+    QQmlEngine::setObjectOwnership(item, QQmlEngine::CppOwnership);
+    ViewModelLifetime::get(item)->watchOwner(this);
+}
+
+void ConductorBase::retireItem(QObject *item)
+{
+    if (item) ViewModelLifetime::get(item)->retire();
+}
 
 std::shared_ptr<ICloseStrategy> ConductorBase::closeStrategy() const
 {

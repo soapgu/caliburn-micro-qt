@@ -1,4 +1,5 @@
 #include "AppBootstrapper.h"
+#include "ViewModelLifetime.h"
 #include <CaliburnMicroQt/ViewLocator.h>
 #include <QGuiApplication>
 #include <QQmlExtensionPlugin>
@@ -76,6 +77,8 @@ private slots:
             auto *shell = qobject_cast<ShellViewModel *>(main->property("viewModel").value<QObject *>());
             auto *displayModel = qobject_cast<DisplayViewModel *>(display->property("viewModel").value<QObject *>());
             QVERIFY(shell && displayModel);
+            QVERIFY(!ViewModelLifetime::find(shell));
+            QVERIFY(!ViewModelLifetime::find(displayModel));
             connect(displayModel, &ScreenViewModel::deactivated, this, [&](bool close) { if (close) ++displayClosures; });
             if (action == "early") { exercised = true; shell->exitApplication(); return; }
             QTimer::singleShot(0, &bootstrapper, [&, shell] {

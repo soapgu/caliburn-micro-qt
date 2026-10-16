@@ -36,6 +36,13 @@ target_link_libraries(CaliburnCollectionTests PRIVATE Caliburn::MicroQt Qt6::Tes
 add_test(NAME collection COMMAND CaliburnCollectionTests)
 set_tests_properties(collection PROPERTIES TIMEOUT 30)
 
+add_executable(CaliburnViewModelLifetimeTests cpp/tst_viewmodellifetime.cpp)
+target_include_directories(CaliburnViewModelLifetimeTests PRIVATE
+    "${PROJECT_SOURCE_DIR}/modules/Caliburn/Micro/Qt/src")
+target_link_libraries(CaliburnViewModelLifetimeTests PRIVATE Caliburn::MicroQt Qt6::Test)
+add_test(NAME viewmodel_lifetime COMMAND CaliburnViewModelLifetimeTests)
+set_tests_properties(viewmodel_lifetime PROPERTIES TIMEOUT 30)
+
 add_executable(CaliburnCounterServiceTests cpp/tst_counterservice.cpp)
 target_link_libraries(CaliburnCounterServiceTests PRIVATE CaliburnExampleModule Qt6::Test)
 add_test(NAME counterservice COMMAND CaliburnCounterServiceTests)
@@ -75,6 +82,8 @@ add_executable(CaliburnBootstrapperTests
     ../examples/minimal/app/AppBootstrapper.h
     ../examples/minimal/app/AppBootstrapper.cpp
 )
+target_include_directories(CaliburnBootstrapperTests PRIVATE
+    "${PROJECT_SOURCE_DIR}/modules/Caliburn/Micro/Qt/src")
 qt_add_resources(CaliburnBootstrapperTests bootstrapper_fixtures
     PREFIX /tests
     FILES fixtures/NonVisual.qml fixtures/HiddenShell.qml
@@ -207,6 +216,8 @@ add_test(NAME windowviewbinding COMMAND CaliburnWindowViewBindingTests)
 set_tests_properties(windowviewbinding PROPERTIES TIMEOUT 30)
 
 add_executable(CaliburnMultiScreenTests cpp/tst_multiscreen.cpp)
+target_include_directories(CaliburnMultiScreenTests PRIVATE
+    "${PROJECT_SOURCE_DIR}/modules/Caliburn/Micro/Qt/src")
 target_link_libraries(CaliburnMultiScreenTests PRIVATE
     CaliburnMultiScreenModuleplugin CaliburnMultiScreenStartup Qt6::Test Qt6::Quick)
 foreach(scenario IN ITEMS layoutDecisions autoCloseParsing startupFailureRollback

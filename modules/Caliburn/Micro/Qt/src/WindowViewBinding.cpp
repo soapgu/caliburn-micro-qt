@@ -1,4 +1,5 @@
 #include "WindowViewBinding.h"
+#include "ViewModelLifetime.h"
 #include <CaliburnMicroQt/ScreenViewModel.h>
 #include <stdexcept>
 
@@ -24,7 +25,7 @@ WindowViewBinding::~WindowViewBinding()
 bool WindowViewBinding::canBind(QObject *model)
 {
     const auto *screen = qobject_cast<ScreenViewModel *>(model);
-    return !screen || !screen->m_windowView;
+    return !ViewModelLifetime::isRetiring(model) && (!screen || !screen->m_windowView);
 }
 
 void WindowViewBinding::detach()

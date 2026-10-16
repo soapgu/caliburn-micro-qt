@@ -55,6 +55,9 @@ private slots:
         auto *rejected = c.activeItem(); rejected->answer = false;
         c.activateItem(std::make_unique<GuardScreen>());
         auto *closableActive = c.activeItem();
+        QPointer<GuardScreen> inactiveVm = closableInactive;
+        QPointer<GuardScreen> activeVm = closableActive;
+        QPointer<GuardScreen> retainedVm = rejected;
         bool allowed = true;
         c.setCloseStrategy(std::make_shared<DefaultCloseStrategy>(true));
         c.canClose([&](bool result) { allowed = result; });
@@ -65,6 +68,9 @@ private slots:
         QCOMPARE(closableInactive->closes, 1); QCOMPARE(closableActive->closes, 1);
         QVERIFY(!closableInactive->parentViewModel() && !closableActive->parentViewModel());
         QCOMPARE(rejected->closes, 0);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!inactiveVm && !activeVm && retainedVm);
+        QCOMPARE(c.activeItem(), retainedVm.data());
     }
 
     void defaultScreenAndLifecycleSignals()

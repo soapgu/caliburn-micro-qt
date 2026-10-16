@@ -307,25 +307,63 @@ private slots:
         conductor.activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows()));
         QPointer<HomeViewModel> replacement = conductor.activeItem();
         QCOMPARE(currentItem()->property("viewModel").value<QObject *>(), replacement.data());
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(oldVm && !oldVm->isActive() && !oldView);
-        delete oldVm.data(); // 关闭生命周期不删除 VM；所有者仍可显式释放已卸载的旧项。
+        QTRY_VERIFY(!oldVm && !oldView);
         QPointer<QQuickItem> replacementView = currentItem();
         if (parentClose) {
             conductor.deactivate(true);
-            QCOMPARE(conductor.activeItem(), replacement.data());
-            QVERIFY(currentItem() && !replacement->isActive());
+            QVERIFY(!conductor.activeItem() && !currentItem());
             conductor.activate();
-            QVERIFY(replacement->isActive());
+            QVERIFY(!conductor.activeItem());
         } else {
             conductor.closeItem(replacement);
             QVERIFY(!conductor.activeItem() && !currentItem());
-            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-            QVERIFY(replacement && !replacementView);
         }
-        delete replacement.data();
+        QTRY_VERIFY(!replacement && !replacementView);
         QVERIFY(!conductor.activeItem() && !currentItem());
         QVERIFY(host->property("errorString").toString().isEmpty());
+        QCOMPARE(warnings.count(), 0);
+    }
+
+    void twoHostsReleaseBeforeVm_data()
+    {
+        QTest::addColumn<bool>("destroyOwner");
+        QTest::newRow("parent-close") << false;
+        QTest::newRow("owner-destruction") << true;
+    }
+
+    void twoHostsReleaseBeforeVm()
+    {
+        QFETCH(bool, destroyOwner);
+        auto conductor = std::make_unique<HomeConductor>();
+        conductor->activate();
+        conductor->activateItem(std::make_unique<HomeViewModel>(std::make_shared<CounterService>(), testWindows()));
+        QPointer<HomeViewModel> model = conductor->activeItem();
+        QQmlEngine engine;
+        useEmbeddedModules(engine);
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import Caliburn.Micro.Qt 1.0
+            ViewHost { width: 400; height: 340 }
+        )", QUrl());
+        const QVariantMap properties{{"model", QVariant::fromValue(model.data())}};
+        std::unique_ptr<QObject> first(component.createWithInitialProperties(properties));
+        std::unique_ptr<QObject> second(component.createWithInitialProperties(properties));
+        QVERIFY2(first && second, qPrintable(component.errorString()));
+        QPointer<QObject> firstView = first->property("item").value<QObject *>();
+        QPointer<QObject> secondView = second->property("item").value<QObject *>();
+        QVERIFY(firstView && secondView);
+        bool viewsGoneBeforeVm = false;
+        connect(model, &QObject::destroyed, &engine, [&] {
+            viewsGoneBeforeVm = !firstView && !secondView;
+        });
+        if (destroyOwner) conductor.reset();
+        else conductor->deactivate(true);
+        QVERIFY(!first->property("item").value<QObject *>());
+        QVERIFY(!second->property("item").value<QObject *>());
+        QTRY_VERIFY(!model && !firstView && !secondView);
+        QVERIFY(viewsGoneBeforeVm);
         QCOMPARE(warnings.count(), 0);
     }
 
@@ -381,10 +419,8 @@ private slots:
         connect(home, &QObject::destroyed, &engine, [&] { viewGoneBeforeVm = lastView.isNull(); });
         api->deactivateItem(home, true);
         QVERIFY(!item());
-        QCOMPARE(host->property("logicalParent").value<QObject *>(), &conductor);
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(vm && !lastView);
-        delete vm.data();
+        QVERIFY(!host->property("logicalParent").value<QObject *>());
+        QTRY_VERIFY(!vm && !lastView);
         QVERIFY(viewGoneBeforeVm);
         QCOMPARE(warnings.count(), 0);
     }
@@ -465,13 +501,12 @@ private slots:
         QCOMPARE(homeItem(window), oldView.data());
         shell->deactivate(true);
         QVERIFY(!shell->home());
-        QCOMPARE(shell->activeItem(), oldVm.data());
-        QVERIFY(oldVm && oldView && !oldVm->isActive());
+        QVERIFY(!shell->activeItem());
+        QVERIFY(oldVm && !oldVm->isActive());
+        QTRY_VERIFY(!homeItem(window));
         shell->activate();
         QTRY_VERIFY(displaysHome(window, shell->home()));
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(oldVm && !oldView);
-        delete oldVm.data();
+        QTRY_VERIFY(!oldVm && !oldView);
         QVERIFY(viewGoneBeforeVm);
         auto *home = shell->home();
         QCOMPARE(home->count(), 4);
@@ -586,9 +621,7 @@ private slots:
         auto *accept = dialogControl(window, "dialogAccept");
         QVERIFY(accept); click(accept);
         QTRY_VERIFY(displaysHome(window, home));
-        QTRY_VERIFY(!firstDetailView && oldDetail && !back);
-        QCOMPARE(destruction, QStringList({"view"}));
-        delete oldDetail.data();
+        QTRY_VERIFY(!firstDetailView && !oldDetail && !back);
         QCOMPARE(destruction, QStringList({"view", "vm"}));
         QVERIFY(shell->home() == home && home->isActive());
         QCOMPARE(home->count(), 3);
@@ -622,7 +655,8 @@ private slots:
         QCOMPARE(warnings.count(), 0);
         shell->deactivate(true);
         QVERIFY(shell->items().isEmpty());
-        QCOMPARE(homeItem(window)->property("viewModel").value<QObject *>(), shell->activeItem());
+        QVERIFY(!shell->activeItem());
+        QTRY_VERIFY(!homeItem(window));
         window->close();
     }
 

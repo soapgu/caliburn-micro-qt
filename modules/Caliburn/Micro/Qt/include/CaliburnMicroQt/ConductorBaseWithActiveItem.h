@@ -22,6 +22,8 @@ signals:
     void activeItemChanged();
 
 protected:
+    // 只提交选择，不执行生命周期、不发送通知，供批量关闭原子清空状态。
+    void setActiveItemCore(QObject *item);
     virtual void changeActiveItem(QObject *item, bool closePrevious);
 
 private:

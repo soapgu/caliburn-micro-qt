@@ -6,6 +6,7 @@
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
 #include "../support/TestWindowManager.h"
 #include "../support/DialogWindowSupport.h"
+#include "ViewModelLifetime.h"
 #include <QQmlEngine>
 #include <QQmlComponent>
 #include <QQmlExtensionPlugin>
@@ -89,6 +90,7 @@ private slots:
         QSignalSpy deactivated(vm.get(), &ScreenViewModel::deactivated);
         QVERIFY(service.showWindow(QVariant::fromValue(vm.get())));
         QVERIFY(vm->isActive());
+        QVERIFY(!ViewModelLifetime::find(vm.get()));
         QVERIFY(!manager.busy() && !manager.currentDialog());
         QPointer<QQuickWindow> window = ordinaryWindow(vm.get());
         QVERIFY(window && window->isVisible());
@@ -414,6 +416,8 @@ private slots:
         QCOMPARE(window->flags() & Qt::WindowType_Mask, Qt::WindowFlags(Qt::Dialog));
         QPointer<QQuickItem> view = window->property("dialogItem").value<QQuickItem *>();
         QVERIFY(view && view->window() == window);
+        // 窗口桥接和内容 ViewHost 均不为模态框根模型建立回收登记。
+        QVERIFY(!ViewModelLifetime::find(weak));
         connect(weak, &ScreenViewModel::attemptingDeactivation, this, [&](bool close) {
             if (close) QVERIFY(!view); // 关闭钩子前已销毁借用 VM 的 View。
         });

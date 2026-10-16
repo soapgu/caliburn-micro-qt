@@ -20,6 +20,7 @@ public:
 protected:
     bool validateItemChange(QObject *item) const;
     void adoptAndActivate(std::unique_ptr<QObject> item);
+    void changeActiveItem(QObject *item, bool closePrevious) override;
     void onActivate() override;
     void onDeactivate(bool close) override;
 

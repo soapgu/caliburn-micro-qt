@@ -99,7 +99,7 @@ private slots:
         QVERIFY(old);
         if (flushDelete) {
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-            QVERIFY(old);
+            QVERIFY(!old);
         }
         shell->activate();
         auto *next = shell->home();
@@ -110,8 +110,8 @@ private slots:
         if (old)
             QVERIFY(next != old.data());
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(old);
-        QCOMPARE(destroyed.count(), 0);
+        QVERIFY(!old);
+        QCOMPARE(destroyed.count(), 1);
         QCOMPARE(shell->home(), next); // 旧销毁连接不会清空新项。
         next->add(1); // 重建后的页面仍能更新共享服务；确认流程另有专门测试。
         QCOMPARE(next->count(), 5);
@@ -216,8 +216,8 @@ private slots:
         QCOMPARE(details, 2);
         QCOMPARE(initialized.count(), 1);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(old);
-        QCOMPARE(destroyed.count(), 0);
+        QVERIFY(!old);
+        QCOMPARE(destroyed.count(), 1);
         QVERIFY(shell.detail() && shell.detail()->isActive());
         QVERIFY(navigation.count() > 0);
     }
@@ -377,7 +377,7 @@ private slots:
         QCOMPARE(parent.count(), 1);
         QCOMPARE(active.count(), 1);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(old);
+        QVERIFY(!old);
     }
 
     void shellProtocolOnlyRecoversForCurrentDetailClose()
@@ -460,13 +460,13 @@ private slots:
         shell.home()->add(2);
         shell.deactivate(true);
         QVERIFY_THROWS_EXCEPTION(std::invalid_argument, shell.activate());
-        QVERIFY(shell.activeItem() && !shell.activeItem()->isActive() && shell.isActive());
+        QVERIFY(!shell.activeItem() && shell.items().isEmpty() && shell.isActive());
         shell.activate(); // 已提交活动状态，再次激活不会自动重试失败钩子。
         QCOMPARE(calls, 2);
         shell.deactivate();
         throwFromFactory = true;
         QVERIFY_THROWS_EXCEPTION(std::runtime_error, shell.activate());
-        QVERIFY(shell.activeItem() && !shell.activeItem()->isActive() && shell.isActive());
+        QVERIFY(!shell.activeItem() && shell.items().isEmpty() && shell.isActive());
         QCOMPARE(calls, 3);
         recovered = true;
         shell.deactivate();

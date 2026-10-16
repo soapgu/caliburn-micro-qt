@@ -75,10 +75,11 @@ ViewHostState 是 `Caliburn.Micro.Qt 1.0` 模块公开、可创建的 QML 辅助
 | model: QObject | 可读写，默认 null；借用 VM，不接管所有权。赋值必须在辅助对象所属线程执行，非空 VM 必须属于同一线程；非法赋值输出诊断并保留旧模型。 |
 | modelChanged() | 模型身份变化或当前模型销毁时通知；重复赋入同一对象不通知，VM 自身属性变化不触发此信号。 |
 | matchesView(view: QObject) -> bool | 当前模型和 view 均非空，且 view 的 viewModel 属性可转换为 QObject 指针并与当前模型指针相同时返回 true；否则返回 false。 |
+| retainView(view: QObject) | 仅当模型已由 Conductor 接管并建立回收协调器时，登记同线程 View，直到 View 销毁才释放借用；其他模型无操作，不创建协调器。ViewHost 在 Loader.onLoaded 中自动调用，自定义页面宿主应在创建 View 后调用。 |
 
-ViewHostState 用 QPointer 保存模型，替换时断开旧 destroyed 连接。销毁通知到达时指针可能已清空，因此回调无条件发送 modelChanged，触发 ViewHost 卸载。QML 可创建性由契约测试覆盖。
+ViewHostState 用 QPointer 保存模型，替换时断开旧 destroyed 和回收请求连接。销毁通知到达时指针可能已清空，因此回调无条件发送 modelChanged，触发 ViewHost 卸载。模型已有 Conductor 回收协调器时才连接回收请求，收到请求后清空 model 并通知卸载；待回收模型不能重新赋入。已登记 View 的借用独立于 model 属性，替换模型或销毁辅助对象不提前释放仍存在的 View。根窗口、当前多屏示例辅助窗口和模态框根模型均不登记借用；ViewHost 不为它们创建协调器。QML 可创建性由契约测试覆盖。
 
-C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，卸载不删除 VM，也不调用生命周期。Shell 通过集合型 Conductor 接管页面，建立父关系并设置 CppOwnership；home/detail 从集合查找，通过 itemsChanged 通知，实际宿主仍绑定 activeItem。计数服务由两个工厂及 Home/Detail 的 shared_ptr 管理，无 QObject 父对象。关闭清空当前项时，宿主先卸载 View，Conductor 再关闭并延迟回收 VM；根引擎与 View 在根 VM 之前销毁。详见 [IoC 与应用装配](IoC与应用装配.md)。
+C++ 拥有 VM，暴露前设 CppOwnership。Loader 拥有 View，普通卸载不删除 VM，也不调用生命周期。Shell 通过集合型 Conductor 接管页面，建立父关系并设置 CppOwnership；home/detail 从集合查找，通过 itemsChanged 通知，实际宿主仍绑定 activeItem。计数服务由两个工厂及 Home/Detail 的 shared_ptr 管理，无 QObject 父对象。关闭时 Conductor 先执行生命周期并清空对应选择/成员，宿主卸载 View；框架确认全部已登记的页面 View 已销毁后延迟回收该成员 VM。管理者提前析构时，仍被 View 借用的成员 VM 会暂时脱离父树，等待 View 释放。窗口根模型由各自所有者沿用明确的销毁顺序，不参与此登记。详见 [Conductor](Conductor.md) 与 [IoC 与应用装配](IoC与应用装配.md)。
 
 ## 5. 焦点与后续边界
 
@@ -94,7 +95,7 @@ ShellView 的 model 继续绑定 activeItem，HomeView/DetailView 分别声明 r
 
 返回时 Shell 关闭 Detail，集合先公布 Home 为当前项；宿主卸载 Detail View、创建 Home View，Detail VM 随后延迟删除。Shell 关闭时清空集合与选择，宿主清空。意外销毁当前项同样清空界面，不自动导航。
 
-本轮没有修改 ViewHost/Loader 契约。Home VM 身份保留、View 重建、文本重置、焦点与 View 先于 VM 销毁均已验证，见 [4C 验收记录](验收/4C验收记录.md)。集合导航视图保留机制已列入 [后续版本 ToDoList](计划/后续版本ToDoList.md)，尚未实现。
+ViewHost 的 model/item/errorString 属性契约保持不变；ViewHostState 的 retainView 登记使关闭回收统一由框架协调。Home VM 身份保留、View 重建、文本重置与焦点的历史验证见 [4C 验收记录](验收/4C验收记录.md)，当前测试同时覆盖全部 View 先于 VM 销毁。集合导航视图保留机制已列入 [后续版本 ToDoList](计划/后续版本ToDoList.md)，尚未实现。
 
 ## 单项普通停用与恢复
 

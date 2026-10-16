@@ -176,13 +176,13 @@ private slots:
         QCOMPARE(page->parent(), &c);
         QCOMPARE(c.activeItem(), other);
         QCOMPARE(selected.count(), retained ? 0 : 1);
-        QCOMPARE(parent.count(), 0);
+        QCOMPARE(parent.count(), retained ? 0 : 1);
         QCOMPARE(result.count(), 0);
         QCOMPARE(page->closed, retained ? 0 : 1);
-        QCOMPARE(page->parentViewModel(), &c);
+        QCOMPARE(page->parentViewModel(), retained ? &c : nullptr);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(page);
-        QCOMPARE(destroyed, 0);
+        QCOMPARE(bool(page), retained);
+        QCOMPARE(destroyed, retained ? 0 : 1);
     }
 
     void tryCloseCollectionAndNestedConductor()
@@ -207,7 +207,7 @@ private slots:
         QCOMPARE(outer->getChildren(), QList<QObject *>{neighbor});
         QVERIFY(neighbor->isActive());
         QVERIFY(pending && !pending->parentViewModel());
-        QVERIFY(page && page->parentViewModel() == middle && !page->closeSawEmptyParent);
+        QVERIFY(page && !page->parentViewModel() && !page->closeSawEmptyParent);
         QCOMPARE(page->closed, 1);
         QCOMPARE(processed.count(), 1);
         QCOMPARE(processed.first().at(0).value<QObject *>(), neighbor);
@@ -274,7 +274,7 @@ private slots:
         QVERIFY(!b->closeSawEmptyParent);
         QCOMPARE(b->parent(), &c);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(old);
+        QVERIFY(!old);
         QCOMPARE(c.activeItem(), a);
     }
 
@@ -346,12 +346,14 @@ private slots:
         QSignalSpy result(c.get(), &ConductorBase::activationProcessed);
         c->deactivate(true);
         QCOMPARE(events, QStringList({"2:close"}));
-        QCOMPARE(c->activeItem(), pages[2].data());
-        QCOMPARE(selected.count(), 0); QCOMPARE(result.count(), 0);
-        for (const auto &page : pages) QCOMPARE(page->parentViewModel(), c.get());
+        QVERIFY(!c->activeItem());
+        QCOMPARE(selected.count(), 1); QCOMPARE(result.count(), 0);
+        QCOMPARE(pages[0]->parentViewModel(), c.get());
+        QCOMPARE(pages[1]->parentViewModel(), c.get());
+        QVERIFY(!pages[2]->parentViewModel());
         QCOMPARE(pages[0]->closed, 0); QCOMPARE(pages[1]->closed, 0); QCOMPARE(pages[2]->closed, 1);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QCOMPARE(destroyed, 0);
+        QCOMPARE(destroyed, 1);
         c.reset(); QCOMPARE(destroyed, 3);
     }
 
@@ -456,7 +458,8 @@ private slots:
         c.activateItem(child);
         QCOMPARE(child->changes, 1);
         c.closeItem(child);
-        QCOMPARE(child->changes, 1);
+        QCOMPARE(child->changes, 2);
+        QVERIFY(!child->parentViewModel());
         Conductor<>::Collection::OneActive customCollection;
         auto customOwned = std::make_unique<CustomChild>();
         auto *custom = customOwned.get();
@@ -522,9 +525,10 @@ private slots:
         QCOMPARE(processed.first().at(0).value<QObject *>(), a);
         QCOMPARE(parent.count(), 0);
         c.deactivate(true);
-        QCOMPARE(a->parentViewModel(), &c);
+        QVERIFY(!a->parentViewModel());
         QVERIFY(!a->closeSawEmptyParent);
-        QCOMPARE(parent.count(), 0);
+        QCOMPARE(parent.count(), 1);
+        QVERIFY(c.items().isEmpty() && !c.activeItem());
     }
 
     void resultSignals_data()
@@ -584,7 +588,7 @@ private slots:
         QVERIFY(middle->getChildren() == QList<QObject *>{nullptr});
         QCOMPARE(leaf->parentViewModel(), middle);
         outer.deactivate(true);
-        QCOMPARE(middle->parentViewModel(), &outer);
+        QVERIFY(!middle->parentViewModel());
         QCOMPARE(leaf->parentViewModel(), middle);
         QCOMPARE(leaf->closed, 0);
     }

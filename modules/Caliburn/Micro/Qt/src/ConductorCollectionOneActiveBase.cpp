@@ -1,7 +1,7 @@
 #include "FrameworkLog.h"
+#include "ViewModelLifetime.h"
 #include <CaliburnMicroQt/ConductorCollectionOneActiveBase.h>
 #include <CaliburnMicroQt/ScreenExtensions.h>
-#include <QQmlEngine>
 #include <utility>
 
 ConductorCollectionOneActiveBase::ConductorCollectionOneActiveBase(QObject *parent)
@@ -63,13 +63,13 @@ void ConductorCollectionOneActiveBase::removeMember(QObject *item)
     QObject::disconnect(m_destroyed.take(item));
     setLogicalParent(item, nullptr);
     emit itemsChanged();
+    retireItem(item);
 }
 
 void ConductorCollectionOneActiveBase::adoptItem(std::unique_ptr<QObject> item, bool select)
 {
     auto *next = item.get();
-    next->setParent(this);
-    QQmlEngine::setObjectOwnership(next, QQmlEngine::CppOwnership);
+    takeOwnership(next);
     item.release();
     if (select) activateItem(next);
     else addMember(next);
@@ -79,8 +79,8 @@ void ConductorCollectionOneActiveBase::activateItem(QObject *item)
 {
     if (!acceptsItem(item)) { onActivationProcessed(item, false); return; }
     qCDebug(FrameworkLog::conductor).noquote() << "Activation requested:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item);
-    // Qt 所有权边界：新对象由 unique_ptr 接管；原先接管的对象可再次加入集合。
-    if (item && item->parent() != this) {
+    // Qt 所有权边界：新对象由 unique_ptr 接管；待回收对象不能再次选择。
+    if (item && (ViewModelLifetime::isRetiring(item) || item->parent() != this)) {
         onActivationProcessed(item, false);
         return;
     }
@@ -98,7 +98,7 @@ void ConductorCollectionOneActiveBase::deactivateItem(QObject *item, bool close)
 {
     if (!acceptsItem(item)) return;
     qCDebug(FrameworkLog::conductor).noquote() << "Deactivation requested:" << FrameworkLog::identity(this) << "item:" << FrameworkLog::identity(item) << "close:" << close;
-    if (!item || item->parent() != this) return;
+    if (!item || !m_items.contains(item)) return;
     if (!close) { ScreenExtensions::tryDeactivate(item, false); return; }
     QPointer<QObject> target = item;
     checkClose({item}, [this, target](bool allowed) {
@@ -188,10 +188,16 @@ void ConductorCollectionOneActiveBase::onDeactivate(bool close)
     }
     for (auto *item : std::as_const(m_items))
         ScreenExtensions::tryDeactivate(item, true);
-    // 对齐 CM：Clear 集合不清空 ActiveItem，也不执行逐项 Remove 的 Parent 清理。
+    // 关闭钩子完成后一次提交空集合和空选择，通知期间始终保持成员不变式。
+    const auto closed = m_items;
+    const bool hadActiveItem = activeItem() != nullptr;
+    setActiveItemCore(nullptr);
     for (const auto &connection : std::as_const(m_destroyed))
         QObject::disconnect(connection);
     m_destroyed.clear();
     m_items.clear();
-    emit itemsChanged();
+    for (auto *item : closed) setLogicalParent(item, nullptr);
+    if (hadActiveItem) emit activeItemChanged();
+    if (!closed.isEmpty()) emit itemsChanged();
+    for (auto *item : closed) retireItem(item);
 }

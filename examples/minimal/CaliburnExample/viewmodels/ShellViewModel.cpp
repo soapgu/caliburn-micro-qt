@@ -64,7 +64,7 @@ bool ShellViewModel::prepareCloseItem(QObject *item)
 void ShellViewModel::onActivate()
 {
     auto *availableHome = ensureHome();
-    if (!activeItem() || !items().contains(activeItem())) {
+    if (!activeItem()) {
         activateItem(availableHome);
         if (activeItem() != availableHome)
             throw std::invalid_argument("Shell could not select Home");
