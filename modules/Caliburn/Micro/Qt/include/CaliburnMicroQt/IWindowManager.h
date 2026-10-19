@@ -1,6 +1,7 @@
 #pragma once
 
 #include <CaliburnMicroQt/DialogResult.h>
+#include <CaliburnMicroQt/DialogOptions.h>
 #include <CaliburnMicroQt/WindowOptions.h>
 #include <QObject>
 #include <QtQmlIntegration/qqmlintegration.h>
@@ -28,7 +29,8 @@ public:
     virtual bool busy() const = 0;
     virtual QObject *currentDialog() const = 0;
     virtual QFuture<DialogResult> showDialogAsync(std::unique_ptr<QObject> viewModel,
-                                                 QObject *requester) = 0;
+                                                 QObject *requester,
+                                                 const DialogOptions &options = {}) = 0;
 signals:
     // 参数是已关闭窗口对应的 VM，可能在关闭生命周期中销毁而为空。
     void windowClosed(QObject *viewModel);

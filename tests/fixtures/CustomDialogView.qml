@@ -6,6 +6,12 @@ FocusScope {
     required property CustomDialogViewModel viewModel
     implicitWidth: 280
     implicitHeight: 140
+    property var windowAtCompletion
+    property string titleAtCompletion
+    Component.onCompleted: {
+        windowAtCompletion = Window.window
+        titleAtCompletion = Window.window ? Window.window.title : ""
+    }
     Button {
         anchors.centerIn: parent
         objectName: "customDialogAccept"

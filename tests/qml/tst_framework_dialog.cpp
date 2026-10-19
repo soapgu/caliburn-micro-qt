@@ -33,6 +33,60 @@ private slots:
         QVERIFY(ViewLocator::registerView<ScreenViewModel>(QUrl("qrc:/tests/fixtures/FrameworkWindow.qml")));
     }
 
+    void windowTitle_data()
+    {
+        QTest::addColumn<bool>("viaInterface");
+        QTest::addColumn<bool>("withOptions");
+        QTest::addColumn<QString>("title");
+        for (const bool viaInterface : {false, true}) {
+            const auto prefix = viaInterface ? QByteArray("接口/") : QByteArray("具体类/");
+            QTest::newRow((prefix + "省略选项").constData()) << viaInterface << false << QString();
+            QTest::newRow((prefix + "显式空标题").constData()) << viaInterface << true << QStringLiteral("");
+            QTest::newRow((prefix + "中文标题").constData()) << viaInterface << true << QStringLiteral("原生窗口标题");
+        }
+    }
+
+    void windowTitle()
+    {
+        QFETCH(bool, viaInterface);
+        QFETCH(bool, withOptions);
+        QFETCH(QString, title);
+        ScreenViewModel root;
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        auto *owner = showManagedWindow(manager, &root);
+        QVERIFY(owner);
+        QObject requester;
+        auto model = confirmation();
+        auto *vm = model.get();
+        DialogOptions options;
+        options.title = title;
+        QFuture<DialogResult> future;
+        if (viaInterface) {
+            IWindowManager *service = &manager;
+            future = withOptions ? service->showDialogAsync(std::move(model), &requester, options)
+                                 : service->showDialogAsync(std::move(model), &requester);
+        } else {
+            future = withOptions ? manager.showDialogAsync(std::move(model), &requester, options)
+                                 : manager.showDialogAsync(std::move(model), &requester);
+        }
+        auto *window = dialogWindow(owner);
+        QVERIFY(window);
+        QCOMPARE(window->title(), title);
+        QCOMPARE(vm->title(), QStringLiteral("测试"));
+        bool hasBodyTitle = false;
+        for (auto *item : window->findChildren<QQuickItem *>())
+            if (item->property("text").toString() == vm->title()) hasBodyTitle = true;
+        QVERIFY(hasBodyTitle);
+        QCOMPARE(window->transientParent(), owner);
+        QCOMPARE(window->screen(), owner->screen());
+        QCOMPARE(window->modality(), Qt::ApplicationModal);
+        QCOMPARE(window->flags() & Qt::WindowType_Mask, Qt::WindowFlags(Qt::Dialog));
+        vm->tryClose(false);
+        QTRY_VERIFY(future.isFinished());
+        QCOMPARE(future.result(), DialogResult(false));
+    }
+
     void registryMapping()
     {
         ScreenViewModel root;
@@ -97,7 +151,7 @@ private slots:
         }
         auto *host = dialogWindow(window);
         QVERIFY(host);
-        auto *view = host->property("dialogItem").value<QQuickItem *>();
+        auto *view = dialogView(host);
         QVERIFY(view);
         if (!expectedName.isEmpty())
             QCOMPARE(view->objectName(), expectedName);
@@ -166,7 +220,7 @@ private slots:
         auto future = manager->showDialogAsync(std::move(model), requester.get());
         auto *host = dialogWindow(window);
         QVERIFY(host);
-        QPointer<QQuickItem> view = host->property("dialogItem").value<QQuickItem *>();
+        QPointer<QQuickItem> view = dialogView(host);
         QVERIFY(view);
         QStringList order;
         connect(view, &QObject::destroyed, this, [&] { order << "view"; });

@@ -4,9 +4,9 @@
 #include <CaliburnMicroQt/ScreenExtensions.h>
 #include <CaliburnMicroQt/IChild.h>
 #include "WindowConductor.h"
+#include "DialogWindow.h"
 #include <QQmlEngine>
 #include <QQmlApplicationEngine>
-#include <QQmlComponent>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QScreen>
@@ -235,6 +235,7 @@ struct WindowManager::Request
     QPointer<QObject> requester;
     QPointer<QQuickWindow> window;
     QPointer<QQuickItem> previousFocus;
+    QPointer<QQuickItem> view;
     std::unique_ptr<WindowConductor> bridge;
     QList<QMetaObject::Connection> connections;
     DialogResult result;
@@ -314,7 +315,7 @@ QObject *WindowManager::currentDialog() const
 }
 
 QFuture<DialogResult> WindowManager::showDialogAsync(
-        std::unique_ptr<QObject> vm, QObject *requester)
+        std::unique_ptr<QObject> vm, QObject *requester, const DialogOptions &options)
 {
     qCDebug(FrameworkLog::window) << "Dialog requested";
     auto request = std::make_unique<Request>();
@@ -370,26 +371,23 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
     emit busyChanged();
     try {
         if (!m_request->closing) {
-            QQmlComponent component(m_engine, QUrl(QStringLiteral(
-                "qrc:/qt/qml/Caliburn/Micro/Qt/DialogWindow.qml")));
-            std::unique_ptr<QObject> object(component.createWithInitialProperties({
-                {QStringLiteral("model"), QVariant::fromValue(m_request->vm.data())}
-            }));
-            auto *window = qobject_cast<QQuickWindow *>(object.get());
-            if (!window)
-                throw std::runtime_error(component.errorString().toStdString());
-            const auto error = window->property("errorString").toString();
-            if (!error.isEmpty()) throw std::runtime_error(error.toStdString());
+            auto object = std::make_unique<DialogWindow>();
+            auto *window = object.get();
+            window->setTitle(options.title);
+            window->setTransientParent(m_window);
+            window->setScreen(m_window->screen());
+            window->loadView(m_engine, m_request->vm);
+            if (!m_request->vm || m_request->closing)
+                throw std::runtime_error("WindowManager: dialog became unavailable during view creation");
+            m_request->view = window->viewItem();
             QQmlEngine::setObjectOwnership(window, QQmlEngine::CppOwnership);
             window->QObject::setParent(this);
             m_request->window = window;
             object.release();
-            window->setTransientParent(m_window);
-            window->setModality(Qt::ApplicationModal);
-            window->setScreen(m_window->screen());
             const auto area = window->screen()->availableGeometry();
-            window->resize(std::clamp(window->property("preferredWidth").toInt(), 1, area.width()),
-                           std::clamp(window->property("preferredHeight").toInt(), 1, area.height()));
+            const auto preferred = window->preferredSize();
+            window->resize(std::clamp(preferred.width(), 1, area.width()),
+                           std::clamp(preferred.height(), 1, area.height()));
             const auto center = m_window->geometry().center();
             window->setPosition(std::clamp(center.x() - window->width()/2, area.left(),
                                           area.right() - window->width() + 1),
@@ -411,8 +409,9 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
                 QMetaObject::invokeMethod(m_request->bridge.get(),
                         [this] { complete(std::nullopt); }, Qt::QueuedConnection);
             });
-            // QML 的 Escape 与按钮、标题栏走同一个关闭桥接。
-            connect(window, SIGNAL(dismissRequested()), m_request->bridge.get(), SLOT(requestClose()));
+            // Escape 与按钮、标题栏走同一个关闭桥接。
+            connect(window, &DialogWindow::dismissRequested,
+                    m_request->bridge.get(), &WindowConductor::requestClose);
             window->create();
             m_request->lifecycleStarted = true;
             ScreenExtensions::tryActivate(m_request->vm.data());
@@ -420,8 +419,7 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
             if (!m_request->closing && !m_request->bridge->isClosed()) {
                 window->show();
                 window->requestActivate();
-                if (auto *view = window->property("dialogItem").value<QQuickItem *>())
-                    view->forceActiveFocus(Qt::PopupFocusReason);
+                if (m_request->view) m_request->view->forceActiveFocus(Qt::PopupFocusReason);
                 qCInfo(FrameworkLog::window).noquote() << "Dialog shown:" << FrameworkLog::identity(window)
                                                      << "model:" << m_request->modelIdentity;
                 emit currentDialogChanged();

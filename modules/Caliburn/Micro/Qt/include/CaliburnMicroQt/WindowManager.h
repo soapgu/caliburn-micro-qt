@@ -25,7 +25,8 @@ public:
     bool busy() const override;
     QObject *currentDialog() const override;
     QFuture<DialogResult> showDialogAsync(std::unique_ptr<QObject> viewModel,
-                                         QObject *requester) override;
+                                         QObject *requester,
+                                         const DialogOptions &options = {}) override;
 signals:
     // 普通窗口关闭生命周期异常已捕获；应用可据此保留失败退出码。
     void windowCleanupFailed();

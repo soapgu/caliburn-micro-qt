@@ -16,11 +16,14 @@ public:
     DialogResult nextResult = true;
     int requests = 0;
     int cancellations = 0;
+    DialogOptions lastOptions;
     bool busy() const override { return bool(m_promise); }
     QObject *currentDialog() const override { return m_vm.get(); }
-    QFuture<DialogResult> showDialogAsync(std::unique_ptr<QObject> vm, QObject *requester) override
+    QFuture<DialogResult> showDialogAsync(std::unique_ptr<QObject> vm, QObject *requester,
+                                         const DialogOptions &options = {}) override
     {
         ++requests;
+        lastOptions = options;
         if (m_promise) {
             QPromise<DialogResult> rejected;
             rejected.start();

@@ -414,7 +414,7 @@ private slots:
         QVERIFY(window != owner && window->isTopLevel());
         QCOMPARE(window->modality(), Qt::ApplicationModal);
         QCOMPARE(window->flags() & Qt::WindowType_Mask, Qt::WindowFlags(Qt::Dialog));
-        QPointer<QQuickItem> view = window->property("dialogItem").value<QQuickItem *>();
+        QPointer<QQuickItem> view = dialogView(window);
         QVERIFY(view && view->window() == window);
         // 窗口桥接和内容 ViewHost 均不为模态框根模型建立回收登记。
         QVERIFY(!ViewModelLifetime::find(weak));
@@ -504,6 +504,28 @@ private slots:
         QTRY_VERIFY(future.isFinished()); QCOMPARE(future.result(), DialogResult{});
         QCOMPARE(closed.count(), 1);
     }
+    void escapeRespectsCloseGuard() {
+        WindowProbe ownerModel;
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        auto *owner = showManagedWindow(manager, &ownerModel); QVERIFY(owner);
+        QObject requester;
+        auto vm = std::make_unique<DialogProbe>();
+        auto *probe = vm.get();
+        probe->allowed = false;
+        auto future = manager.showDialogAsync(std::move(vm), &requester);
+        auto *window = dialogWindow(owner); QVERIFY(window);
+        QTest::keyClick(window, Qt::Key_Escape, Qt::ControlModifier);
+        QCoreApplication::processEvents();
+        QCOMPARE(probe->checks, 0);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_COMPARE(probe->checks, 1);
+        QVERIFY(!future.isFinished() && window->isVisible());
+        probe->allowed = true;
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(future.isFinished());
+        QCOMPARE(future.result(), DialogResult{});
+    }
     void qmlVetoAndGuardException() {
         WindowProbe ownerModel;
         WindowManager manager;
@@ -519,7 +541,7 @@ private slots:
         component.setData(R"(
             import QtQuick
             Connections {
-                required property Window dialog
+                required property QtObject dialog
                 property bool veto: true
                 target: dialog
                 function onClosing(event) { if (veto) event.accepted = false }
@@ -594,7 +616,7 @@ private slots:
         QPointer<DialogProbe> probe = vm.get();
         auto future = manager->showDialogAsync(std::move(vm), requester.get());
         QPointer<QQuickWindow> dialog = dialogWindow(owner); QVERIFY(dialog);
-        QPointer<QQuickItem> view = dialog->property("dialogItem").value<QQuickItem *>(); QVERIFY(view);
+        QPointer<QQuickItem> view = dialogView(dialog); QVERIFY(view);
         connect(probe, &ScreenViewModel::attemptingDeactivation, this, [view](bool close) {
             if (close) QVERIFY(!view);
         });
@@ -716,7 +738,7 @@ private slots:
         component.setData(R"(
             import QtQuick
             Connections {
-                required property Window dialog
+                required property QtObject dialog
                 property bool veto: false
                 property int attempts: 0
                 target: dialog
@@ -779,6 +801,7 @@ private slots:
         HomeViewModel home(service, windows); home.activate(); home.add(3);
         home.reset(); home.reset();
         QCOMPARE(windows->requests, 1);
+        QCOMPARE(windows->lastOptions.title, QStringLiteral("重置计数"));
         QVERIFY(home.resetPending()); QVERIFY(!home.canReset()); QCOMPARE(home.count(), 3);
         windows->complete(false);
         QTRY_VERIFY(!home.resetPending()); QCOMPARE(home.count(), 3);

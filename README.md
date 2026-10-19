@@ -87,7 +87,7 @@ flowchart LR
 | BootstrapperBase | C++ 应用启动基类 | 编排配置、根对象创建、窗口加载、生命周期及退出清理，不依赖 DI 库。 |
 | IWindowManager | 抽象 QObject 服务 | showWindow 借用普通窗口模型；showDialogAsync 接管弹窗模型，以 `QFuture<DialogResult>` 交付结果。 |
 | WindowManager | C++ 服务 | 创建窗口与弹窗，管理类型化注入、可选生命周期、守卫、资源清理及焦点恢复。 |
-| DialogWindow | 模块内部 QML 窗口 | 承载 Item View，设置应用级模态；服务负责守卫、清理与焦点恢复。 |
+| DialogWindow | 模块私有 C++ 窗口 | 承载 Item View，设置应用级模态；服务负责守卫、清理与焦点恢复。 |
 | ConfirmActionViewModel | C++ Screen 子类 | 提供确认文案、accept / cancel 操作与一次完成结果。 |
 | ConfirmActionView | QML View | 展示确认 VM，通过手写事件处理器调用接受或取消方法。 |
 | IGuardClose / ICloseStrategy / DefaultCloseStrategy | C++ 回调协议与默认策略 | canClose(callback) 立即或延后交付许可；适用场景包括关闭及单项成员普通停用，拒绝时保留成员、选择和页面。 |
@@ -104,7 +104,7 @@ ViewModelBase 自身仅提供构造函数、默认虚析构和 protected 模板�
 
 新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、IActivate 活动状态及逻辑 Parent。基础校验拒绝不移动调用方所有权；通过后单项请求暂存候选，许可拒绝或回调释放时回收，通过时接管并设置父对象；对象使用 CppOwnership。单项裸指针入口可重新选择本 Conductor 接管过的有效旧对象；关闭生命周期不自动删除对象；裸指针入口只接受本 Conductor 已接管的有效对象。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 通过逻辑 Parent 委托 IConductor 关闭，根窗口请求通过双向关闭桥接处理。
 
-showWindow 接受保留具体模型指针类型的 QVariant，View 须以 QQuickWindow 为根；单服务管理一个主窗和多个独立辅助窗。showDialogAsync 接受自定义 QObject 模型，以独立应用级模态窗口承载 Item View，并通过 QFuture / QPromise 交付一次结果。弹窗统一属于主窗，单服务只允许一个当前弹窗，忙时拒绝新请求，请求者销毁时强制清理。DialogResult 为 `std::optional<bool>`：true 表示接受，false 表示明确取消，空值表示无决定关闭；忙和展示失败以异常交付。不使用嵌套事件循环，完整规则见 [WindowManager](docs/WindowManager.md)。
+showWindow 接受保留具体模型指针类型的 QVariant，View 须以 QQuickWindow 为根；单服务管理一个主窗和多个独立辅助窗。showDialogAsync 接受自定义 QObject 模型，由 C++ 创建独立应用级模态窗口承载 Item View，并通过 QFuture / QPromise 交付一次结果；第三个可选参数 DialogOptions 仅设置原生 title，默认空字符串，与正文标题独立。弹窗统一属于主窗，单服务只允许一个当前弹窗，忙时拒绝新请求，请求者销毁时强制清理。DialogResult 为 `std::optional<bool>`：true 表示接受，false 表示明确取消，空值表示无决定关闭；忙和展示失败以异常交付。不使用嵌套事件循环，完整规则见 [WindowManager](docs/WindowManager.md)。
 
 activateItem、deactivateItem、closeItem、tryClose 是 void 请求，无完成回调。激活看 activationProcessed，实际停用/关闭看 deactivated(close)，方法返回不保证完成。默认策略检查 getChildren 快照后汇总，单项只有当前项，集合包含全部成员；拒绝时不部分关闭。关闭许可采用 CM 风格的直接回调，不支持重叠请求、重复回调或等待期间修改参与对象。主窗口关闭与根 tryClose 接入同一守卫链，退出时根关闭收尾和 onExit 各执行一次；onStartup 与 onExit 均为 void 钩子，正常退出钩子在 aboutToQuit 执行。完整契约见 [关闭守卫](docs/关闭守卫.md) 和 [Bootstrapper](docs/Bootstrapper.md)。
 

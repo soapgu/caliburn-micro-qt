@@ -103,7 +103,7 @@ private slots:
         const auto result = run(QStringLiteral("window"), QStringLiteral("caliburn.microqt.view.debug=true"));
         onceInBoth(result, "Window shown:");
         onceInBoth(result, "Dialog shown:");
-        onceInBoth(result, "Window closed: DialogWindow_");
+        onceInBoth(result, "Window closed: DialogWindow@");
         onceInBoth(result, "Window closed: WindowProbe_");
         onceInBoth(result, "Dialog completed:");
         QVERIFY(result.file.contains("result: accepted"));

@@ -1,0 +1,32 @@
+#pragma once
+
+#include <QPointer>
+#include <QQuickWindow>
+#include <QVariant>
+
+class QQmlEngine;
+class QQuickItem;
+
+// 模块私有的原生窗口外壳；业务内容仍由 ViewHost 装配。
+class DialogWindow final : public QQuickWindow
+{
+    Q_OBJECT
+    Q_PROPERTY(QVariant dialogResult MEMBER m_dialogResult)
+public:
+    DialogWindow();
+    void loadView(QQmlEngine *engine, QObject *model);
+    QQuickItem *viewItem() const;
+    QSize preferredSize() const;
+
+signals:
+    void dismissRequested();
+
+protected:
+    bool event(QEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
+private:
+    void updateContentGeometry();
+    QPointer<QQuickItem> m_host;
+    QVariant m_dialogResult;
+};

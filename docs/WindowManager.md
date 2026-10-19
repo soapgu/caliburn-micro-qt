@@ -11,7 +11,8 @@ QQuickWindow *windowFor(QObject *viewModel) const;
 // 信号参数为 VM；只在普通窗口实际关闭后发送。
 void windowClosed(QObject *viewModel);
 QFuture<DialogResult> showDialogAsync(std::unique_ptr<QObject> viewModel,
-                                    QObject *requester);
+                                    QObject *requester,
+                                    const DialogOptions &options = {});
 ```
 
 IWindowManager 是抽象 QObject 服务，WindowManager 提供具体实现，均不可由 QML 创建。模型允许普通 QObject，不要求继承 Screen 或确认 VM。currentDialog 返回 QObject*。DialogResult 定义于独立公开头文件 DialogResult.h。busy 表示服务持有弹窗或正在清理，currentDialog 返回尚未进入最终清理的 VM，守卫等待和拒绝期间保持不变。
@@ -55,6 +56,16 @@ WindowOptions 定义在公开头文件 WindowOptions.h：role 默认为 Primary�
 
 windowFor 在服务线程返回借用的 QQuickWindow*；VM 未关联或调用线程错误时返回 nullptr。调用方使用 QPointer 观察失效，仅在启动诊断/测试层读取几何、连接渲染信号，业务 VM 继续使用 tryClose。公开配置类型依赖 QtGui，框架 CMake 目标公开传递 Qt6::Gui。
 
+弹窗使用独立公开类型 `DialogOptions`（`<CaliburnMicroQt/DialogOptions.h>`），当前仅包含 `QString title`，默认空字符串。`showDialogAsync` 的第三个参数可省略；标题在业务组件完成创建前设置，不从 VM 的 title 属性推断，也不改变正文标题。标题只在展示时复制一次，不提供动态绑定。弹窗尺寸、flags、屏幕及模态继续由框架管理，不复用 WindowOptions。
+
+最小示例 HomeViewModel::reset 显式传入原生标题：
+
+```cpp
+DialogOptions options;
+options.title = QStringLiteral("重置计数");
+auto future = windows->showDialogAsync(std::move(dialog), this, options);
+```
+
 普通窗口关闭后发送 windowClosed(QObject *viewModel)，参数是 VM 而非窗口。Bootstrapper 仅处理根 VM 的关闭通知，辅助窗关闭不会触发应用退出。框架不为普通窗口自动绑定 Esc；既有模态弹窗 Escape 行为保持不变。
 
 ## 内部窗口关联
@@ -69,7 +80,7 @@ windowFor 在服务线程返回借用的 QQuickWindow*；VM 未关联或调用�
 
 ## 展示与关闭守卫
 
-每次请求创建内部 DialogWindow 与新的业务 View，沿用所属窗口的 QML 引擎、ViewLocator 和 ViewHost，业务 View 仍须以 Item 为根并声明匹配的 typed viewModel。缺失资源、非 Item、语法错误或注入不匹配均结束请求并交付异常。初始窗口尺寸取业务 View 隐式尺寸加 20 像素内容边距，并限制在所属屏幕可用区域内。
+每次请求由 C++ 创建私有 DialogWindow（QQuickWindow）与新的业务 View，不再加载 DialogWindow.qml；沿用所属窗口的 QML 引擎、ViewLocator 和 ViewHost，业务 View 仍须以 Item 为根并声明匹配的 typed viewModel。缺失资源、非 Item、语法错误或注入不匹配均结束请求并交付异常。初始窗口尺寸取业务 View 隐式尺寸（未提供时回退为 360 × 220）加四周各 20 像素内容边距，并限制在所属屏幕可用区域内；内容随窗口缩放。窗口背景跟随应用窗口调色板。
 
 弹窗 VM 的 tryClose(result)、Escape 和标题栏关闭都经私有 WindowConductor 调用 canClose。原关闭事件立即拒绝，排队检查许可；许可通过后恢复关闭，跳过本桥接的重复询问，原有 QML onClosing 仍可拒绝。
 
@@ -95,9 +106,9 @@ ConfirmationRequest 保存文案，ConfirmActionViewModel 仅接收 Confirmation
 
 ## 迁移与 CM 对齐边界
 
-公开 closeDialog 已移除，调用方改用 vm->tryClose(result)；ConfirmActionViewModel 构造时不再传入窗口服务。相关消费工程需同步修改并重新编译。自定义实现 IWindowManager 的类须支持带 WindowOptions 的 showWindow 和 windowFor；继承 WindowManager 的弹窗测试替身可沿用默认实现。普通窗口传入 typed QVariant 并借用 VM，不能复用 showDialogAsync 的 unique_ptr 接管约定。
+公开 closeDialog 已移除，调用方改用 vm->tryClose(result)；ConfirmActionViewModel 构造时不再传入窗口服务。相关消费工程需同步修改并重新编译。自定义实现 IWindowManager 的类须支持带 WindowOptions 的 showWindow、windowFor，以及带第三个 DialogOptions 参数的 showDialogAsync；覆盖 showDialogAsync 的测试替身也须同步签名。原有两参数调用继续有效，接口实现与消费工程须重新编译。普通窗口传入 typed QVariant 并借用 VM，不能复用 showDialogAsync 的 unique_ptr 接管约定。
 
-旧 DialogHost、DialogHostState 及其 manager/available/requestId/failed/dismiss/released 手动宿主协议已移除。应用应删除旧 QML 宿主声明，由 Bootstrapper 委托 showWindow 创建窗口，或在独立用法中直接调用 showWindow。原公开 attachToWindow / detachFromWindow 已收为 private，外部窗口手动接入不再支持。内部 DialogWindow 不作为公开可创建的 QML 类型，测试和业务不得依赖其内部属性作为 SDK。
+旧 DialogHost、DialogHostState 及其 manager/available/requestId/failed/dismiss/released 手动宿主协议已移除。应用应删除旧 QML 宿主声明，由 Bootstrapper 委托 showWindow 创建窗口，或在独立用法中直接调用 showWindow。原公开 attachToWindow / detachFromWindow 已收为 private，外部窗口手动接入不再支持。内部 DialogWindow 为私有 C++ 类型，不注册为公开 QML 类型；旧 DialogWindow.qml 资源已移除，测试和业务不得依赖其内部属性作为 SDK。
 
 与 CM 3.2.0 对齐：独立窗口包装普通 View；窗口与 VM 统一守卫及双向关闭桥接。保留的适配差异是 QFuture 异步结果、Qt 对象所有权与延迟回收。单服务只允许一个弹窗；弹窗守卫中再次打开弹窗仍按忙状态失败，不支持嵌套模态窗口。系统强制退出与资源清理不等待交互许可。
 

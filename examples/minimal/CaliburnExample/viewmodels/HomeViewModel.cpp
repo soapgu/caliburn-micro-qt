@@ -45,7 +45,9 @@ void HomeViewModel::reset()
         auto dialog = std::make_unique<ConfirmActionViewModel>(
             ConfirmationRequest{QStringLiteral("重置计数"), QStringLiteral("确定将计数重置为 0 吗？")});
         QPointer<ConfirmActionViewModel> candidate = dialog.get();
-        auto future = m_windowManager->showDialogAsync(std::move(dialog), this);
+        DialogOptions options;
+        options.title = QStringLiteral("重置计数");
+        auto future = m_windowManager->showDialogAsync(std::move(dialog), this, options);
         if (candidate && m_windowManager->currentDialog() == candidate.data())
             m_confirmation = candidate;
         future.then(this, [this, generation](DialogResult result) {

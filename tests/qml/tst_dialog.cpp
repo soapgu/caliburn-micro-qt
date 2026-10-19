@@ -71,6 +71,7 @@ private slots:
         auto *cancel = dialogControl(window, "dialogCancel");
         auto *accept = dialogControl(window, "dialogAccept");
         QVERIFY(cancel && accept);
+        QCOMPARE(dialogWindow(window)->title(), QStringLiteral("重置计数"));
         QTRY_VERIFY(cancel->hasActiveFocus());
         QTest::keyClick(dialogWindow(window) ? dialogWindow(window) : window, Qt::Key_Tab); QTRY_VERIFY(accept->hasActiveFocus());
         QTest::keyClick(dialogWindow(window) ? dialogWindow(window) : window, Qt::Key_Tab); QTRY_VERIFY(cancel->hasActiveFocus());
@@ -87,6 +88,7 @@ private slots:
         QTRY_VERIFY(input->hasActiveFocus());
         shell->home()->reset();
         accept = dialogControl(window, "dialogAccept"); QVERIFY(accept);
+        QCOMPARE(dialogWindow(window)->title(), QStringLiteral("重置计数"));
         click(window, accept);
         QTRY_COMPARE(shell->home()->count(), 0);
         QVERIFY(!windows->busy());
@@ -158,7 +160,7 @@ private slots:
         auto future = manager->showDialogAsync(std::move(vm), shell.get());
         auto *button = dialogControl(window, "customDialogAccept"); QVERIFY(button);
         auto *host = dialogWindow(window); QVERIFY(host);
-        QPointer<QQuickItem> view = host->property("dialogItem").value<QQuickItem *>(); QVERIFY(view);
+        QPointer<QQuickItem> view = dialogView(host); QVERIFY(view);
         QStringList order;
         connect(view, &QObject::destroyed, this, [&] { order << "view"; });
         connect(weak, &QObject::destroyed, this, [&] { order << "vm"; });
@@ -168,6 +170,28 @@ private slots:
         QVERIFY(!weak && !view);
         QCOMPARE(order, QStringList({"view", "vm"}));
         shell->deactivate(true); window->close();
+    }
+    void contentGeometryAndCreationContext() {
+        auto windows = std::make_shared<WindowManager>();
+        auto shell = buildShell(windows);
+        WindowCleanup cleanup{*windows};
+        auto *owner = showManagedWindow(*windows, shell.get()); QVERIFY(owner);
+        DialogOptions options;
+        options.title = QStringLiteral("创建时标题");
+        auto future = windows->showDialogAsync(std::make_unique<CustomDialogViewModel>(), shell.get(), options);
+        auto *window = dialogWindow(owner); QVERIFY(window);
+        auto *view = dialogView(window); QVERIFY(view);
+        QCOMPARE(view->property("windowAtCompletion").value<QQuickWindow *>(), window);
+        QCOMPARE(view->property("titleAtCompletion").toString(), options.title);
+        QCOMPARE(window->size(), QSize(320, 180));
+        QCOMPARE(view->mapToScene(QPointF()), QPointF(20, 20));
+        QCOMPARE(view->size(), QSizeF(280, 140));
+        window->resize(480, 360);
+        QTRY_COMPARE(view->size(), QSizeF(440, 320));
+        QCOMPARE(view->mapToScene(QPointF()), QPointF(20, 20));
+        window->close();
+        QTRY_VERIFY(future.isFinished());
+        QCOMPARE(future.result(), DialogResult{});
     }
     void loadFailures_data() {
         QTest::addColumn<int>("kind");
