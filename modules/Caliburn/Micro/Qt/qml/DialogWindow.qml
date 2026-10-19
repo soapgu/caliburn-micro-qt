@@ -7,7 +7,7 @@ Window {
     flags: Qt.Dialog
     modality: Qt.ApplicationModal
     visible: false
-    title: qsTr("对话框")
+    title: ""
     color: palette.window
     // 内部结果载体；首次关闭事件由 C++ 桥接固定本次结果。
     property var dialogResult: undefined
