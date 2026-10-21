@@ -52,6 +52,19 @@ private slots:
         auto *home = host->property("item").value<QQuickItem *>();
         QCOMPARE(home->property("viewModel").value<HomeViewModel *>(), m_model->home());
         QCOMPARE(host->property("errorString").toString(), QString());
+
+        QPointer<HomeViewModel> homeModel = m_model->home();
+        QCOMPARE(homeModel->parent(), m_model.data());
+        QCOMPARE(QQmlEngine::objectOwnership(homeModel), QQmlEngine::CppOwnership);
+        auto *engine = qmlEngine(m_window.data());
+        QVERIFY(engine);
+        // 固定成员通过属性 getter 暴露；垃圾回收后仍可继续绑定和交互。
+        engine->collectGarbage();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(m_model);
+        QVERIFY(homeModel);
+        QCOMPARE(m_model->home(), homeModel.data());
+        QCOMPARE(home->property("viewModel").value<HomeViewModel *>(), homeModel.data());
     }
     void bindingAndFrameworkConfirmation()
     {

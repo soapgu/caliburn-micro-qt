@@ -33,6 +33,8 @@ Shell 继承 Conductor<ScreenViewModel>::Collection::OneActive，保存两个页
 
 DI 仍为装配库私有依赖。工厂不捕获注入器或 Shell；局部注入器离开作用域后，工厂和页面的 shared_ptr 保持服务寿命。Conductor 接管页面时设置 QObject 父关系和 CppOwnership，释放临时 unique_ptr。根 Shell 由 unique_ptr 管理，服务没有 QObject 父对象。不同 buildShell 的计数相互隔离。
 
+组合层不重复设置框架入口负责的所有权标记：Bootstrapper 为其创建的窗口服务及根 VM 设置 CppOwnership，WindowManager 在普通窗口和弹窗入口设置模型标记，单项 Conductor 在等待关闭许可前保护候选，正式接管时再设置父对象和标记。无参 buildShell 的新窗口服务与 Shell 在纯 C++ 装配期间沿用默认所有权；通过窗口服务显示 Shell 时由窗口入口保证标记。其他共享服务按其实际暴露方式处理，C++ 创建且通过普通属性 getter 暴露的固定子对象无需重复设置，Q_INVOKABLE 或槽函数返回对象的边界见 [所有权约定](ViewModelBase.md#6-所有权线程与生命周期)。CppOwnership 只阻止引擎删除，实际释放仍由智能指针、成员存储或 QObject 父子关系承担；普通窗口借用模型，弹窗消费 unique_ptr 后由窗口服务持有。
+
 旧 Detail 等待 DeferredDelete 时可以再次创建新 Detail，二者暂时共享服务。关闭 Shell 后重建 Home 仍沿用服务；父树提前销毁时同时回收当前成员及尚未删除的旧页，服务在最后一个 shared_ptr 释放后销毁一次。
 
 ## 生命周期与导航

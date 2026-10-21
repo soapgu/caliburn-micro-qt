@@ -60,9 +60,7 @@ class FailingCloseShell : public ShellViewModel
 public:
     explicit FailingCloseShell(Observation &observation)
         : ShellViewModel(makeHomeFactory(), makeDetailFactory()), m_observation(observation)
-    {
-        QQmlEngine::setObjectOwnership(home(), QQmlEngine::CppOwnership);
-    }
+    {}
 protected:
     void onDeactivate(bool close) override
     {

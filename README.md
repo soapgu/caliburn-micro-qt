@@ -37,6 +37,7 @@ ViewLocator 和 ViewHost 接受普通 QObject，具体模型类型须声明自�
 - **父 VM 组合子 VM**：父对象接收所需子对象及自己直接使用的服务，不替子对象转交全部底层依赖。View 通过子 VM 属性嵌套装配。
 - **组合根负责创建**：应用集中装配服务和 VM 树；需要按需创建时由应用提供类型化工厂，业务 VM 不访问容器或服务定位器。
 - **所有权与生命周期分别明确**：C++ 持有 VM 树，QML 持有 View 树；View 先于其借用的 VM 销毁。装载或卸载 View 不隐式开始业务，也不隐式删除 VM。
+- **所有权标记由对应入口保证**：Bootstrapper 为其创建的窗口服务和根 VM 设置 CppOwnership，WindowManager 为窗口及弹窗模型设置，Conductor 保护待接管候选并在接管时设置；组合层不重复设置。其他对象按创建和暴露方式处理，详见 [所有权约定](docs/ViewModelBase.md#6-所有权线程与生命周期)。CppOwnership 阻止引擎删除对象，实际释放仍由 RAII、成员存储或 QObject 父子关系负责。
 - **操作显式绑定**：View 手写 enabled 与事件处理器，直接读取 VM 的可用状态并调用方法。VM 和业务用例各自检查职责内的前置条件，按钮禁用只是展示结果。
 
 数据与操作路径：
@@ -116,7 +117,7 @@ activateItem、deactivateItem、closeItem、tryClose 是 void 请求，无完成
 | --- | --- | --- | --- |
 | 通用框架模块 | `CaliburnMicroQt`，别名 `Caliburn::MicroQt` | `Caliburn.Micro.Qt 1.0` | 属性通知、生命周期接口、单项与集合型 Conductor、ViewLocator、ViewHost、窗口服务及确认框。 |
 | 示例用户代码模块 | `CaliburnExampleModule` | `CaliburnExample 1.0` | Shell 根窗口、Home 计数页、Detail 只读详情、共享计数服务、参数按钮、键盘输入、重置及退出确认。 |
-| 示例装配库 | `CaliburnExampleComposition` | 无独立 QML URI | Boost.Ext.DI 绑定共享服务及 Home/Detail 工厂，创建 Shell 并设置根 CppOwnership；子项由 Conductor 接管。 |
+| 示例装配库 | `CaliburnExampleComposition` | 无独立 QML URI | Boost.Ext.DI 绑定共享服务及 Home/Detail 工厂，创建并返回根 Shell；所有权标记由框架入口保证，子项由 Conductor 接管。 |
 | 示例启动程序 | `CaliburnExampleApp` | 无独立 QML URI | AppBootstrapper 配置定位规则与根工厂，Bootstrapper 编排启动退出，WindowManager 负责窗口创建、类型化注入和关闭生命周期。 |
 | 示例日志库 | `CaliburnExampleLogging` | 无独立 QML URI | 将 Qt/QML 分类日志统一输出到 spdlog 控制台与轮转文件。 |
 | 独立消费工程 | `CaliburnConsumerModule`、`CaliburnConsumerApp` | `CaliburnConsumer 1.0` | 独立 CMake 项目，只通过公开接口使用框架，附带集成测试。 |

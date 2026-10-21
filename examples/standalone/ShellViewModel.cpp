@@ -1,6 +1,5 @@
 #include "ShellViewModel.h"
 #include <CaliburnMicroQt/ConfirmActionViewModel.h>
-#include <QQmlEngine>
 #include <stdexcept>
 #include <utility>
 
@@ -9,7 +8,6 @@ ShellViewModel::ShellViewModel(std::shared_ptr<IWindowManager> windows)
 {
     if (!m_windows)
         throw std::invalid_argument("Consumer requires a window service");
-    QQmlEngine::setObjectOwnership(&m_home, QQmlEngine::CppOwnership);
 }
 
 void ShellViewModel::requestReset()

@@ -198,12 +198,16 @@ private:
 | 边界 | 约定 |
 | --- | --- |
 | 根 VM | C++ 装配层创建，无 QObject 父对象，由 unique_ptr 等 RAII 所有者持有。 |
-| 子 VM | 接管后由 QObject 父树唯一管理；不与 unique_ptr 同时负责删除。 |
-| QML 引用 | 借用 C++ VM；应用在暴露前明确设置 CppOwnership，不由基类构造函数设置。 |
+| 子 VM | Conductor 接管的动态子项由 QObject 父树管理，不与 unique_ptr 同时负责删除；固定成员对象随其所属 C++ 对象析构。 |
+| QML 引用 | 借用 C++ VM；框架管理的对象由对应入口保证 CppOwnership，组合层不重复设置，基类构造函数不设置。 |
 | 线程 | 本项目展示 VM 在 GUI 线程协作，通知辅助同线程同步调用，不提供工作线程调度能力。 |
 | Screen 生命周期 | initialize/activate/deactivate 及状态通知属于 ScreenViewModel；基类构造/析构不能代替业务开始、结束或页面激活。 |
 
-QML 不可创建类型与 CppOwnership 是不同契约：注册宏控制能否实例化，所有权设置控制引擎是否管理对象删除。应用可使用 `QQmlEngine::setObjectOwnership(vm, QQmlEngine::CppOwnership)`；这是引擎继承的所有权接口。[Qt 对象所有权说明](https://doc.qt.io/qt-6.8/qjsengine.html#ObjectOwnership-enum)
+Bootstrapper 为其创建的窗口服务及根 VM 设置 CppOwnership；WindowManager 在普通窗口和弹窗入口设置模型标记；Conductor 在单项候选等待关闭许可前保护候选，并在正式接管时设置父对象和所有权标记。框架不递归处理应用对象图。
+
+C++ 创建的对象默认具有 CppOwnership，通过普通属性 getter 暴露不会触发方法返回值的所有权转换，因此固定子对象无需重复设置。QML 显式调用 Q_INVOKABLE 或槽函数取得 QObject 返回值时，默认规则可能将其改为 JavaScriptOwnership；不经过上述框架入口的对象和其他共享服务，应按实际创建、暴露方式处理，必要时由应用显式设置。QObject 父对象与智能指针不能代替对这些规则的判断。[Qt 对象所有权说明](https://doc.qt.io/qt-6.8/qjsengine.html#ObjectOwnership-enum)
+
+QML 不可创建类型与 CppOwnership 是不同契约：注册宏控制能否实例化，所有权标记控制引擎是否删除对象。`QQmlEngine::setObjectOwnership(vm, QQmlEngine::CppOwnership)` 仅阻止引擎删除，不替应用持有或释放对象；实际释放责任仍由 RAII、成员存储或 QObject 父子关系承担。普通窗口借用模型，弹窗消费 unique_ptr 后由窗口服务持有，具体契约见 [WindowManager](WindowManager.md)。
 
 基类不保存 View、QML 引擎、容器、服务定位器或业务依赖。派生 VM 可借用构造注入的业务服务，服务寿命由应用装配保证；这不成为基类统一服务入口。关闭程序先销毁 View 与引擎，再销毁 VM 树及其借用服务，保持 [ViewHost](ViewHost.md) 的所有权约定。
 
