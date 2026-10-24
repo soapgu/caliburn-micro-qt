@@ -129,10 +129,11 @@ bool BootstrapperBase::createRootViewModel(const QMetaObject *type)
     return true;
 }
 
-bool BootstrapperBase::displayRootView(const QVariant &viewModel, RootViewOptions options)
+bool BootstrapperBase::displayRootView(const QVariant &viewModel, RootViewOptions options,
+                                      const std::optional<QString> &context)
 {
     options.window.role = WindowRole::Primary;
-    m_rootDisplayed = m_windowManager->showWindow(viewModel, options.window);
+    m_rootDisplayed = m_windowManager->showWindow(viewModel, options.window, context);
     if (m_rootDisplayed) {
         if (auto *window = m_windowManager->windowFor(m_root.get())) {
             connect(window, &QObject::destroyed, this, [this] {

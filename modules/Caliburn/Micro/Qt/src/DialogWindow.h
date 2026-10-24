@@ -3,6 +3,7 @@
 #include <QPointer>
 #include <QQuickWindow>
 #include <QVariant>
+#include <optional>
 
 class QQmlEngine;
 class QQuickItem;
@@ -14,7 +15,8 @@ class DialogWindow final : public QQuickWindow
     Q_PROPERTY(QVariant dialogResult MEMBER m_dialogResult)
 public:
     DialogWindow();
-    void loadView(QQmlEngine *engine, QObject *model);
+    void loadView(QQmlEngine *engine, QObject *model,
+                  const std::optional<QString> &context = std::nullopt);
     QQuickItem *viewItem() const;
     QSize preferredSize() const;
 

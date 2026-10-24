@@ -5,6 +5,7 @@ FocusScope {
     id: root
 
     property alias model: state.model
+    property var context: null
     readonly property Item item: loading.acceptedItem
     readonly property string errorString: loading.loadError
 
@@ -12,7 +13,7 @@ FocusScope {
         loading.acceptedItem = null
         loading.loadError = message
         loader.source = ""
-        state.reportLoadFailed(message)
+        state.reportLoadFailed(message, root.context)
     }
 
     function reloadView() {
@@ -22,17 +23,21 @@ FocusScope {
         loading.requestedUrl = ""
         if (!state.model)
             return
-        const url = ViewLocator.resolve(state.model)
+        const url = ViewLocator.resolve(state.model, root.context)
+        state.reportLoadStarted(url, root.context)
         if (url.toString().length === 0) {
             fail("ViewHost: model has no valid view mapping")
             return
         }
         loading.requestedUrl = url.toString()
-        state.reportLoadStarted(url)
         loader.setSource(url, { viewModel: state.model })
     }
 
     onModelChanged: {
+        if (loading.readyToLoad)
+            reloadView()
+    }
+    onContextChanged: {
         if (loading.readyToLoad)
             reloadView()
     }

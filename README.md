@@ -27,7 +27,7 @@ return ViewLocator::addSearchRoot({
 
 ViewLocator 统一根窗口、页面和弹窗定位。示例 Shell、Home、Detail 按约定定位，无需逐项登记；特殊视图可用 `ViewLocator::registerView<T>(url)` 显式覆盖。定位顺序为显式映射、约定搜索；支持 ViewModel → View、同命名空间及 ViewModels → Views 目录布局。框架资源目录自动作为最后一个搜索根，应用也可通过搜索根下的 `views/ConfirmActionView.qml` 覆盖内置确认视图。
 
-ViewLocator 和 ViewHost 接受普通 QObject，具体模型类型须声明自己的 Q_OBJECT，View 声明 `required property XxxViewModel viewModel`，属性变化由模型自己的 NOTIFY 驱动。窗口、Bootstrapper 根工厂和 Conductor 同样允许 QObject，按可选接口参与生命周期与关闭守卫；泛型 Conductor 仍校验所配置的成员类型。ViewLocator 是公开定位入口，ViewRegistry 仅作为内部实现。完整规则见 [ViewLocator](docs/ViewLocator.md)。Page 后缀、context 多视图与自定义转换规则尚未实现，见 [后续待办](docs/计划/后续版本ToDoList.md)。
+ViewLocator 和 ViewHost 接受普通 QObject，具体模型类型须声明自己的 Q_OBJECT，View 声明 `required property XxxViewModel viewModel`，属性变化由模型自己的 NOTIFY 驱动。窗口、Bootstrapper 根工厂和 Conductor 同样允许 QObject，按可选接口参与生命周期与关闭守卫；泛型 Conductor 仍校验所配置的成员类型。ViewLocator 是公开定位入口，ViewRegistry 仅作为内部实现。完整规则见 [ViewLocator](docs/ViewLocator.md)。context 多视图已支持，见 [Multi-View](docs/Multi-View.md)；Page 后缀与自定义转换规则尚未实现，见 [后续待办](docs/计划/后续版本ToDoList.md)。
 
 ## 架构原则
 
@@ -105,7 +105,7 @@ ViewModelBase 自身仅提供构造函数、默认虚析构和 protected 模板�
 
 新项以类型化 unique_ptr 接管，校验 QObject 父对象、线程、自身或祖先、IActivate 活动状态及逻辑 Parent。基础校验拒绝不移动调用方所有权；通过后单项请求暂存候选，许可拒绝或回调释放时回收，通过时接管并设置父对象；对象使用 CppOwnership。单项裸指针入口可重新选择本 Conductor 接管过的有效旧对象；关闭生命周期不自动删除对象；裸指针入口只接受本 Conductor 已接管的有效对象。调用方保证主线程同步、转换不重入；受管 Screen 的 C++ tryClose 通过逻辑 Parent 委托 IConductor 关闭，根窗口请求通过双向关闭桥接处理。
 
-showWindow 接受保留具体模型指针类型的 QVariant，View 须以 QQuickWindow 为根；单服务管理一个主窗和多个独立辅助窗。showDialogAsync 接受自定义 QObject 模型，由 C++ 创建独立应用级模态窗口承载 Item View，并通过 QFuture / QPromise 交付一次结果；第三个可选参数 DialogOptions 仅设置原生 title，默认空字符串，与正文标题独立。弹窗统一属于主窗，单服务只允许一个当前弹窗，忙时拒绝新请求，请求者销毁时强制清理。DialogResult 为 `std::optional<bool>`：true 表示接受，false 表示明确取消，空值表示无决定关闭；忙和展示失败以异常交付。不使用嵌套事件循环，完整规则见 [WindowManager](docs/WindowManager.md)。
+showWindow 接受保留具体模型指针类型的 QVariant，View 须以 QQuickWindow 为根；单服务管理一个主窗和多个独立辅助窗。showDialogAsync 接受自定义 QObject 模型，由 C++ 创建独立应用级模态窗口承载 Item View，并通过 QFuture / QPromise 交付一次结果；第三个可选参数 DialogOptions 仅设置原生 title，标题默认空字符串且与正文标题独立；末尾第四个可选参数 context 选择 View，默认 std::nullopt。弹窗统一属于主窗，单服务只允许一个当前弹窗，忙时拒绝新请求，请求者销毁时强制清理。DialogResult 为 `std::optional<bool>`：true 表示接受，false 表示明确取消，空值表示无决定关闭；忙和展示失败以异常交付。不使用嵌套事件循环，完整规则见 [WindowManager](docs/WindowManager.md)。
 
 activateItem、deactivateItem、closeItem、tryClose 是 void 请求，无完成回调。激活看 activationProcessed，实际停用/关闭看 deactivated(close)，方法返回不保证完成。默认策略检查 getChildren 快照后汇总，单项只有当前项，集合包含全部成员；拒绝时不部分关闭。关闭许可采用 CM 风格的直接回调，不支持重叠请求、重复回调或等待期间修改参与对象。主窗口关闭与根 tryClose 接入同一守卫链，退出时根关闭收尾和 onExit 各执行一次；onStartup 与 onExit 均为 void 钩子，正常退出钩子在 aboutToQuit 执行。完整契约见 [关闭守卫](docs/关闭守卫.md) 和 [Bootstrapper](docs/Bootstrapper.md)。
 
@@ -133,6 +133,8 @@ caliburn-micro-qt/
 │   ├── minimal/                  # Shell、Home、Detail 完整示例
 │   │   ├── app/                  # 启动、组合根与日志出口
 │   │   └── CaliburnExample/       # 示例用户代码模块
+│   ├── multiscreen/              # 多窗口与多屏示例
+│   ├── multiview/                # 同一 VM 的 context 多视图示例
 │   └── standalone/               # 独立消费工程及集成测试
 ├── cmake/                         # FetchContent 依赖接入
 ├── third_party/boost-di/          # 依赖来源说明与许可证
@@ -186,6 +188,12 @@ Home 和 Detail 显式接收非空 `shared_ptr<CounterService>`，唯一计数�
 - [后续版本 ToDoList：视图定位扩展、View 保留与 Action](docs/计划/后续版本ToDoList.md)
 
 设计起点来自 [qt-snake-lab](https://github.com/soapgu/qt-snake-lab) 中的 [Qt 实现方案](https://github.com/soapgu/qt-snake-lab/blob/main/docs/贪吃蛇Qt实现方案.md) 与 [源码结构设计](https://github.com/soapgu/qt-snake-lab/blob/main/docs/贪吃蛇Qt源码结构设计.md)。贪吃蛇用于解释页面、子 VM 与动态释放，是框架的使用场景，不是框架的业务边界。
+
+## Multi-View 示例
+
+[examples/multiview](examples/multiview/README.md) 是项目自建的最小演示，不是官方示例移植。Shell 持有唯一 HomeViewModel，两个 ViewHost 使用 Master、Detail context 同时展示，右侧可切换 context 或恢复默认视图。共享数据保留，View 局部输入随重建清空。
+
+构建目标为 `CaliburnMultiViewApp`；macOS 运行 `build/debug/bin/CaliburnMultiViewApp.app`，Linux 运行 `build/debug/bin/CaliburnMultiViewApp`。接口与 CM 3.2.0 对齐边界见 [Multi-View](docs/Multi-View.md)。
 
 ## 构建、运行与测试
 
@@ -311,7 +319,7 @@ QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或�
 | 日志与示例 | 框架分类日志；示例 spdlog 控制台与轮转文件出口；Shell/Home/Detail 展示共享计数、参数与键盘输入、导航、重置及退出确认。 |
 | 接入与验证 | 静态 QML 源码模块、公开 C++ 头文件与 CMake 目标、仓库外独立消费工程；Ubuntu/macOS CI 配置及麒麟原生构建与自动检查。 |
 
-1.0 的 ViewHost 每次切换都会重新创建 View，集合导航只保留 VM。Action 动作绑定、View 实例缓存、Page 后缀、context 多视图及自定义定位转换规则留待后续版本，见 [后续版本 ToDoList](docs/计划/后续版本ToDoList.md)。安装导出包和独立应用分发包尚未提供；平台自动检查与人工 GUI 验收分别确认。
+1.0 的 ViewHost 每次切换都会重新创建 View，集合导航只保留 VM。Action 动作绑定、View 实例缓存、Page 后缀及自定义定位转换规则留待后续版本，见 [后续版本 ToDoList](docs/计划/后续版本ToDoList.md)。安装导出包和独立应用分发包尚未提供；平台自动检查与人工 GUI 验收分别确认。
 
 ## 参考与许可
 

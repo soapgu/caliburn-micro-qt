@@ -1,6 +1,7 @@
 #include "FrameworkLog.h"
 #include "ViewHostState.h"
 #include "ViewModelLifetime.h"
+#include "ViewContext.h"
 #include <QThread>
 #include <QVariant>
 
@@ -45,20 +46,21 @@ void ViewHostState::retainView(QObject *view)
     }
 }
 
-void ViewHostState::reportLoadStarted(const QUrl &url)
+void ViewHostState::reportLoadStarted(const QUrl &url, const QVariant &context)
 {
     m_loadIdentity = FrameworkLog::identity(m_model.data());
     m_loadUrl = url;
-    qCDebug(FrameworkLog::view).noquote() << "View loading:" << m_loadIdentity << "URL:" << url.toString();
+    m_loadContext = ViewContext::describeQml(context);
+    qCDebug(FrameworkLog::view).noquote() << "View loading:" << m_loadIdentity << "context:" << m_loadContext << "URL:" << url.toString();
 }
 
 void ViewHostState::reportLoadSucceeded(const QUrl &url) const
 {
-    qCInfo(FrameworkLog::view).noquote() << "View assembled:" << m_loadIdentity << "URL:" << url.toString();
+    qCInfo(FrameworkLog::view).noquote() << "View assembled:" << m_loadIdentity << "context:" << m_loadContext << "URL:" << url.toString();
 }
 
-void ViewHostState::reportLoadFailed(const QString &message) const
+void ViewHostState::reportLoadFailed(const QString &message, const QVariant &context) const
 {
     qCWarning(FrameworkLog::view).noquote() << message << "model:" << FrameworkLog::identity(m_model.data())
-                                        << "URL:" << m_loadUrl.toString();
+                                        << "context:" << ViewContext::describeQml(context) << "URL:" << m_loadUrl.toString();
 }

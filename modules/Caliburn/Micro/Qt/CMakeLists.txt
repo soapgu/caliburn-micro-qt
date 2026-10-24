@@ -46,6 +46,7 @@ qt_add_qml_module(CaliburnMicroQt
         src/ConductorCollectionOneActiveBase.cpp
         include/CaliburnMicroQt/ViewLocator.h
         src/ViewLocator.cpp
+        src/ViewContext.h
         src/ViewRegistry.h
         src/ViewRegistry.cpp
         src/ViewHostState.h

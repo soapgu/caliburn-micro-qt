@@ -6,6 +6,7 @@
 #include <QVariant>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -52,7 +53,8 @@ protected:
     }
 
     template<class T>
-    [[nodiscard]] bool displayRootViewFor(RootViewOptions options = {})
+    [[nodiscard]] bool displayRootViewFor(RootViewOptions options = {},
+                                         const std::optional<QString> &context = std::nullopt)
     {
         static_assert(std::is_base_of_v<QObject, T>, "根模型必须继承 QObject");
         if (!createRootViewModel(&T::staticMetaObject)) {
@@ -60,7 +62,7 @@ protected:
             return false;
         }
         // 保留具体 T* 类型供 QML 注入；对象仍由 m_root 持有。
-        const bool displayed = displayRootView(QVariant::fromValue(static_cast<T *>(m_root.get())), options);
+        const bool displayed = displayRootView(QVariant::fromValue(static_cast<T *>(m_root.get())), options, context);
         if (!displayed) m_rootDisplayFailed = true;
         return displayed;
     }
@@ -71,7 +73,7 @@ private:
 
     bool initialize();
     bool createRootViewModel(const QMetaObject *type);
-    bool displayRootView(const QVariant &viewModel, RootViewOptions options);
+    bool displayRootView(const QVariant &viewModel, RootViewOptions options, const std::optional<QString> &context);
     bool m_previousQuitOnLastWindowClosed = true;
     bool m_quitPolicyChanged = false;
     bool fail(const QString &message) const;

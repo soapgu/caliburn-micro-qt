@@ -4,7 +4,7 @@ set_source_files_properties(fixtures/PreviewView.qml PROPERTIES QT_RESOURCE_ALIA
 qt_add_resources(CaliburnViewLocatorTests locator_fixtures PREFIX /locator FILES fixtures/PreviewView.qml)
 target_link_libraries(CaliburnViewLocatorTests PRIVATE CaliburnMicroQtplugin Caliburn::MicroQt Qt6::Test Qt6::Quick)
 # 配置在进程内共享，每行规则在独立进程中执行，不提供生产 reset 接口。
-foreach(scenario IN ITEMS layouts rootOrder prefix case config mapping freeze threads qrc objectExplicit objectConvention noFallback nonVisual injection missingOverride)
+foreach(scenario IN ITEMS contextLayouts contextMappings contextValidation contextScope layouts rootOrder prefix case config mapping freeze threads qrc objectExplicit objectConvention noFallback nonVisual injection missingOverride)
     add_test(NAME viewlocator_${scenario} COMMAND CaliburnViewLocatorTests "rules:${scenario}")
     set_tests_properties(viewlocator_${scenario} PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 30)
@@ -231,4 +231,27 @@ if(CALIBURN_BUILD_EXAMPLE)
     add_test(NAME multiscreen_strict_rejected COMMAND CaliburnMultiScreenApp --strict-screens)
     set_tests_properties(multiscreen_strict_rejected PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" WILL_FAIL TRUE TIMEOUT 15)
+endif()
+
+add_executable(CaliburnMultiViewTests cpp/tst_multiview.cpp)
+qt_add_resources(CaliburnMultiViewTests multiview_fixtures
+    PREFIX /multiview BASE fixtures/multiview
+    FILES fixtures/multiview/views/WindowView.qml fixtures/multiview/views/Window/Master.qml
+          fixtures/multiview/views/Window/Broken.qml
+          fixtures/multiview/views/DialogView.qml fixtures/multiview/views/Dialog/Master.qml
+          fixtures/multiview/views/Dialog/Broken.qml fixtures/multiview/views/Home/Broken.qml
+          fixtures/multiview/views/Home/Wrong.qml fixtures/multiview/views/Home/Mismatch.qml)
+target_link_libraries(CaliburnMultiViewTests PRIVATE
+    CaliburnMultiViewModuleplugin CaliburnMultiViewModule Qt6::Test Qt6::Quick Qt6::QuickControls2)
+foreach(scenario IN ITEMS qmlContextValues twoHostsAndContextChanges hostFailures
+        managedModelAndMultipleViews modelAndHostDestruction windowContextParameters windowsAndDialogs
+        windowAndDialogFailures example rootContext)
+    add_test(NAME multiview_${scenario} COMMAND CaliburnMultiViewTests "${scenario}")
+    set_tests_properties(multiview_${scenario} PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 30)
+endforeach()
+if(CALIBURN_BUILD_EXAMPLE)
+    add_test(NAME multiview_startup COMMAND CaliburnMultiViewApp --auto-close 100)
+    set_tests_properties(multiview_startup PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 15)
 endif()

@@ -22,6 +22,7 @@ Locator 与宿主支持普通 QObject，不要求继承 ViewModelBase；具体�
 | 属性 | 契约 |
 | --- | --- |
 | model: QObject | 可读写，借用目标；默认 null。 |
+| context: var | 只接受字符串或空值，默认 null；改变时重新定位并创建 View，不改变 VM 生命周期。 |
 | 只读 item: Item | 成功装配的 View；未完成、清空或失败时 null。 |
 | 只读 errorString: string | 最近一次装配错误；新装配开始或空模型时清空。 |
 
@@ -108,3 +109,9 @@ ViewHost 的 model/item/errorString 属性契约保持不变；ViewHostState 的
 返回按钮现在位于 DetailView，objectName 为 goBack，调用 Detail.goBack → Screen.tryClose → Parent 的 IConductor。Shell 在关闭当前 Detail 前补齐缺失 Home，集合提交选择后 ViewHost 卸载 Detail View、创建 Home View，Detail VM 随后延迟回收。按钮及其旧 View 会一起销毁，测试每次进入页面重新获取按钮。
 
 关闭失败时仍显示原 Detail View，页面可重试；成功返回仍复用已有 Home VM、重置 Home 文本和页面焦点。本轮没有修改宿主加载、借用所有权或 View 缓存机制，结果见 [tryClose 验收记录](验收/tryClose验收记录.md)。
+
+## context 多视图
+
+`ViewHost { model: shell.home; context: "Master" }` 装配同一 Home VM 的 Master View。context 默认 null，null/undefined 采用默认 View；空字符串不等于默认 context。非法参数或未匹配时清空内容并设置 errorString，不回退默认 View。创建前同时设置 model/context；组件完成后装配一次。相同 context 值不重建；切换后返回仍创建新 View，不恢复 View 内部输入。
+
+多个宿主可以同时显示同一 VM 的不同 context，各自拥有独立 View，并分别参与受管 VM 的借用释放等待。宿主不驱动 VM 生命周期。名称、登记和窗口参数见 [Multi-View](Multi-View.md)。

@@ -47,7 +47,8 @@ QQuickWindow *WindowManager::windowFor(QObject *viewModel) const
     return nullptr;
 }
 
-bool WindowManager::showWindow(const QVariant &viewModel, const WindowOptions &options)
+bool WindowManager::showWindow(const QVariant &viewModel, const WindowOptions &options,
+                               const std::optional<QString> &context)
 {
     if (QThread::currentThread() != thread())
         return failWindow(QStringLiteral("Showing a window requires the service thread"));
@@ -68,7 +69,7 @@ bool WindowManager::showWindow(const QVariant &viewModel, const WindowOptions &o
     if ((options.geometry && !options.geometry->isValid())
             || (options.screen && options.screen->thread() != thread()))
         return failWindow(QStringLiteral("Invalid window geometry or screen"));
-    const QUrl url = ViewLocator::viewUrl(model);
+    const QUrl url = ViewLocator::viewUrl(model, context);
     if (url.isEmpty() || (url.scheme() != QStringLiteral("qrc") && !url.isLocalFile()))
         return failWindow(QStringLiteral("Window view must have a local or qrc mapping"));
 
@@ -315,7 +316,8 @@ QObject *WindowManager::currentDialog() const
 }
 
 QFuture<DialogResult> WindowManager::showDialogAsync(
-        std::unique_ptr<QObject> vm, QObject *requester, const DialogOptions &options)
+        std::unique_ptr<QObject> vm, QObject *requester, const DialogOptions &options,
+        const std::optional<QString> &context)
 {
     qCDebug(FrameworkLog::window) << "Dialog requested";
     auto request = std::make_unique<Request>();
@@ -343,7 +345,7 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
         return reject(std::make_exception_ptr(std::runtime_error("WindowManager: a dialog request is already pending")));
     if (!m_window || !m_engine || (m_managedWindow && m_managedWindow->closed))
         return reject(std::make_exception_ptr(std::runtime_error("WindowManager: no usable owner window")));
-    if (ViewLocator::viewUrl(vm.get()).isEmpty())
+    if (ViewLocator::viewUrl(vm.get(), context).isEmpty())
         return reject(std::make_exception_ptr(std::runtime_error("WindowManager: dialog model has no view mapping")));
     request->modelIdentity = FrameworkLog::identity(vm.get());
     request->requester = requester;
@@ -376,7 +378,7 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
             window->setTitle(options.title);
             window->setTransientParent(m_window);
             window->setScreen(m_window->screen());
-            window->loadView(m_engine, m_request->vm);
+            window->loadView(m_engine, m_request->vm, context);
             if (!m_request->vm || m_request->closing)
                 throw std::runtime_error("WindowManager: dialog became unavailable during view creation");
             m_request->view = window->viewItem();

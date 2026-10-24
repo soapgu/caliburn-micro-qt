@@ -21,7 +21,7 @@ const bool frozen = ViewLocator::freeze();
 const QUrl url = ViewLocator::viewUrl(model);
 ```
 
-`ViewSearchRoot` 包含 `QUrl url`、`QString modelNamespacePrefix` 和默认值为 `views` 的 `QString viewsDirectory`。`registerView<T>(url)`、`addSearchRoot(root)`、`freeze()` 返回 bool。`viewUrl(const QObject*)` 返回 QUrl；每引擎查询单例提供 `Q_INVOKABLE QUrl resolve(QObject*) const`。登记、配置及冻结只向 C++ 提供。
+`ViewSearchRoot` 包含 `QUrl url`、`QString modelNamespacePrefix` 和默认值为 `views` 的 `QString viewsDirectory`。`registerView<T>(url)`、`addSearchRoot(root)`、`freeze()` 返回 bool。`viewUrl(const QObject*, const std::optional<QString>& context = std::nullopt)` 返回 QUrl；每引擎查询单例提供 `Q_INVOKABLE QUrl resolve(QObject*, const QVariant& context = {}) const`。`registerView<T>(url, context)` 同样接受可空 context。登记、配置及冻结只向 C++ 提供。
 
 登记类型必须继承 QObject，并声明自己的 Q_OBJECT；模板在编译期检查，不能借用父类的类型身份。定位和 ViewHost 接受直接继承 QObject 的模型，属性刷新依赖模型自己的 Q_PROPERTY / NOTIFY。ViewModelBase 仍是提供 setAndNotify 的便利基类。WindowManager、Bootstrapper、Conductor、Parent 和关闭策略仍保持原有类型、生命周期和所有权约束；可定位的普通 QObject 不自动获得受管窗口或 Conductor 支持。
 
@@ -29,10 +29,10 @@ const QUrl url = ViewLocator::viewUrl(model);
 
 ## 定位优先级
 
-1. 显式映射，按实际 QMetaObject 精确匹配。
+1. 显式映射，按实际 QMetaObject 与可空 context 精确匹配。
 2. 约定搜索，按实际类型名称生成候选，不沿基类回退；应用与框架使用相同规则。
 
-显式登记接受有效、非空、绝对 URL，不提前检查资源存在性。冻结前同类型同 URL 重复登记成功，不同 URL 冲突拒绝，原映射保留。Registry 只保存显式映射，框架不预先登记确认视图。应用可显式覆盖任何可登记类型；显式地址缺失或加载失败时，不回退约定候选。未知类型、空模型和非法线程查询返回空 URL，非法操作输出 view 分类诊断。
+显式登记接受有效、非空、绝对 URL，不提前检查资源存在性。冻结前同类型、同 context、同 URL 重复登记成功，同类型同 context 的不同 URL 冲突拒绝，原映射保留。Registry 只保存显式映射，框架不预先登记确认视图。应用可显式覆盖任何可登记类型；显式地址缺失或加载失败时，不回退约定候选。未知类型、空模型和非法线程查询返回空 URL，非法操作输出 view 分类诊断。
 
 ## 搜索根与候选
 
@@ -69,6 +69,8 @@ Locator 初始化时自动包含 `qrc:/qt/qml/Caliburn/Micro/Qt/` 搜索根，�
 
 旧 C++ `ViewRegistry::registerView/freeze/viewUrl` 迁移为 `ViewLocator` 同名入口，QML `ViewRegistry.resolve` 迁移为 `ViewLocator.resolve`。常规页面逐项登记改为一次 addSearchRoot；资源声明、QML 模型类型注册和 C++ 构造注入仍须由应用完成。示例 Shell、Home、Detail 已采用模块根 `qrc:/qt/qml/CaliburnExample/`。
 
-`Page` 后缀、context 多视图、自定义转换规则见 [后续扩展](计划/后续版本ToDoList.md#视图定位约定的后续扩展待设计待实施)。窗口管理及 Conductor 的进一步接口化、Action 绑定和 View 实例保留均为独立待办，本批不提供相关实现或占位接口。
+context 多视图的规则、参数边界与示例见 [Multi-View](Multi-View.md)。未传 context 时继续使用上文的默认视图规则；指定 context 后只查对应映射与约定候选，不回退默认 View。
+
+`Page` 后缀、自定义转换规则见 [后续扩展](计划/后续版本ToDoList.md#视图定位约定的后续扩展待设计待实施)。窗口管理及 Conductor 的进一步接口化、Action 绑定和 View 实例保留均为独立待办，本批不提供相关实现或占位接口。
 
 本机验证结果与 Cocoa 首轮焦点超时及前台复验记录见 [第七批验收记录](验收/第七批验收记录.md)。

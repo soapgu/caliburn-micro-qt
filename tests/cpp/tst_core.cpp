@@ -139,9 +139,35 @@ private slots:
         const QUrl home(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/HomeView.qml"));
         QVERIFY(ViewLocator::registerView<HomeViewModel>(home));
         QVERIFY(ViewLocator::registerView<HomeViewModel>(home));
-        QTest::ignoreMessage(QtWarningMsg, "ViewLocator: conflicting type mapping HomeViewModel");
+        QTest::ignoreMessage(QtWarningMsg, "ViewLocator: conflicting type mapping HomeViewModel context: <default>");
         QVERIFY(!ViewLocator::registerView<HomeViewModel>(QUrl(QStringLiteral("qrc:/different.qml"))));
         QVERIFY(ViewLocator::registerView<ShellViewModel>(QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml"))));
+    }
+
+    void dialogContextParameters()
+    {
+        TestWindowManager windows;
+        QObject requester;
+        auto exercise = [&](auto &service) {
+            for (const auto &context : {QStringLiteral("Master"), QStringLiteral("")}) {
+                DialogOptions options;
+                options.title = QStringLiteral("独立标题");
+                auto future = service.showDialogAsync(std::make_unique<ScreenViewModel>(), &requester,
+                                                       options, context);
+                QVERIFY(future.isFinished());
+                QCOMPARE(future.result(), DialogResult(true));
+                QVERIFY(windows.lastContext.has_value());
+                QCOMPARE(*windows.lastContext, context);
+                QCOMPARE(windows.lastOptions.title, options.title);
+                // 下一次省略 context/options，不能残留上次记录。
+                future = service.showDialogAsync(std::make_unique<ScreenViewModel>(), &requester);
+                QVERIFY(future.isFinished());
+                QVERIFY(!windows.lastContext);
+                QVERIFY(windows.lastOptions.title.isEmpty());
+            }
+        };
+        exercise(windows);
+        exercise(static_cast<IWindowManager &>(windows));
     }
 
     void screenLifecycle()
@@ -284,7 +310,7 @@ private slots:
         QCOMPARE(registry.resolve(&home), homeUrl);
         QCOMPARE(ViewLocator::viewUrl(&shell), QUrl(QStringLiteral("qrc:/qt/qml/CaliburnExample/views/ShellView.qml")));
         DerivedHome unknown(std::make_shared<CounterService>(), testWindows());
-        QTest::ignoreMessage(QtWarningMsg, "ViewLocator: no view registered for type DerivedHome");
+        QTest::ignoreMessage(QtWarningMsg, "ViewLocator: no view registered for type DerivedHome context: <default>");
         QVERIFY(ViewLocator::viewUrl(&unknown).isEmpty());
         QTest::ignoreMessage(QtWarningMsg, "ViewLocator: registration, freeze and lookup require the application thread");
         QTest::ignoreMessage(QtWarningMsg, "ViewLocator: registration, freeze and lookup require the application thread");

@@ -46,7 +46,7 @@ bool DialogWindow::eventFilter(QObject *watched, QEvent *event)
     return QQuickWindow::eventFilter(watched, event);
 }
 
-void DialogWindow::loadView(QQmlEngine *engine, QObject *model)
+void DialogWindow::loadView(QQmlEngine *engine, QObject *model, const std::optional<QString> &context)
 {
     QQmlEngine::setContextForObject(this, engine->rootContext());
     QQmlComponent component(engine, QUrl(QStringLiteral(
@@ -60,7 +60,8 @@ void DialogWindow::loadView(QQmlEngine *engine, QObject *model)
     m_host = host;
     updateContentGeometry();
     host->setFocus(true);
-    component.setInitialProperties(host, {{QStringLiteral("model"), QVariant::fromValue(model)}});
+    component.setInitialProperties(host, {{QStringLiteral("model"), QVariant::fromValue(model)},
+                                           {QStringLiteral("context"), context ? QVariant(*context) : QVariant()}});
     component.completeCreate();
     if (component.isError()) throw std::runtime_error(component.errorString().toStdString());
     const auto error = host->property("errorString").toString();

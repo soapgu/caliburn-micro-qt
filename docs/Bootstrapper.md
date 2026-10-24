@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
 | `void onStartup()` | 默认空实现的虚方法；在 configure 成功并冻结映射后调用。应用显示根窗口，显示失败、重复显示或未显示均判定启动失败。 |
 | `void onExit()` | 默认空实现的虚方法。正常退出在 aboutToQuit 中、根关闭之后调用；失败清理补调。最多调用一次，成功展示后的根 VM 与 View 在钩子中仍存活；展示失败的部分窗口资源已经回收，须兼容部分初始化。 |
 | `bool registerRootFactory<T>(std::function<std::unique_ptr<T>(std::shared_ptr<IWindowManager>)> factory)` | 只允许在 configure 中登记，每个类型只能登记一次；拒绝空工厂，登记时不创建对象。工厂统一接收框架窗口服务并返回 unique_ptr<T>。 |
-| `bool displayRootViewFor<T>(RootViewOptions options = {})` | 只允许在 onStartup 中调用；每个 Bootstrapper 只允许一次显示尝试，T 必须继承 QObject。RootViewOptions.window 传递 WindowOptions，根角色固定为 Primary。 |
+| `bool displayRootViewFor<T>(RootViewOptions options = {}, const std::optional<QString>& context = std::nullopt)` | 只允许在 onStartup 中调用；每个 Bootstrapper 只允许一次显示尝试，T 必须继承 QObject。context 独立选择根 View；RootViewOptions.window 只传递展示配置，根角色固定为 Primary。 |
 
 示例 AppBootstrapper::configure 设置 Basic 样式，配置 `qrc:/qt/qml/CaliburnExample/` 搜索根，使 Shell/Home/Detail 通过约定定位，并用 `[](std::shared_ptr<IWindowManager> windows) { return buildShell(std::move(windows)); }` 提供 Shell 工厂。onStartup 只调用 `displayRootViewFor<ShellViewModel>()`。当前装配通过 Home/Detail 工厂和共享服务构造 Shell，显示时可省略选项，也可显式调用 `displayRootViewFor<ShellViewModel>(RootViewOptions{})`，行为相同。
 
@@ -86,7 +86,7 @@ Bootstrapper 保留一个根 VM，窗口服务支持一个主窗和多个辅助�
 
 ## 4C 集合导航接入与退出
 
-displayRootViewFor 接收 RootViewOptions，run 接口不变；buildShell 提供接收框架窗口服务的重载。AppBootstrapper 配置 Shell/Home/Detail 映射，应用装配层提供共享服务及两个页面工厂。构造只选择 Home，激活由集合型 Conductor 传播。
+displayRootViewFor 接收 RootViewOptions 和末尾可空 context，run 接口不变；buildShell 提供接收框架窗口服务的重载。AppBootstrapper 配置 Shell/Home/Detail 映射，应用装配层提供共享服务及两个页面工厂。构造只选择 Home，激活由集合型 Conductor 传播。
 
 从 Home 或 Detail 退出都只关闭根 Shell，集合型一次清空所有页面和选择，关闭并延迟回收成员。onExit 时根仍存活，子页可能已处理 DeferredDelete；测试分别验证当前子 View 先于子 VM、根 View 先于根 VM 释放，不要求旧页面活到根析构。
 
@@ -122,3 +122,7 @@ Screen.tryClose 优先委托逻辑 Parent IConductor，否则直接关闭弱关�
 独立模态窗口改造后，aboutToQuit 和最终 shutdown 都在根生命周期之前解除窗口服务关联，强制完成弹窗 Future，并保证弹窗 View/窗口先于引擎释放。onExit 时根 VM 和根 View 仍存活。见 [独立模态窗口验收](验收/独立模态窗口验收记录.md)。
 
 第七批将配置冻结与根窗口定位统一迁入 [ViewLocator](ViewLocator.md)，示例通过模块资源根定位 Shell/Home/Detail。后续 QObject 接口化已放宽根工厂类型，本轮进一步采用先创建绑定、再激活显示及直接关闭弱关联窗口的顺序，所有权和退出钩子寿命保持不变。
+
+## context 参数迁移
+
+根窗口使用 `displayRootViewFor<T>(options = {}, context = std::nullopt)`。不传参数继续使用默认视图和展示设置；旧的 `displayRootViewFor<T>(options)` 调用保持原样；指定视图时可写 `displayRootViewFor<T>(options, QStringLiteral("Desktop"))`，只指定 context 时传 `({}, QStringLiteral("Desktop"))`。context 沿私有 displayRootView 传给 showWindow，RootViewOptions 及其 window 成员不保存 context；根窗口角色仍强制为 Primary。旧业务调用无需修改，消费工程仍需重新编译。

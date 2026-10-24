@@ -131,7 +131,7 @@ private slots:
             expectedName = QStringLiteral("overrideConfirm");
             QVERIFY(ViewLocator::registerView<ConfirmActionViewModel>(selected));
             QVERIFY(ViewLocator::registerView<ConfirmActionViewModel>(selected));
-            QTest::ignoreMessage(QtWarningMsg, "ViewLocator: conflicting type mapping ConfirmActionViewModel");
+            QTest::ignoreMessage(QtWarningMsg, "ViewLocator: conflicting type mapping ConfirmActionViewModel context: <default>");
             QVERIFY(!ViewLocator::registerView<ConfirmActionViewModel>(defaultUrl));
         }
         QCOMPARE(ViewLocator::viewUrl(model.get()), selected);

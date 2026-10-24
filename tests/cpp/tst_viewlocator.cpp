@@ -57,7 +57,7 @@ private slots:
     void rules_data()
     {
         QTest::addColumn<QString>("scenario");
-        for (const char *name : {"layouts", "rootOrder", "prefix", "case", "config", "mapping", "freeze", "threads", "qrc", "objectExplicit", "objectConvention", "noFallback", "nonVisual", "injection", "missingOverride"})
+        for (const char *name : {"contextLayouts", "contextMappings", "contextValidation", "contextScope", "layouts", "rootOrder", "prefix", "case", "config", "mapping", "freeze", "threads", "qrc", "objectExplicit", "objectConvention", "noFallback", "nonVisual", "injection", "missingOverride"})
             QTest::newRow(name) << QString::fromLatin1(name);
     }
     void rules()
@@ -67,7 +67,95 @@ private slots:
         QVERIFY(first.isValid() && second.isValid());
         const ViewSearchRoot root{QUrl::fromLocalFile(first.path()), QStringLiteral("App")};
         PreviewViewModel preview;
-        if (scenario == "layouts") {
+        if (scenario == "contextLayouts") {
+            App::ViewModels::HomeViewModel home;
+            App::ViewModels::Feature::DetailViewModel detail;
+            App::Feature::HomeViewModel feature;
+            App::ViewModels::ViewModels::NestedViewModel nested;
+            QVERIFY(ViewLocator::addSearchRoot(root));
+            const auto defaultUrl = file(first, "views/HomeView.qml");
+            const auto master = file(first, "views/Home/Master.qml");
+            QCOMPARE(ViewLocator::viewUrl(&home), defaultUrl);
+            QCOMPARE(ViewLocator::viewUrl(&home, QStringLiteral("Master")), master);
+            QVERIFY(ViewLocator::viewUrl(&detail, QStringLiteral("Detail.Compact")).isEmpty());
+            // 查询不缓存失败结果；创建文件后立即能够定位。
+            const auto compact = file(first, "views/Feature/Detail/Detail/Compact.qml");
+            QCOMPARE(ViewLocator::viewUrl(&detail, QStringLiteral("Detail.Compact")), compact);
+            QCOMPARE(ViewLocator::viewUrl(&feature, QStringLiteral("Master")), QUrl{});
+            const auto featureUrl = file(first, "Feature/Home/Master.qml");
+            QCOMPARE(ViewLocator::viewUrl(&feature, QStringLiteral("Master")), featureUrl);
+            const auto nestedUrl = file(first, "ViewModels/views/Nested/Master.qml");
+            QCOMPARE(ViewLocator::viewUrl(&nested, QStringLiteral("Master")), nestedUrl);
+            // 候选保持传入大小写；本地文件是否存在服从文件系统（macOS 常为不区分大小写）。
+            const auto lower = ViewLocator::viewUrl(&home, QStringLiteral("master"));
+            QCOMPARE(lower.isEmpty(), !QFileInfo(first.filePath("views/Home/master.qml")).isFile());
+            if (!lower.isEmpty()) QVERIFY(lower.path().endsWith(QStringLiteral("views/Home/master.qml")));
+            QVERIFY(ViewLocator::viewUrl(&home, QStringLiteral("Missing")).isEmpty());
+            QVERIFY(ViewLocator::viewUrl(&home, QStringLiteral("")).isEmpty());
+            QVERIFY(QFile::remove(master.toLocalFile()));
+            const auto same = file(first, "ViewModels/Home/Master.qml");
+            QCOMPARE(ViewLocator::viewUrl(&home, QStringLiteral("Master")), same);
+        } else if (scenario == "contextMappings") {
+            const QUrl plain("qrc:/default.qml"), master("qrc:/master.qml"), empty("qrc:/empty.qml");
+            QVERIFY(ViewLocator::registerView<PreviewViewModel>(plain));
+            QVERIFY(ViewLocator::registerView<PreviewViewModel>(master, QStringLiteral("Master")));
+            QVERIFY(ViewLocator::registerView<PreviewViewModel>(empty, QStringLiteral("")));
+            QVERIFY(ViewLocator::registerView<PreviewViewModel>(master, QStringLiteral("Master")));
+            QVERIFY(!ViewLocator::registerView<PreviewViewModel>(plain, QStringLiteral("Master")));
+            QCOMPARE(ViewLocator::viewUrl(&preview), plain);
+            QCOMPARE(ViewLocator::viewUrl(&preview, QStringLiteral("Master")), master);
+            QCOMPARE(ViewLocator::viewUrl(&preview, QStringLiteral("")), empty);
+            QVERIFY(ViewLocator::viewUrl(&preview, QStringLiteral("Detail")).isEmpty());
+            QVERIFY(ViewLocator::addSearchRoot({root.url}));
+            const auto detail = file(first, "views/Preview/Detail.qml");
+            QCOMPARE(ViewLocator::viewUrl(&preview, QStringLiteral("Detail")), detail);
+            // 已选定的显式缺失地址不回退到实际存在的约定地址。
+            QVERIFY(!file(first, "views/Preview/Master.qml").isEmpty());
+            QCOMPARE(ViewLocator::viewUrl(&preview, QStringLiteral("Master")), master);
+            DerivedPreviewViewModel derived;
+            QVERIFY(ViewLocator::viewUrl(&derived, QStringLiteral("Master")).isEmpty());
+            QVERIFY(ViewLocator::freeze());
+            QVERIFY(!ViewLocator::registerView<PreviewViewModel>(master, QStringLiteral("Master")));
+            QVERIFY(!ViewLocator::registerView<PreviewViewModel>(master, QStringLiteral("New")));
+        } else if (scenario == "contextValidation") {
+            QVERIFY(ViewLocator::addSearchRoot({root.url}));
+            for (const char *invalid : {"../Master", "a/b", "a\\b", ".Master", "Master.", "a..b", ".", ".."}) {
+                const auto context = QString::fromLatin1(invalid);
+                QVERIFY(!ViewLocator::registerView<PreviewViewModel>(QUrl("qrc:/x.qml"), context));
+                QVERIFY(ViewLocator::viewUrl(&preview, context).isEmpty());
+            }
+            const auto spaces = file(first, "views/Preview/ Master .qml");
+            QCOMPARE(ViewLocator::viewUrl(&preview, QStringLiteral(" Master ")), spaces);
+            ViewLocator locator;
+            QVERIFY(locator.resolve(&preview, 1).isEmpty());
+            QVERIFY(locator.resolve(&preview, false).isEmpty());
+            const auto plain = file(first, "views/PreviewView.qml");
+            QCOMPARE(locator.resolve(&preview), plain);
+            QCOMPARE(locator.resolve(&preview, QVariant::fromValue(nullptr)), plain);
+            QVERIFY(locator.resolve(&preview, QStringLiteral("")).isEmpty());
+            bool registered = true;
+            QUrl resolved;
+            auto worker = std::unique_ptr<QThread>(QThread::create([&] {
+                registered = ViewLocator::registerView<PreviewViewModel>(plain, QStringLiteral("Master"));
+                resolved = ViewLocator::viewUrl(&preview, QStringLiteral("Master"));
+            }));
+            worker->start(); QVERIFY(worker->wait(5000));
+            QVERIFY(!registered && resolved.isEmpty());
+        } else if (scenario == "contextScope") {
+            QVERIFY(ViewLocator::addSearchRoot({root.url}));
+            QVERIFY(ViewLocator::addSearchRoot({QUrl::fromLocalFile(second.path())}));
+            const auto firstSame = file(first, "Preview/Master.qml");
+            const auto secondMapped = file(second, "views/Preview/Master.qml");
+            QCOMPARE(ViewLocator::viewUrl(&preview, QStringLiteral("Master")), secondMapped);
+            const auto firstMapped = file(first, "views/Preview/Master.qml");
+            QCOMPARE(ViewLocator::viewUrl(&preview, QStringLiteral("Master")), firstMapped);
+            QVERIFY(QFile::remove(firstMapped.toLocalFile()));
+            QVERIFY(QFile::remove(secondMapped.toLocalFile()));
+            QCOMPARE(ViewLocator::viewUrl(&preview, QStringLiteral("Master")), firstSame);
+            Apple::HomeViewModel apple;
+            QVERIFY(!file(first, "le/Home/Master.qml").isEmpty());
+            QVERIFY(ViewLocator::viewUrl(&apple, QStringLiteral("Master")).isEmpty());
+        } else if (scenario == "layouts") {
             App::ViewModels::HomeViewModel home;
             App::ViewModels::Feature::DetailViewModel detail;
             App::Feature::HomeViewModel feature;

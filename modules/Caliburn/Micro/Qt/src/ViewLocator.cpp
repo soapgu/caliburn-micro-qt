@@ -1,6 +1,7 @@
 #include <CaliburnMicroQt/ViewLocator.h>
 #include "ViewRegistry.h"
 #include "FrameworkLog.h"
+#include "ViewContext.h"
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QSet>
@@ -44,15 +45,19 @@ bool exists(const QUrl &url)
 }
 }
 
-bool ViewLocator::registerType(const QMetaObject &type, const QUrl &url)
+bool ViewLocator::registerType(const QMetaObject &type, const QUrl &url, const std::optional<QString> &context)
 {
     if (!configurable())
         return false;
+    if (!ViewContext::valid(context)) {
+        qCWarning(FrameworkLog::view).noquote() << "ViewLocator: invalid context" << ViewContext::describe(context);
+        return false;
+    }
     if (url.isEmpty() || !url.isValid() || url.isRelative()) {
         qCWarning(FrameworkLog::view, "ViewLocator: view URL must be valid, non-empty and absolute");
         return false;
     }
-    return data().registry.registerType(type, url);
+    return data().registry.registerType(type, url, context);
 }
 
 bool ViewLocator::addSearchRoot(const ViewSearchRoot &root)
@@ -99,15 +104,29 @@ bool ViewLocator::freeze()
     return true;
 }
 
-QUrl ViewLocator::viewUrl(const QObject *model)
+QUrl ViewLocator::resolve(QObject *model, const QVariant &value) const
+{
+    std::optional<QString> context;
+    if (!ViewContext::fromQml(value, context)) {
+        qCWarning(FrameworkLog::view, "ViewLocator: context must be null or a string with non-empty dot-separated name segments");
+        return {};
+    }
+    return viewUrl(model, context);
+}
+
+QUrl ViewLocator::viewUrl(const QObject *model, const std::optional<QString> &context)
 {
     if (!applicationThread() || !model)
         return {};
+    if (!ViewContext::valid(context)) {
+        qCWarning(FrameworkLog::view).noquote() << "ViewLocator: invalid context" << ViewContext::describe(context);
+        return {};
+    }
     if (model->thread() != QThread::currentThread()) {
         qCWarning(FrameworkLog::view, "ViewLocator: model must belong to the application thread");
         return {};
     }
-    const QUrl registered = data().registry.viewUrl(model);
+    const QUrl registered = data().registry.viewUrl(model, context);
     if (!registered.isEmpty())
         return registered;
 
@@ -115,8 +134,14 @@ QUrl ViewLocator::viewUrl(const QObject *model)
     QStringList parts = type.split(QStringLiteral("::"));
     QString name = parts.takeLast();
     QList<QUrl> mapped, sameNamespace;
-    if (name.endsWith(QStringLiteral("ViewModel")) && name.size() > 9) {
-        name.chop(5);
+    if (name.endsWith(QStringLiteral("ViewModel")) && name.size() > 9 && (!context || !context->isEmpty())) {
+        // 对齐 CM TransformName：有 context 时移除 View 后缀，追加 context 命名空间。
+        name.chop(context ? 9 : 5);
+        if (context) {
+            QString path = *context;
+            path.replace(QLatin1Char('.'), QLatin1Char('/'));
+            name += QLatin1Char('/') + path;
+        }
         name += QStringLiteral(".qml");
         for (const auto &root : data().roots) {
             QStringList remaining = parts;
@@ -126,7 +151,7 @@ QUrl ViewLocator::viewUrl(const QObject *model)
                     continue;
                 remaining = remaining.mid(prefix.size());
             }
-            qCDebug(FrameworkLog::view).noquote() << "View search scope; type:" << type << "root:" << root.url.toString();
+            qCDebug(FrameworkLog::view).noquote() << "View search scope; type:" << type << "context:" << ViewContext::describe(context) << "root:" << root.url.toString();
             auto append = [&](QList<QUrl> &urls, const QStringList &directories) {
                 QUrl candidate = root.url;
                 candidate.setPath(root.url.path() + (directories + QStringList{name}).join(QLatin1Char('/')));
@@ -147,12 +172,12 @@ QUrl ViewLocator::viewUrl(const QObject *model)
         if (visited.contains(candidate))
             continue;
         visited.insert(candidate);
-        qCDebug(FrameworkLog::view).noquote() << "View candidate; type:" << type << "URL:" << candidate.toString();
+        qCDebug(FrameworkLog::view).noquote() << "View candidate; type:" << type << "context:" << ViewContext::describe(context) << "URL:" << candidate.toString();
         if (exists(candidate)) {
-            qCDebug(FrameworkLog::view).noquote() << "Convention view found; type:" << type << "URL:" << candidate.toString();
+            qCDebug(FrameworkLog::view).noquote() << "Convention view found; type:" << type << "context:" << ViewContext::describe(context) << "URL:" << candidate.toString();
             return candidate;
         }
     }
-    qCWarning(FrameworkLog::view).noquote() << "ViewLocator: no view registered for type" << type;
+    qCWarning(FrameworkLog::view).noquote() << "ViewLocator: no view registered for type" << type << "context:" << ViewContext::describe(context);
     return {};
 }

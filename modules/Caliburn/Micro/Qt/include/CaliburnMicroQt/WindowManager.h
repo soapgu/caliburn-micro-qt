@@ -16,7 +16,9 @@ class WindowManager : public IWindowManager
 public:
     explicit WindowManager(QObject *parent = nullptr);
     ~WindowManager() override;
-    [[nodiscard]] bool showWindow(const QVariant &viewModel, const WindowOptions &options = {}) override;
+    [[nodiscard]] bool showWindow(const QVariant &viewModel,
+                                   const WindowOptions &options = {},
+                                   const std::optional<QString> &context = std::nullopt) override;
     QQuickWindow *windowFor(QObject *viewModel) const override;
     // 停用普通窗口桥接并结束弹窗；保留普通 View 供应用退出钩子使用。
     void prepareForShutdown();
@@ -26,7 +28,8 @@ public:
     QObject *currentDialog() const override;
     QFuture<DialogResult> showDialogAsync(std::unique_ptr<QObject> viewModel,
                                          QObject *requester,
-                                         const DialogOptions &options = {}) override;
+                                         const DialogOptions &options = {},
+                                         const std::optional<QString> &context = std::nullopt) override;
 signals:
     // 普通窗口关闭生命周期异常已捕获；应用可据此保留失败退出码。
     void windowCleanupFailed();
