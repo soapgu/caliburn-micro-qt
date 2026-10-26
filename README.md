@@ -306,6 +306,19 @@ cmake --build build
 
 QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或麒麟验收。Qt 安装缓存用于减少重复下载，测试报告及配置日志保存 7 天，可在每次运行的附件中下载。工作流文件位于 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
 
+## 1.1 版本发布
+
+1.1 在 1.0 基础上增加多窗口与 Multi-View，并改进弹窗配置和页面关闭回收。对应标签为 `v1.1.0`；QML 导入仍为 `Caliburn.Micro.Qt 1.0`。
+
+- 多窗口与多屏：支持主窗口、辅助窗口角色，以及屏幕、位置尺寸、窗口标志、可见性和激活配置；新增 [多屏示例](examples/multiscreen/README.md)。
+- Multi-View：同一 VM 可按 context 定位不同 View，贯通 ViewHost、根窗口、普通窗口和弹窗；新增 [独立示例](examples/multiview/README.md) 和 [功能说明](docs/Multi-View.md)。context 为可空字符串，指定 context 定位失败时不回退默认 View。
+- 弹窗：改由 C++ 创建窗口，支持通过 `DialogOptions.title` 设置原生标题，默认标题为空。
+- 关闭与所有权：统一页面关闭回收，修正集合活动项状态，并清理示例中重复的 QML 所有权设置。
+
+context 位于 options 之后并带默认值，旧业务调用可继续使用；自定义 `IWindowManager` 派生实现与测试替身须同步新增参数及 `windowFor` 覆写，下游须重新编译。接口与用法见 [WindowManager](docs/WindowManager.md)。View 每次切换仍重新创建，运行时 model 与 context 的连续更新逐次处理；本版未加入 View 缓存或属性更新合并。
+
+发布检查覆盖 Ubuntu 24.04 与 macOS 15 的构建、109 项 CTest、QML 检查、仅框架构建、Release 日志检查和仓库外独立消费工程。各功能的本机 GUI 与其他平台验证范围见 [验收记录](docs/验收)。本版继续以源码提供，不附预编译 SDK 或应用分发包。
+
 ## 1.0 版本发布
 
 1.0 提供从属性通知、页面组合到窗口管理的 Qt Quick MVVM 支撑能力，并配套完整示例、独立消费工程与自动检查。
