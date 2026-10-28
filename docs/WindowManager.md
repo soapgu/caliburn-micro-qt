@@ -59,13 +59,21 @@ WindowOptions 定义在公开头文件 WindowOptions.h：role 默认为 Primary�
 
 windowFor 在服务线程返回借用的 QQuickWindow*；VM 未关联或调用线程错误时返回 nullptr。调用方使用 QPointer 观察失效，仅在启动诊断/测试层读取几何、连接渲染信号，业务 VM 继续使用 tryClose。公开配置类型依赖 QtGui，框架 CMake 目标公开传递 Qt6::Gui。
 
-弹窗使用独立公开类型 `DialogOptions`（`<CaliburnMicroQt/DialogOptions.h>`），当前仅包含 `QString title`，默认空字符串。`showDialogAsync` 的第三个参数为标题选项、第四个参数为独立 context，两者均可省略；原有 (model, requester, options) 调用不变。标题在业务组件完成创建前设置，不从 VM 的 title 属性推断，也不改变正文标题。标题只在展示时复制一次，不提供动态绑定。弹窗尺寸、flags、屏幕及模态继续由框架管理，不复用 WindowOptions。
+弹窗使用独立公开类型 `DialogOptions`（`<CaliburnMicroQt/DialogOptions.h>`），包含 `QString title`（默认空字符串）和 `QColor backgroundColor`（默认无效颜色）。`showDialogAsync` 的第三个参数为展示选项、第四个参数为独立 context，两者均可省略；原有 (model, requester, options) 调用及 `DialogOptions{title}` 写法不变，消费工程需重新编译。标题在业务组件完成创建前设置，不从 VM 的 title 属性推断，也不改变正文标题。标题只在展示时复制一次，不提供动态绑定。弹窗尺寸、flags、屏幕及模态继续由框架管理，不复用 WindowOptions。
 
 最小示例 HomeViewModel::reset 显式传入原生标题：
 
 ```cpp
 DialogOptions options;
 options.title = QStringLiteral("重置计数");
+auto future = windows->showDialogAsync(std::move(dialog), this, options);
+```
+
+`backgroundColor` 未指定或为无效颜色时，弹窗客户区使用系统 `QPalette::Window`，并随系统调色板变化更新；指定有效颜色时，在业务视图加载前应用，并在本次弹窗存续期间保持该颜色。该选项不修改业务 View 的背景，调用方可传入与业务主题一致的颜色，统一现有 20 像素留白与内容区域的外观。原生标题栏由系统绘制，不受此选项控制。
+
+```cpp
+DialogOptions options{QStringLiteral("人员管理")};
+options.backgroundColor = QColor(QStringLiteral("#FFFFFF"));
 auto future = windows->showDialogAsync(std::move(dialog), this, options);
 ```
 

@@ -14,7 +14,7 @@ class DialogWindow final : public QQuickWindow
     Q_OBJECT
     Q_PROPERTY(QVariant dialogResult MEMBER m_dialogResult)
 public:
-    DialogWindow();
+    explicit DialogWindow(const QColor &backgroundColor = {});
     void loadView(QQmlEngine *engine, QObject *model,
                   const std::optional<QString> &context = std::nullopt);
     QQuickItem *viewItem() const;
@@ -29,6 +29,7 @@ protected:
 
 private:
     void updateContentGeometry();
+    const QColor m_backgroundColor;
     QPointer<QQuickItem> m_host;
     QVariant m_dialogResult;
 };

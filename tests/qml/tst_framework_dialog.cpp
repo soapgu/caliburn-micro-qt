@@ -4,12 +4,14 @@
 #include <CaliburnMicroQt/WindowManager.h>
 #include <QDir>
 #include <QFile>
+#include <QPalette>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQmlExtensionPlugin>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QtTest>
@@ -59,8 +61,7 @@ private slots:
         QObject requester;
         auto model = confirmation();
         auto *vm = model.get();
-        DialogOptions options;
-        options.title = title;
+        const DialogOptions options{title};
         QFuture<DialogResult> future;
         if (viaInterface) {
             IWindowManager *service = &manager;
@@ -85,6 +86,58 @@ private slots:
         vm->tryClose(false);
         QTRY_VERIFY(future.isFinished());
         QCOMPARE(future.result(), DialogResult(false));
+    }
+
+    void backgroundColor_data()
+    {
+        QTest::addColumn<bool>("viaInterface");
+        QTest::addColumn<QColor>("backgroundColor");
+        for (const bool viaInterface : {false, true}) {
+            const auto prefix = viaInterface ? QByteArray("接口/") : QByteArray("具体类/");
+            QTest::newRow((prefix + "系统颜色").constData()) << viaInterface << QColor();
+            QTest::newRow((prefix + "固定颜色").constData()) << viaInterface << QColor("#FFFFFF");
+        }
+    }
+
+    void backgroundColor()
+    {
+        QFETCH(bool, viaInterface);
+        QFETCH(QColor, backgroundColor);
+        const auto originalPalette = QGuiApplication::palette();
+        const auto restorePalette = qScopeGuard([originalPalette] {
+            QGuiApplication::setPalette(originalPalette);
+        });
+        auto palette = originalPalette;
+        palette.setColor(QPalette::Window, QColor("#425364"));
+        QGuiApplication::setPalette(palette);
+        ScreenViewModel root;
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        auto *owner = showManagedWindow(manager, &root);
+        QVERIFY(owner);
+        QObject requester;
+        // 同一服务先后使用指定、默认、另一指定和默认颜色，检查配置不会残留。
+        for (const auto &color : {backgroundColor, QColor(), QColor("#ABCDEF"), QColor()}) {
+            const DialogOptions options{QStringLiteral("背景色测试"), color};
+            auto model = confirmation();
+            auto *vm = model.get();
+            auto future = viaInterface
+                ? static_cast<IWindowManager *>(&manager)->showDialogAsync(std::move(model), &requester, options)
+                : manager.showDialogAsync(std::move(model), &requester, options);
+            auto *window = dialogWindow(owner);
+            QVERIFY(window);
+            QCOMPARE(window->color(), color.isValid() ? color : palette.color(QPalette::Window));
+            // 两次调色板变化均需遵循本次弹窗的配置。
+            for (const auto &systemColor : {QColor("#738495"), QColor("#263748")}) {
+                palette.setColor(QPalette::Window, systemColor);
+                QGuiApplication::setPalette(palette);
+                QTRY_COMPARE(window->color(), color.isValid() ? color : systemColor);
+            }
+            vm->tryClose(false);
+            QTRY_VERIFY(future.isFinished());
+            QCOMPARE(future.result(), DialogResult(false));
+            QTRY_VERIFY(!dialogWindow(owner));
+        }
     }
 
     void registryMapping()

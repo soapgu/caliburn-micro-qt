@@ -14,12 +14,14 @@ namespace {
 constexpr int contentMargin = 20;
 }
 
-DialogWindow::DialogWindow()
+DialogWindow::DialogWindow(const QColor &backgroundColor)
+    : m_backgroundColor(backgroundColor)
 {
     setObjectName(QStringLiteral("dialogWindow"));
     setFlags(Qt::Dialog);
     setModality(Qt::ApplicationModal);
-    setColor(QGuiApplication::palette().color(QPalette::Window));
+    setColor(m_backgroundColor.isValid() ? m_backgroundColor
+                                        : QGuiApplication::palette().color(QPalette::Window));
     qGuiApp->installEventFilter(this);
     connect(this, &QQuickWindow::widthChanged, this, &DialogWindow::updateContentGeometry);
     connect(this, &QQuickWindow::heightChanged, this, &DialogWindow::updateContentGeometry);
@@ -41,7 +43,8 @@ bool DialogWindow::event(QEvent *event)
 
 bool DialogWindow::eventFilter(QObject *watched, QEvent *event)
 {
-    if (watched == qGuiApp && event->type() == QEvent::ApplicationPaletteChange)
+    if (watched == qGuiApp && event->type() == QEvent::ApplicationPaletteChange
+        && !m_backgroundColor.isValid())
         setColor(QGuiApplication::palette().color(QPalette::Window));
     return QQuickWindow::eventFilter(watched, event);
 }

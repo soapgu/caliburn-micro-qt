@@ -373,7 +373,7 @@ QFuture<DialogResult> WindowManager::showDialogAsync(
     emit busyChanged();
     try {
         if (!m_request->closing) {
-            auto object = std::make_unique<DialogWindow>();
+            auto object = std::make_unique<DialogWindow>(options.backgroundColor);
             auto *window = object.get();
             window->setTitle(options.title);
             window->setTransientParent(m_window);

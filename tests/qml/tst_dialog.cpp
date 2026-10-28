@@ -178,11 +178,13 @@ private slots:
         auto *owner = showManagedWindow(*windows, shell.get()); QVERIFY(owner);
         DialogOptions options;
         options.title = QStringLiteral("创建时标题");
+        options.backgroundColor = QColor("#F2F4F6");
         auto future = windows->showDialogAsync(std::make_unique<CustomDialogViewModel>(), shell.get(), options);
         auto *window = dialogWindow(owner); QVERIFY(window);
         auto *view = dialogView(window); QVERIFY(view);
         QCOMPARE(view->property("windowAtCompletion").value<QQuickWindow *>(), window);
         QCOMPARE(view->property("titleAtCompletion").toString(), options.title);
+        QCOMPARE(view->property("backgroundColorAtCompletion").value<QColor>(), options.backgroundColor);
         QCOMPARE(window->size(), QSize(320, 180));
         QCOMPARE(view->mapToScene(QPointF()), QPointF(20, 20));
         QCOMPARE(view->size(), QSizeF(280, 140));

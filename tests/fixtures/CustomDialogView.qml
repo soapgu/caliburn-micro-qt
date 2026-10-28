@@ -8,9 +8,11 @@ FocusScope {
     implicitHeight: 140
     property var windowAtCompletion
     property string titleAtCompletion
+    property color backgroundColorAtCompletion
     Component.onCompleted: {
         windowAtCompletion = Window.window
         titleAtCompletion = Window.window ? Window.window.title : ""
+        backgroundColorAtCompletion = Window.window ? Window.window.color : "transparent"
     }
     Button {
         anchors.centerIn: parent
