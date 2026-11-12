@@ -255,3 +255,9 @@ if(CALIBURN_BUILD_EXAMPLE)
     set_tests_properties(multiview_startup PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 15)
 endif()
+
+# 容器无关解析契约；测试适配器不进入框架发布目标。
+add_executable(CaliburnInstanceProviderTests cpp/tst_instanceprovider.cpp)
+target_link_libraries(CaliburnInstanceProviderTests PRIVATE Caliburn::MicroQt Qt6::Test)
+add_test(NAME instance_provider COMMAND CaliburnInstanceProviderTests)
+set_tests_properties(instance_provider PROPERTIES TIMEOUT 30)
