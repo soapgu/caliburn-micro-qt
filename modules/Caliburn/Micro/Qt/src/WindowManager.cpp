@@ -173,6 +173,14 @@ void WindowManager::managedWindowClosed(ManagedWindow *managed)
     emit windowClosed(model.data());
 }
 
+QMetaObject::Connection WindowManager::subscribeWindowCleanupFailed(
+        QObject *context, std::function<void()> callback)
+{
+    if (!context || !callback || context->thread() != thread()) return {};
+    return connect(this, &WindowManager::windowCleanupFailed, context, std::move(callback),
+                   Qt::DirectConnection);
+}
+
 void WindowManager::prepareForShutdown()
 {
     if (QThread::currentThread() != thread()) {

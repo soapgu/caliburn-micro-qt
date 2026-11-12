@@ -1,6 +1,7 @@
 #pragma once
 
 #include <CaliburnMicroQt/IWindowManager.h>
+#include <CaliburnMicroQt/IWindowManagerLifecycle.h>
 #include <QPointer>
 #include <QPromise>
 #include <vector>
@@ -8,9 +9,10 @@
 class QQmlEngine;
 class QQuickWindow;
 class QQuickItem;
-class WindowManager : public IWindowManager
+class WindowManager : public IWindowManager, public IWindowManagerLifecycle
 {
     Q_OBJECT
+    Q_INTERFACES(IWindowManagerLifecycle)
     QML_ELEMENT
     QML_UNCREATABLE("Window service is created by the framework")
 public:
@@ -21,9 +23,11 @@ public:
                                    const std::optional<QString> &context = std::nullopt) override;
     QQuickWindow *windowFor(QObject *viewModel) const override;
     // 停用普通窗口桥接并结束弹窗；保留普通 View 供应用退出钩子使用。
-    void prepareForShutdown();
+    void prepareForShutdown() override;
     // 释放自建窗口/引擎并兜底关闭借用 VM；不删除 VM。
-    void releaseWindows();
+    void releaseWindows() override;
+    QMetaObject::Connection subscribeWindowCleanupFailed(
+            QObject *context, std::function<void()> callback) override;
     bool busy() const override;
     QObject *currentDialog() const override;
     QFuture<DialogResult> showDialogAsync(std::unique_ptr<QObject> viewModel,

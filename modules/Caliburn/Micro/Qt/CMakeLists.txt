@@ -56,6 +56,7 @@ qt_add_qml_module(CaliburnMicroQt
         src/ViewModelLifetime.h
         src/ViewModelLifetime.cpp
         include/CaliburnMicroQt/WindowOptions.h
+        include/CaliburnMicroQt/IWindowManagerLifecycle.h
         include/CaliburnMicroQt/IWindowManager.h
         include/CaliburnMicroQt/WindowManager.h
         include/CaliburnMicroQt/ConfirmationRequest.h

@@ -40,14 +40,28 @@ showWindow 借用一个同线程、无逻辑 Parent 的 QObject，参数以 `QVa
 
 主窗成功关闭后，强制清理辅助窗和在途弹窗，不再询问辅助窗守卫；主窗、View 与引擎保留到显式释放，供应用 onExit 使用。辅助窗成功关闭仅收尾自身，排队释放其 View/引擎，不影响主窗或其他辅助窗，也不自动重建。窗口关闭生命周期执行后发送 windowClosed(viewModel)，VM 若在钩子中销毁则参数为空。强制销毁/退出释放不发送此正常关闭信号。调用方须让借用 VM 活到资源释放；VM 或窗口意外销毁时，在当前析构栈退出后排队清理剩余自建资源，旧清理随旧桥接销毁而取消。服务不保留对 Bootstrapper、根工厂或业务类型的依赖。
 
-具体 WindowManager 提供两阶段清理：
+WindowManager 同时实现独立的 `IWindowManagerLifecycle` 接口，提供两阶段清理：
 
 ```cpp
 void prepareForShutdown(); // 停用桥接、结束弹窗，保留普通窗口及 View。
 void releaseWindows();     // 释放自建窗口与引擎，兜底关闭仍未关闭的普通 VM。
 ```
 
-所有操作在应用主线程执行。Bootstrapper 在 aboutToQuit 中准备退出、关闭根并执行 onExit，在事件循环返回后显式释放窗口，最后删除根 VM；不依赖共享服务的析构时机。独立使用时须在删除 VM 前调用 releaseWindows；服务析构同样兜底释放。强制释放先销毁普通 View，再执行尚未尝试的 VM 关闭，不询问交互守卫。两阶段接口属于具体资源管理，不加入业务 IWindowManager 的请求协议。
+所有操作在应用主线程执行。Bootstrapper 在 aboutToQuit 中准备退出、关闭根并执行 onExit，在事件循环返回后显式释放窗口，最后删除根 VM；不依赖共享服务的析构时机。独立使用时须在删除 VM 前调用 releaseWindows；服务析构同样兜底释放。强制释放先销毁普通 View，再执行尚未尝试的 VM 关闭，不询问交互守卫。两阶段能力不加入业务 IWindowManager 的请求协议，旧服务实现无需增加新方法。
+
+可从同一个服务对象查询生命周期能力：
+
+```cpp
+#include <CaliburnMicroQt/IWindowManagerLifecycle.h>
+
+auto *lifecycle = qobject_cast<IWindowManagerLifecycle *>(service); // service 为 IWindowManager*
+```
+
+自定义服务若希望提供该能力，应自身实现接口并声明 Q_INTERFACES；不另行提供生命周期适配器。当前 Bootstrapper 仍直接调用具体 WindowManager，并未接入提供器或改用新接口。
+
+接口还提供 `subscribeWindowCleanupFailed(QObject *context, std::function<void()> callback)`，返回可用 QObject::disconnect 主动断开的连接。订阅直接连接既有 windowCleanupFailed 信号，context 或服务销毁时自动失效；空 context、空 callback 或 context 与服务线程不同则返回无效连接。所有接口方法在服务线程调用，回调为同线程通知，不得抛异常、销毁服务或重入清理。
+
+重复准备和释放不会重复执行已尝试的关闭生命周期，不引入永久关闭标志。弹窗窗口和 View 同步释放，弹窗 VM 沿用 deleteLater 延迟回收，Future 完成不代表 VM 已实际析构。接口验证见 [窗口生命周期契约验收记录](验收/窗口生命周期契约验收记录.md)。
 
 根 VM/引擎/桥接拆分与历史验证见 [职责迁移验收](验收/根窗口职责迁移验收记录.md)。当前已对齐 CM 3.2.0 的创建、绑定、激活、显示顺序及直接窗口关闭路径，见 [窗口直接关闭迁移](tryClose窗口直接关闭.md)；普通 Item 的通用窗口包装仍未支持。
 

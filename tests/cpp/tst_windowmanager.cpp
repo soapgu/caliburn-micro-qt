@@ -12,6 +12,7 @@
 #include <QQmlExtensionPlugin>
 #include <QQuickStyle>
 #include <QtTest>
+#include <QThread>
 #include <stdexcept>
 
 Q_IMPORT_QML_PLUGIN(CaliburnMicroQtPlugin)
@@ -58,6 +59,27 @@ class RemoteWindowProbe : public DialogProbe { Q_OBJECT };
 class UnmappedWindowProbe : public DialogProbe { Q_OBJECT };
 class UnmappedDialog : public ScreenViewModel { Q_OBJECT };
 
+// 模拟旧应用只实现 IWindowManager 的服务，不继承默认 WindowManager。
+class LegacyWindowManager : public IWindowManager
+{
+public:
+    bool showWindow(const QVariant &, const WindowOptions &,
+                    const std::optional<QString> &) override { return false; }
+    QQuickWindow *windowFor(QObject *) const override { return nullptr; }
+    bool busy() const override { return false; }
+    QObject *currentDialog() const override { return nullptr; }
+    QFuture<DialogResult> showDialogAsync(std::unique_ptr<QObject>, QObject *,
+            const DialogOptions &, const std::optional<QString> &) override
+    {
+        QPromise<DialogResult> promise;
+        promise.start();
+        auto future = promise.future();
+        promise.addResult(DialogResult{});
+        promise.finish();
+        return future;
+    }
+};
+
 static QQuickWindow *ordinaryWindow(ScreenViewModel *vm)
 {
     for (auto *window : QGuiApplication::allWindows()) {
@@ -80,6 +102,120 @@ private slots:
         QVERIFY(ViewLocator::registerView<NonWindowProbe>(QUrl("qrc:/tests/fixtures/NonVisual.qml")));
         QVERIFY(ViewLocator::registerView<RemoteWindowProbe>(QUrl("https://example.invalid/Window.qml")));
         QVERIFY(ViewLocator::freeze());
+    }
+    void lifecycleCapabilityAndLegacyService() {
+        WindowManager manager;
+        IWindowManager *service = &manager;
+        auto *lifecycle = qobject_cast<IWindowManagerLifecycle *>(service);
+        QVERIFY(lifecycle);
+        QCOMPARE(lifecycle, static_cast<IWindowManagerLifecycle *>(&manager));
+        LegacyWindowManager legacy;
+        service = &legacy;
+        QVERIFY(!qobject_cast<IWindowManagerLifecycle *>(service));
+        QVERIFY(!service->busy() && !service->currentDialog());
+        QVERIFY(!service->showWindow({}));
+        auto result = service->showDialogAsync(std::make_unique<QObject>(), nullptr);
+        QVERIFY(result.isFinished());
+        QCOMPARE(result.result(), DialogResult{});
+    }
+    void lifecyclePreparationAndRelease() {
+        WindowProbe primary, auxiliary;
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        auto *lifecycle = qobject_cast<IWindowManagerLifecycle *>(static_cast<IWindowManager *>(&manager));
+        QVERIFY(lifecycle);
+        QVERIFY(manager.showWindow(QVariant::fromValue(&primary)));
+        WindowOptions options; options.role = WindowRole::Auxiliary;
+        QVERIFY(manager.showWindow(QVariant::fromValue(&auxiliary), options));
+        QPointer<QQuickWindow> root = manager.windowFor(&primary);
+        QPointer<QQuickWindow> extra = manager.windowFor(&auxiliary);
+        QPointer<QObject> rootModel = &primary, extraModel = &auxiliary;
+        QSignalSpy rootCloses(&primary, &ScreenViewModel::attemptingDeactivation);
+        QSignalSpy extraCloses(&auxiliary, &ScreenViewModel::attemptingDeactivation);
+        auto future = manager.showDialogAsync(std::make_unique<DialogProbe>(), &primary);
+        QPointer<QObject> dialog = manager.currentDialog();
+        QPointer<QQuickWindow> modal = dialogWindow(root);
+        QVERIFY(dialog && modal && manager.busy());
+        lifecycle->prepareForShutdown();
+        QVERIFY(future.isFinished());
+        QCOMPARE(future.result(), DialogResult{});
+        QVERIFY(!modal && !manager.busy() && !manager.currentDialog());
+        QTRY_VERIFY(!dialog); // VM 按既有 finish() 逻辑延迟回收，窗口同步释放。
+        QVERIFY(root && extra && rootModel && extraModel);
+        QCOMPARE(rootCloses.count(), 0);
+        QCOMPARE(extraCloses.count(), 0);
+        lifecycle->prepareForShutdown();
+        lifecycle->releaseWindows();
+        QVERIFY(!root && !extra && rootModel && extraModel);
+        QCOMPARE(rootCloses.count(), 1);
+        QCOMPARE(extraCloses.count(), 1);
+        lifecycle->prepareForShutdown();
+        lifecycle->releaseWindows();
+        QCOMPARE(rootCloses.count(), 1);
+        QCOMPARE(extraCloses.count(), 1);
+    }
+    void lifecycleFailureSubscriptions() {
+        WindowProbe primary, failing, healthy;
+        failing.failClose = true;
+        WindowManager manager;
+        WindowCleanup cleanup{manager};
+        auto *lifecycle = qobject_cast<IWindowManagerLifecycle *>(static_cast<IWindowManager *>(&manager));
+        QVERIFY(lifecycle);
+        QVERIFY(manager.showWindow(QVariant::fromValue(&primary)));
+        WindowOptions options; options.role = WindowRole::Auxiliary;
+        QVERIFY(manager.showWindow(QVariant::fromValue(&failing), options));
+        QVERIFY(manager.showWindow(QVariant::fromValue(&healthy), options));
+        QPointer<QQuickWindow> root = manager.windowFor(&primary);
+        QPointer<QQuickWindow> broken = manager.windowFor(&failing);
+        QPointer<QQuickWindow> other = manager.windowFor(&healthy);
+        QSignalSpy failed(&manager, &WindowManager::windowCleanupFailed);
+        QSignalSpy attempted(&failing, &ScreenViewModel::attemptingDeactivation);
+        int calls = 0, disconnectedCalls = 0, destroyedContextCalls = 0;
+        const auto active = lifecycle->subscribeWindowCleanupFailed(this, [&] { ++calls; });
+        QVERIFY(active);
+        const auto disconnected = lifecycle->subscribeWindowCleanupFailed(this, [&] { ++disconnectedCalls; });
+        QVERIFY(disconnected);
+        QVERIFY(QObject::disconnect(disconnected));
+        auto context = std::make_unique<QObject>();
+        QVERIFY(lifecycle->subscribeWindowCleanupFailed(context.get(), [&] { ++destroyedContextCalls; }));
+        context.reset();
+        lifecycle->releaseWindows();
+        QCOMPARE(calls, 1); // DirectConnection：无需处理事件即可收到。
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(attempted.count(), 1);
+        QCOMPARE(disconnectedCalls, 0);
+        QCOMPARE(destroyedContextCalls, 0);
+        QVERIFY(!root && !broken && !other);
+        QVERIFY(!primary.isActive() && !healthy.isActive());
+        lifecycle->prepareForShutdown();
+        lifecycle->releaseWindows();
+        QCOMPARE(calls, 1);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(attempted.count(), 1);
+    }
+    void lifecycleInvalidSubscriptionsAndServiceDestruction() {
+        auto manager = std::make_unique<WindowManager>();
+        auto *lifecycle = qobject_cast<IWindowManagerLifecycle *>(static_cast<IWindowManager *>(manager.get()));
+        QVERIFY(lifecycle);
+        QVERIFY(!lifecycle->subscribeWindowCleanupFailed(nullptr, [] {}));
+        QVERIFY(!lifecycle->subscribeWindowCleanupFailed(this, {}));
+        QThread worker;
+        auto *foreign = new QObject;
+        foreign->moveToThread(&worker);
+        connect(&worker, &QThread::finished, foreign, &QObject::deleteLater);
+        worker.start();
+        const auto invalid = lifecycle->subscribeWindowCleanupFailed(foreign, [] {});
+        worker.quit();
+        worker.wait();
+        QVERIFY(!invalid);
+        int calls = 0;
+        const auto connection = lifecycle->subscribeWindowCleanupFailed(this, [&] { ++calls; });
+        QVERIFY(connection);
+        manager.reset();
+        QVERIFY(!connection);
+        QVERIFY(!QObject::disconnect(connection));
+        QCoreApplication::processEvents();
+        QCOMPARE(calls, 0);
     }
     // 普通窗口独立于 Bootstrapper；借用 VM、执行守卫并负责正常关闭生命周期。
     void normalWindowWithoutBootstrapper() {
