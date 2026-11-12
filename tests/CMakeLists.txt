@@ -272,7 +272,10 @@ foreach(scenario IN ITEMS success normalClose dialogIdentity legacy legacyNull l
         nullSet repeatSet configureFailure configureThrows serviceMissing serviceThrows missingLifecycle
         serviceParent serviceThread subscriptionFailure subscriptionThrows rootMissing rootThrows
         rootNull rootWrongContract rootParent rootThread showFailure
-        prepareThrows releaseThrows cleanupSignal exitCodeAndCleanup retained sequential)
+        prepareThrows releaseThrows cleanupSignal exitCodeAndCleanup retained sequential
+        serviceWrongContract activateThrows startupAfterDisplayThrows rootCloseThrows
+        exitThrows exitAndReleaseThrows retainedShowFailure retainedStartupFailure retainedExitFailure
+        recoverAfterRootFailure recoverAfterDisplayFailure recoverAfterExitFailure)
     add_test(NAME bootstrapper_provider_${scenario}
         COMMAND CaliburnBootstrapperProviderTests "startup:${scenario}")
     set_tests_properties(bootstrapper_provider_${scenario} PROPERTIES

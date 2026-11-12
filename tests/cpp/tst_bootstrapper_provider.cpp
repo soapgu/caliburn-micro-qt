@@ -12,6 +12,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QtTest>
+#include <tuple>
 
 Q_IMPORT_QML_PLUGIN(CaliburnMicroQtPlugin)
 
@@ -24,6 +25,14 @@ struct Observations {
     QThread worker;
     int resolves = 0, creates = 0, factories = 0, exits = 0;
     int rootsDestroyed = 0, prepares = 0, releases = 0, subscriptions = 0, notifications = 0;
+    int rootsCreated = 0, activations = 0, closeAttempts = 0, closeHooks = 0;
+    bool noAssociationAtRootDestruction = false, noViewAtRootDestruction = false, viewObserved = false;
+    QObject *rootAddress = nullptr; // 仅作 windowFor 的身份查询，不解引用已销毁对象。
+    auto counts() const {
+        return std::make_tuple(resolves, creates, factories, exits, rootsCreated, rootsDestroyed,
+                               activations, closeAttempts, closeHooks, prepares, releases,
+                               subscriptions, notifications, order.size());
+    }
     bool factorySameService = false;
     bool startup = false, loop = false, typed = false, sameService = false, aliveAtExit = false;
     QPointer<QObject> root;
@@ -37,8 +46,36 @@ class ProviderRoot : public ScreenViewModel
 {
     Q_OBJECT
 public:
-    explicit ProviderRoot(Observations &state) : state(state) { state.root = this; }
-    ~ProviderRoot() override { ++state.rootsDestroyed; state.order << "root.destroy"; }
+    explicit ProviderRoot(Observations &state) : state(state) {
+        ++state.rootsCreated;
+        state.root = this;
+        state.rootAddress = this;
+        connect(this, &ScreenViewModel::attemptingDeactivation, this, [&state](bool close) {
+            if (close) { ++state.closeAttempts; state.order << "root.closeAttempt"; }
+        });
+    }
+    ~ProviderRoot() override {
+        const auto service = state.windows.lock();
+        state.noAssociationAtRootDestruction = !service || !service->windowFor(this);
+        state.noViewAtRootDestruction = !state.view;
+        ++state.rootsDestroyed;
+        state.order << "root.destroy";
+    }
+protected:
+    void onActivate() override {
+        ++state.activations;
+        state.order << "root.activate";
+        const auto service = state.windows.lock();
+        state.view = service ? service->windowFor(this) : nullptr;
+        state.viewObserved = bool(state.view);
+        if (state.view) connect(state.view, &QObject::destroyed, this, [this] { state.order << "view.destroy"; });
+        if (state.scenario == "activateThrows") throw std::runtime_error("根激活异常");
+    }
+    void onDeactivate(bool close) override {
+        if (close) { ++state.closeHooks; state.order << "root.closeHook"; }
+        if (close && state.scenario == "rootCloseThrows") throw std::runtime_error("根关闭异常");
+    }
+public:
     Observations &state;
 };
 
@@ -59,8 +96,9 @@ public:
         withinRelease = true;
         WindowManager::releaseWindows();
         withinRelease = false;
+        state.order << "release.complete";
         if (state.scenario == "cleanupSignal") emit windowCleanupFailed();
-        if (state.scenario == "releaseThrows" || state.scenario == "exitCodeAndCleanup")
+        if (state.scenario == "releaseThrows" || state.scenario == "exitCodeAndCleanup" || state.scenario == "exitAndReleaseThrows")
             throw std::runtime_error("释放窗口异常");
     }
     QMetaObject::Connection subscribeWindowCleanupFailed(QObject *context, std::function<void()> callback) override {
@@ -126,9 +164,11 @@ protected:
             windows->moveToThread(&state.worker);
             state.retained = windows;
         }
-        if (state.scenario == "retained") state.retained = windows;
+        if (state.scenario.startsWith("retained")) state.retained = windows;
         if (state.scenario != "serviceMissing") {
-            provider->add({typeid(IWindowManager), {}}, [windows] {
+            provider->add({typeid(IWindowManager), {}}, [this, windows] {
+                if (state.scenario == "serviceWrongContract")
+                    return SharedInstance::from<QObject>(std::make_shared<QObject>());
                 return SharedInstance::from<IWindowManager>(windows);
             });
         }
@@ -139,7 +179,7 @@ protected:
             if (state.scenario == "rootMissing")
                 throw InstanceError(InstanceErrorCode::NotRegistered, InstanceOperation::Create, request,
                                     QStringLiteral("根未登记"));
-            if (state.scenario == "rootThrows") throw std::runtime_error("根创建异常");
+            if (state.scenario == "rootThrows" || state.scenario == "recoverAfterRootFailure") throw std::runtime_error("根创建异常");
             if (state.scenario == "rootNull") return UniqueInstance::from<ProviderRoot>(std::unique_ptr<ProviderRoot>{});
             if (state.scenario == "rootWrongContract") return UniqueInstance::from<QObject>(std::make_unique<QObject>());
             auto root = std::make_unique<ProviderRoot>(state);
@@ -160,9 +200,12 @@ protected:
             })) return false;
         }
         if (!state.skipMappings) {
-            const auto view = state.scenario == "showFailure" ? "qrc:/tests/missing-provider.qml"
+            const auto view = (state.scenario == "showFailure" || state.scenario == "retainedShowFailure") ? "qrc:/tests/missing-provider.qml"
                                                              : "qrc:/tests/fixtures/ProviderRoot.qml";
             if (!ViewLocator::registerView<ProviderRoot>(QUrl(view))) return false;
+            if (state.scenario == "recoverAfterDisplayFailure" &&
+                !ViewLocator::registerView<ProviderRoot>(QUrl("qrc:/tests/missing-provider.qml"), QStringLiteral("Broken")))
+                return false;
         }
         // 此时只有登记，不允许已经向提供器解析。
         if (state.resolves || state.creates) return false;
@@ -172,14 +215,17 @@ protected:
     void onStartup() override {
         state.startup = true;
         state.order << "startup";
-        if (!displayRootViewFor<ProviderRoot>()) return;
+        const auto context = state.scenario == "recoverAfterDisplayFailure"
+                ? std::optional<QString>(QStringLiteral("Broken")) : std::nullopt;
+        if (!displayRootViewFor<ProviderRoot>({}, context)) return;
         auto windows = state.windows.lock();
         auto *root = qobject_cast<ProviderRoot *>(state.root.data());
         state.view = windows->windowFor(root);
         state.sameService = state.sameService || (state.view && state.view->property("_caliburnWindowManager").value<QObject *>() == windows.get());
         state.typed = state.view && state.view->property("viewModel").metaType() == QMetaType::fromType<ProviderRoot *>()
                 && state.view->property("viewModel").value<ProviderRoot *>() == root;
-        QObject::connect(state.view, &QObject::destroyed, this, [this] { state.order << "view.destroy"; });
+        if (state.scenario == "startupAfterDisplayThrows" || state.scenario == "retainedStartupFailure")
+            throw std::runtime_error("根显示后启动异常");
         QTimer::singleShot(0, this, [this, windows, root] {
             state.loop = true;
             if (state.scenario == "dialogIdentity") {
@@ -197,6 +243,9 @@ protected:
         ++state.exits;
         state.order << "exit";
         state.aliveAtExit = state.root && state.view;
+        if (state.scenario == "exitThrows" || state.scenario == "exitAndReleaseThrows" ||
+            state.scenario == "retainedExitFailure" || state.scenario == "recoverAfterExitFailure")
+            throw std::runtime_error("退出钩子异常");
     }
 private:
     Observations &state;
@@ -216,7 +265,10 @@ private slots:
                 "nullSet", "repeatSet", "configureFailure", "configureThrows", "serviceMissing", "serviceThrows", "missingLifecycle",
                 "serviceParent", "serviceThread", "subscriptionFailure", "subscriptionThrows", "rootMissing", "rootThrows",
                 "rootNull", "rootWrongContract", "rootParent", "rootThread", "showFailure",
-                "prepareThrows", "releaseThrows", "cleanupSignal", "exitCodeAndCleanup", "retained", "sequential"})
+                "prepareThrows", "releaseThrows", "cleanupSignal", "exitCodeAndCleanup", "retained", "sequential",
+                "serviceWrongContract", "activateThrows", "startupAfterDisplayThrows", "rootCloseThrows",
+                "exitThrows", "exitAndReleaseThrows", "retainedShowFailure", "retainedStartupFailure",
+                "retainedExitFailure", "recoverAfterRootFailure", "recoverAfterDisplayFailure", "recoverAfterExitFailure"})
             QTest::newRow(name) << QString(name);
     }
     void startup() {
@@ -225,17 +277,17 @@ private slots:
         auto *app = qobject_cast<QGuiApplication *>(qApp);
         const bool quitPolicy = app->quitOnLastWindowClosed();
         auto run = [&](Observations &state) {
-            ProviderBootstrapper bootstrapper(*app, state);
-            QVERIFY(!bootstrapper.install(std::make_shared<TestInstanceProvider>()));
+            auto bootstrapper = std::make_unique<ProviderBootstrapper>(*app, state);
+            QVERIFY(!bootstrapper->install(std::make_shared<TestInstanceProvider>()));
             const int expected = state.scenario == "exitCodeAndCleanup" ? 7 : (successes.contains(state.scenario) ? 0 : 1);
             QTimer watchdog;
             watchdog.setSingleShot(true);
             QObject::connect(&watchdog, &QTimer::timeout, this, [] { QCoreApplication::exit(99); });
             watchdog.start(10000);
-            QCOMPARE(bootstrapper.run(), expected);
+            QCOMPARE(bootstrapper->run(), expected);
             watchdog.stop();
-            QVERIFY(!bootstrapper.install(std::make_shared<TestInstanceProvider>()));
-            QCOMPARE(bootstrapper.run(), 1);
+            QVERIFY(!bootstrapper->install(std::make_shared<TestInstanceProvider>()));
+            QCOMPARE(bootstrapper->run(), 1);
             QCOMPARE(state.exits, 1);
             QVERIFY(state.provider.expired());
             QVERIFY(!state.root && !state.view);
@@ -247,9 +299,14 @@ private slots:
                 QVERIFY(state.order.indexOf("configure.end") < state.order.indexOf("resolve"));
             }
             const QStringList rejectedService{"serviceMissing", "serviceThrows", "missingLifecycle", "serviceParent",
-                    "serviceThread", "subscriptionFailure", "subscriptionThrows"};
+                    "serviceThread", "subscriptionFailure", "subscriptionThrows", "serviceWrongContract"};
             QCOMPARE(state.startup, !rejectedSetting && !rejectedService.contains(state.scenario));
             if (state.startup) QVERIFY(state.order.indexOf("resolve") < state.order.indexOf("startup"));
+            const QStringList beforeLoopFailures{"rootMissing", "rootThrows", "rootNull", "rootWrongContract",
+                    "rootParent", "rootThread", "showFailure", "legacyNull", "legacyThrows", "activateThrows",
+                    "startupAfterDisplayThrows", "retainedShowFailure", "retainedStartupFailure",
+                    "recoverAfterRootFailure", "recoverAfterDisplayFailure"};
+            QCOMPARE(state.loop, state.startup && !beforeLoopFailures.contains(state.scenario));
             if (state.scenario.startsWith("legacy")) {
                 QCOMPARE(state.factories, 1);
                 QCOMPARE(state.creates, 0);
@@ -277,8 +334,34 @@ private slots:
                 QCOMPARE(state.prepares, 2); // 显式准备一次，releaseWindows 内部再次准备。
                 QCOMPARE(state.releases, 1);
             }
-            if (state.scenario == "retained") {
+            QVERIFY(state.rootsCreated <= 1);
+            QCOMPARE(state.rootsDestroyed, state.rootsCreated);
+            QCOMPARE(state.viewObserved, state.activations > 0);
+            if (state.releases) {
+                QCOMPARE(state.order.count("release.complete"), 1);
+                QVERIFY(state.order.indexOf("exit") < state.order.indexOf("release.complete"));
+            }
+            QCOMPARE(state.closeAttempts, state.activations ? 1 : 0);
+            QCOMPARE(state.closeHooks, state.closeAttempts);
+            if (state.rootsCreated) {
+                QVERIFY(state.noAssociationAtRootDestruction);
+                QVERIFY(state.noViewAtRootDestruction);
+                QVERIFY(state.order.indexOf("root.destroy") < state.order.indexOf("provider.destroy"));
+                if (state.scenario != "rootParent" && state.scenario != "rootThread")
+                    QVERIFY(state.order.indexOf("release.complete") < state.order.indexOf("root.destroy"));
+            }
+            if (state.viewObserved) {
+                QCOMPARE(state.order.count("view.destroy"), 1);
+                QVERIFY(state.order.indexOf("view.destroy") < state.order.indexOf("root.destroy"));
+                if (state.scenario == "activateThrows")
+                    QVERIFY(state.order.indexOf("view.destroy") < state.order.indexOf("exit"));
+                else
+                    QVERIFY(state.order.indexOf("exit") < state.order.indexOf("view.destroy"));
+            }
+            if (state.scenario.startsWith("retained")) {
                 QVERIFY(!state.windows.expired());
+                QVERIFY(!state.retained->busy() && !state.retained->currentDialog());
+                QVERIFY(!state.retained->windowFor(state.rootAddress));
                 const auto before = state.notifications;
                 qobject_cast<WindowManager *>(state.retained.get())->windowCleanupFailed();
                 QCOMPARE(state.notifications, before); // run 返回前已断开接口订阅。
@@ -287,17 +370,26 @@ private slots:
             state.retained.reset();
             if (state.worker.isRunning()) { state.worker.quit(); state.worker.wait(); }
             QVERIFY(state.windows.expired());
+            const auto before = state.counts();
+            bootstrapper.reset();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QCoreApplication::processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QVERIFY(state.counts() == before);
+            QVERIFY(QGuiApplication::allWindows().isEmpty());
         };
         Observations first;
         first.scenario = scenario;
         run(first);
-        if (scenario == "sequential") {
+        if (scenario == "sequential" || scenario.startsWith("recoverAfter")) {
+            const auto before = first.counts();
             Observations second;
             second.scenario = "success";
             second.skipMappings = true;
             run(second);
             QCOMPARE(first.resolves, 1);
             QCOMPARE(first.creates, 1);
+            QVERIFY(first.counts() == before);
         }
     }
 };
