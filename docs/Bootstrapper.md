@@ -38,6 +38,7 @@ int main(int argc, char *argv[])
 | `bool configure()` | 应用设置样式、登记业务 View 映射和根工厂；返回 false 则停止启动，不自动冻结注册表。成功后由 Bootstrapper 显式冻结，再进入 onStartup。 |
 | `void onStartup()` | 默认空实现的虚方法；在 configure 成功并冻结映射后调用。应用显示根窗口，显示失败、重复显示或未显示均判定启动失败。 |
 | `void onExit()` | 默认空实现的虚方法。正常退出在 aboutToQuit 中、根关闭之后调用；失败清理补调。最多调用一次，成功展示后的根 VM 与 View 在钩子中仍存活；展示失败的部分窗口资源已经回收，须兼容部分初始化。 |
+| `bool setInstanceProvider(std::shared_ptr<IInstanceProvider> provider)` | 仅 configure 阶段设置一次，拒绝空指针；登记不解析，配置成功后解析窗口服务。 |
 | `bool registerRootFactory<T>(std::function<std::unique_ptr<T>(std::shared_ptr<IWindowManager>)> factory)` | 只允许在 configure 中登记，每个类型只能登记一次；拒绝空工厂，登记时不创建对象。工厂统一接收框架窗口服务并返回 unique_ptr<T>。 |
 | `bool displayRootViewFor<T>(RootViewOptions options = {}, const std::optional<QString>& context = std::nullopt)` | 只允许在 onStartup 中调用；每个 Bootstrapper 只允许一次显示尝试，T 必须继承 QObject。context 独立选择根 View；RootViewOptions.window 只传递展示配置，根角色固定为 Primary。 |
 
@@ -45,13 +46,43 @@ int main(int argc, char *argv[])
 
 ## 工厂与所有权
 
-Bootstrapper 保存按 VM 元对象地址索引的根工厂；在 configure 前创建并持有独立 WindowManager，调用根工厂时提供同一服务。不提供应用级服务定位或窗口服务实现替换入口；业务服务与子 VM 的依赖仍由应用装配层解决。
+Bootstrapper 保存按 VM 元对象地址索引的根工厂。configure 成功后一次性选择窗口服务：无提供器则创建默认 WindowManager，有提供器则仅解析应用窗口服务，再进入 onStartup。configure 失败或抛异常时不创建框架默认窗口服务。旧工厂接收实际使用的同一服务。业务服务与子 VM 的依赖仍由应用装配层解决。
 
-registerRootFactory 直接把工厂保存为统一返回 unique_ptr<ScreenViewModel> 的 std::function，使用标准类型转换，不增加包装函数。displayRootViewFor 先查表调用工厂，校验并把 VM 保存到 m_root；然后取出具体 T* 构造 QVariant，委托 IWindowManager::showWindow。displayRootView 只记录显示结果，不创建引擎、窗口或 WindowConductor。
+registerRootFactory 保持 unique_ptr<T> 返回签名，内部工厂统一返回 unique_ptr<QObject>。displayRootViewFor 优先使用已登记旧工厂，仅在该类型无旧工厂且已配置提供器时调用 create<T>()，选中路径失败不回退。根存储为 OwnedInstance<QObject>，保留提供器的原始删除器；以具体 T* 构造 QVariant，委托 IWindowManager::showWindow。displayRootView 不创建引擎、窗口或 WindowConductor。
 
 m_root 负责根 VM 最终删除及失败/强制退出时的生命周期兜底；正常窗口关闭后的 VM 停用由 WindowManager 执行。窗口服务借用根 VM，并持有自己的引擎、窗口和私有桥接，不强持有根 VM，避免与业务持有的共享窗口服务形成所有权环。QVariant 保留具体指针类型供 QML required 属性注入，不接管对象。RootViewOptions.window 在显示入口传给窗口服务，覆盖屏幕、几何、flags、显示状态及是否激活；根角色固定为 Primary。
 
-根对象必须无 QObject 父对象，并位于应用主线程。Bootstrapper 在暴露根 VM 前设置 CppOwnership；子对象所有权由 Conductor 接管流程设置，Bootstrapper 不递归猜测对象图。
+根对象必须无 QObject 父对象，并位于应用主线程。旧根工厂的登记类型和请求类型必须严格一致；框架按 Qt 元对象查找工厂，不额外检查实际 C++ 类型。Bootstrapper 在暴露根 VM 前设置 CppOwnership；子对象所有权由 Conductor 接管流程设置，Bootstrapper 不递归猜测对象图。
+
+## 可选实例提供器
+
+应用可在 configure 中提供自己的 IInstanceProvider 实现，例如应用侧 Boost.DI 适配器。框架不包含具体容器，也不会自动调用 BuildUp。
+
+```cpp
+bool AppBootstrapper::configure()
+{
+    if (!ViewLocator::registerView<ShellViewModel>(
+            QUrl("qrc:/myapp/views/ShellView.qml"))) return false;
+    return setInstanceProvider(createApplicationProvider());
+}
+
+void AppBootstrapper::onStartup()
+{
+    (void)displayRootViewFor<ShellViewModel>();
+}
+```
+
+createApplicationProvider 是应用自定义的组合函数，不是框架 API。它返回的提供器须支持未命名的 resolve<IWindowManager>()，以及本例中的独占 create<ShellViewModel>()。应用须补齐子 View 映射或搜索根；静态 QML 插件仍按原方式导入。也可保留 registerRootFactory，此时无需提供根创建能力，但旧工厂必须复用传入窗口服务。
+
+setInstanceProvider 仅允许配置阶段调用一次，拒绝空值；设置期间不解析，configure 失败也不解析。窗口服务须无 QObject parent、属于应用线程，并自身实现 IWindowManagerLifecycle。两个接口属于同一服务对象，通过 qobject_cast 查询生命周期能力，不另行解析第二个清理对象。
+
+配置完成后解析窗口服务，验证失败不回退默认服务。线程检查通过且具有生命周期能力的候选会纳入失败清理，包括 parent 或订阅验证失败。线程错误或能力缺失的服务不调用其清理接口。应用适配器应返回尚未投入使用的服务，管理不合格资源的原有所有权和线程销毁责任。
+
+Bootstrapper 持有 shared_ptr<IWindowManager>，生命周期指针仅借用。清理失败通过 subscribeWindowCleanupFailed 订阅，关闭通知通过 IWindowManager::windowClosed 订阅；最终退出时断开连接；不再创建和替换临时默认服务。服务设置 CppOwnership，且不与 QObject parent 同时拥有。
+
+根对象保留原删除器；调用方不得主动删除或重设其 QObject parent。退出先结束窗口借用，再释放根和工厂，最后断开服务连接、释放服务及提供器的框架引用。应用若另持共享引用，其销毁时间由应用决定，但 run 返回前窗口仍被显式释放。
+
+本机接入验证见 [Bootstrapper 提供器接入验收记录](验收/Bootstrapper提供器接入验收记录.md)。
 
 ## 自动关联与独立窗口展示
 
@@ -69,8 +100,8 @@ run 暂时关闭 quitOnLastWindowClosed，结束后恢复原值。窗口服务�
 
 ## 启动与退出顺序
 
-1. run 在应用主线程创建 WindowManager，再执行 configure，不在构造函数里调用虚方法。
-2. 配置成功后冻结 ViewLocator，进入 onStartup，调用根工厂。
+1. run 在应用主线程执行 configure，不在构造函数里调用虚方法；框架在该阶段不创建默认服务，也不解析提供器。
+2. 配置成功后确定实际窗口服务、校验及建立订阅，再冻结 ViewLocator；进入 onStartup 后按旧工厂优先规则创建根对象。
 3. displayRootView 委托 showWindow 校验模型、所属窗口和本地/qrc View 地址。
 4. 服务创建引擎并注入模型和初始 visible=false，加载并校验窗口，建立所属窗口、弱关联和关闭桥接，调用 create() 创建隐藏的原生资源。
 5. 调用可选 IActivate；Screen 自动初始化。随后确认对象仍有效且未完成关闭，显式显示窗口。
@@ -78,7 +109,7 @@ run 暂时关闭 quitOnLastWindowClosed，结束后恢复原值。窗口服务�
 7. aboutToQuit 准备窗口退出并结束在途弹窗，兜底关闭根，再执行一次 onExit，保留普通 View 和根模型。
 8. 事件循环返回后补齐尚未执行的退出通知，释放桥接、View、引擎，最后删除根模型和工厂。外部共享服务引用不延长根 View 寿命。
 
-根对象关闭最多尝试一次，包括业务直接执行根 deactivate(true) 的情况；退出钩子调用一次。基类析构只兜底清理，不调用派生类 onExit。run 的清理路径捕获关闭钩子和 onExit 的异常，继续释放剩余资源；异常不会从 aboutToQuit 回调逸出。
+根对象关闭最多尝试一次，包括业务直接执行根 deactivate(true) 的情况；退出钩子调用一次。基类析构只兜底清理，不调用派生类 onExit。run 的清理路径捕获窗口准备、窗口释放、根关闭钩子和 onExit 的异常，继续执行其余清理；异常不会从 aboutToQuit 回调逸出。自定义服务必须保证清理失败时仍解除模型借用，不能在抛异常后继续持有根 VM 的裸借用。
 
 配置失败、缺少工厂、空对象、工厂或启动异常、缺少映射、QML 加载失败及根对象不是窗口都打印诊断并返回 1。正常退出保留 Qt 事件循环退出码；如果原退出码为 0 但清理失败，返回 1。
 

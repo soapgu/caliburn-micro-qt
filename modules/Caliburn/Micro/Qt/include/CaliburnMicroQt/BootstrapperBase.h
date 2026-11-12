@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <CaliburnMicroQt/WindowOptions.h>
+#include <CaliburnMicroQt/IInstanceProvider.h>
 #include <QHash>
 #include <QVariant>
 #include <functional>
@@ -12,7 +13,7 @@
 
 class QGuiApplication;
 class IWindowManager;
-class WindowManager;
+class IWindowManagerLifecycle;
 
 // 根窗口角色固定为 Primary，其余设置委托窗口服务。
 struct RootViewOptions { WindowOptions window; };
@@ -33,6 +34,9 @@ protected:
     virtual void onStartup() {}
     // 启动中途失败也会调用，须允许应用资源尚未创建。
     virtual void onExit() {}
+
+    // 仅配置阶段设置一次；登记不解析，引用保留至退出清理结束。
+    [[nodiscard]] bool setInstanceProvider(std::shared_ptr<IInstanceProvider> provider);
 
     template<class T>
     [[nodiscard]] bool registerRootFactory(
@@ -57,7 +61,16 @@ protected:
                                          const std::optional<QString> &context = std::nullopt)
     {
         static_assert(std::is_base_of_v<QObject, T>, "根模型必须继承 QObject");
-        if (!createRootViewModel(&T::staticMetaObject)) {
+        if (!createRootViewModel(&T::staticMetaObject, [this] {
+                auto model = m_instanceProvider->create<T>();
+                auto *actual = model.get();
+                auto deleter = model.get_deleter();
+                std::function<void(QObject *)> rootDeleter = [actual, deleter = std::move(deleter)](QObject *) {
+                    deleter(actual);
+                };
+                QObject *object = model.release();
+                return OwnedInstance<QObject>(object, std::move(rootDeleter));
+            })) {
             m_rootDisplayFailed = true;
             return false;
         }
@@ -72,7 +85,11 @@ private:
     using RootFactory = std::function<std::unique_ptr<QObject>(std::shared_ptr<IWindowManager>)>;
 
     bool initialize();
-    bool createRootViewModel(const QMetaObject *type);
+    bool selectWindowService(std::shared_ptr<IWindowManager> service);
+    void disconnectWindowService() noexcept;
+    void prepareWindows() noexcept;
+    bool createRootViewModel(const QMetaObject *type,
+                             const std::function<OwnedInstance<QObject>()> &providerFactory);
     bool displayRootView(const QVariant &viewModel, RootViewOptions options, const std::optional<QString> &context);
     bool m_previousQuitOnLastWindowClosed = true;
     bool m_quitPolicyChanged = false;
@@ -84,8 +101,12 @@ private:
     QGuiApplication &m_app;
     State m_state = State::Ready;
     QHash<const QMetaObject *, RootFactory> m_factories;
-    std::unique_ptr<QObject> m_root;
-    std::shared_ptr<WindowManager> m_windowManager;
+    OwnedInstance<QObject> m_root;
+    std::shared_ptr<IWindowManager> m_windowManager;
+    IWindowManagerLifecycle *m_windowLifecycle = nullptr; // 借用同一服务的能力。
+    std::shared_ptr<IInstanceProvider> m_instanceProvider;
+    QMetaObject::Connection m_windowClosedConnection;
+    QMetaObject::Connection m_windowCleanupConnection;
     bool m_displayAttempted = false;
     bool m_rootDisplayed = false;
     bool m_rootDisplayFailed = false;

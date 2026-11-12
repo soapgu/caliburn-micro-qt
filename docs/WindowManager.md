@@ -57,7 +57,7 @@ void releaseWindows();     // 释放自建窗口与引擎，兜底关闭仍未�
 auto *lifecycle = qobject_cast<IWindowManagerLifecycle *>(service); // service 为 IWindowManager*
 ```
 
-自定义服务若希望提供该能力，应自身实现接口并声明 Q_INTERFACES；不另行提供生命周期适配器。当前 Bootstrapper 仍直接调用具体 WindowManager，并未接入提供器或改用新接口。
+自定义服务若希望提供该能力，应自身实现接口并声明 Q_INTERFACES；不另行提供生命周期适配器。Bootstrapper 已支持可选提供器接入：从实际服务对象查询该接口，并通过接口进行清理与失败订阅；未配置提供器时继续默认窗口服务路径。
 
 接口还提供 `subscribeWindowCleanupFailed(QObject *context, std::function<void()> callback)`，返回可用 QObject::disconnect 主动断开的连接。订阅直接连接既有 windowCleanupFailed 信号，context 或服务销毁时自动失效；空 context、空 callback 或 context 与服务线程不同则返回无效连接。所有接口方法在服务线程调用，回调为同线程通知，不得抛异常、销毁服务或重入清理。
 

@@ -261,3 +261,20 @@ add_executable(CaliburnInstanceProviderTests cpp/tst_instanceprovider.cpp)
 target_link_libraries(CaliburnInstanceProviderTests PRIVATE Caliburn::MicroQt Qt6::Test)
 add_test(NAME instance_provider COMMAND CaliburnInstanceProviderTests)
 set_tests_properties(instance_provider PROPERTIES TIMEOUT 30)
+
+# 提供器启动场景按进程隔离 ViewLocator 的注册与冻结状态。
+add_executable(CaliburnBootstrapperProviderTests cpp/tst_bootstrapper_provider.cpp)
+qt_add_resources(CaliburnBootstrapperProviderTests provider_fixtures PREFIX /tests
+    FILES fixtures/ProviderRoot.qml)
+target_link_libraries(CaliburnBootstrapperProviderTests PRIVATE
+    CaliburnMicroQtplugin Caliburn::MicroQt Qt6::Test Qt6::Quick Qt6::QuickControls2)
+foreach(scenario IN ITEMS success normalClose dialogIdentity legacy legacyNull legacyThrows
+        nullSet repeatSet configureFailure configureThrows serviceMissing serviceThrows missingLifecycle
+        serviceParent serviceThread subscriptionFailure subscriptionThrows rootMissing rootThrows
+        rootNull rootWrongContract rootParent rootThread showFailure
+        prepareThrows releaseThrows cleanupSignal exitCodeAndCleanup retained sequential)
+    add_test(NAME bootstrapper_provider_${scenario}
+        COMMAND CaliburnBootstrapperProviderTests "startup:${scenario}")
+    set_tests_properties(bootstrapper_provider_${scenario} PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 15)
+endforeach()

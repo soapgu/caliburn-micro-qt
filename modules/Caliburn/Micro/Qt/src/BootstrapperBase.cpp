@@ -30,7 +30,7 @@ bool tryCleanup(const char *stage, Action action) noexcept
 BootstrapperBase::BootstrapperBase(QGuiApplication &app) : m_app(app)
 {
     connect(&m_app, &QCoreApplication::aboutToQuit, this, [this] {
-        if (m_windowManager) m_windowManager->prepareForShutdown();
+        prepareWindows();
         closeRoot();
         notifyExit();
     });
@@ -80,19 +80,15 @@ bool BootstrapperBase::initialize()
 {
     qCDebug(FrameworkLog::bootstrapper) << "Configuring application";
     m_state = State::Configuring;
-    m_windowManager = std::make_shared<WindowManager>();
-    connect(m_windowManager.get(), &WindowManager::windowCleanupFailed, this, [this] { m_cleanupFailed = true; });
-    connect(m_windowManager.get(), &IWindowManager::windowClosed, this, [this](QObject *model) {
-        if (model && model == m_root.get()) {
-            // 排队处理也覆盖 onStartup 尚未进入事件循环时根窗提前关闭。
-            QMetaObject::invokeMethod(this, [this] {
-                if (m_state == State::Running) m_app.quit();
-            }, Qt::QueuedConnection);
-        }
-    });
-    QQmlEngine::setObjectOwnership(m_windowManager.get(), QQmlEngine::CppOwnership);
     if (!configure())
         return fail(QStringLiteral("configure failed"));
+    std::shared_ptr<IWindowManager> service;
+    if (m_instanceProvider)
+        service = m_instanceProvider->resolve<IWindowManager>();
+    else
+        service = std::make_shared<WindowManager>();
+    if (!selectWindowService(std::move(service)))
+        return false;
     if (!ViewLocator::freeze())
         return fail(QStringLiteral("ViewLocator freeze failed"));
     m_state = State::Starting;
@@ -102,7 +98,56 @@ bool BootstrapperBase::initialize()
     return true;
 }
 
-bool BootstrapperBase::createRootViewModel(const QMetaObject *type)
+bool BootstrapperBase::setInstanceProvider(std::shared_ptr<IInstanceProvider> provider)
+{
+    if (m_state != State::Configuring)
+        return fail(QStringLiteral("Instance provider can only be set during configure"));
+    if (!provider)
+        return fail(QStringLiteral("Instance provider must not be null"));
+    if (m_instanceProvider)
+        return fail(QStringLiteral("Instance provider can only be set once"));
+    m_instanceProvider = std::move(provider);
+    return true;
+}
+
+void BootstrapperBase::disconnectWindowService() noexcept
+{
+    disconnect(m_windowClosedConnection);
+    disconnect(m_windowCleanupConnection);
+    m_windowClosedConnection = {};
+    m_windowCleanupConnection = {};
+}
+
+bool BootstrapperBase::selectWindowService(std::shared_ptr<IWindowManager> service)
+{
+    if (!service || service->thread() != m_app.thread())
+        return fail(QStringLiteral("Window service must belong to the application thread"));
+    auto *lifecycle = qobject_cast<IWindowManagerLifecycle *>(service.get());
+    if (!lifecycle)
+        return fail(QStringLiteral("Window service must implement IWindowManagerLifecycle"));
+    m_windowManager = std::move(service);
+    m_windowLifecycle = lifecycle;
+    // 已取得清理能力的同线程候选即纳入失败清理，包括 parent／订阅验证失败。
+    if (m_windowManager->parent())
+        return fail(QStringLiteral("Window service must have no QObject parent"));
+    m_windowCleanupConnection = m_windowLifecycle->subscribeWindowCleanupFailed(
+            this, [this] { m_cleanupFailed = true; });
+    if (!m_windowCleanupConnection)
+        return fail(QStringLiteral("Window service cleanup subscription failed"));
+    m_windowClosedConnection = connect(m_windowManager.get(), &IWindowManager::windowClosed,
+            this, [this](QObject *model) {
+        if (model && model == m_root.get()) {
+            QMetaObject::invokeMethod(this, [this] {
+                if (m_state == State::Running) m_app.quit();
+            }, Qt::QueuedConnection);
+        }
+    });
+    QQmlEngine::setObjectOwnership(m_windowManager.get(), QQmlEngine::CppOwnership);
+    return true;
+}
+
+bool BootstrapperBase::createRootViewModel(const QMetaObject *type,
+        const std::function<OwnedInstance<QObject>()> &providerFactory)
 {
     if (m_state != State::Starting)
         return fail(QStringLiteral("The root window can only be displayed during onStartup"));
@@ -111,9 +156,16 @@ bool BootstrapperBase::createRootViewModel(const QMetaObject *type)
     m_displayAttempted = true;
 
     const auto found = m_factories.constFind(type);
-    if (found == m_factories.cend())
+    OwnedInstance<QObject> model;
+    if (found != m_factories.cend()) {
+        auto legacy = (*found)(m_windowManager);
+        std::function<void(QObject *)> deleter = [](QObject *object) { delete object; };
+        model = OwnedInstance<QObject>(legacy.release(), std::move(deleter));
+    } else if (m_instanceProvider) {
+        model = providerFactory();
+    } else {
         return fail(QStringLiteral("No factory registered for the root type"));
-    auto model = (*found)(m_windowManager);
+    }
     if (!model)
         return fail(QStringLiteral("Root factory returned a null model"));
     if (model->parent() || model->thread() != m_app.thread())
@@ -165,20 +217,32 @@ void BootstrapperBase::notifyExit() noexcept
         m_cleanupFailed = true;
 }
 
+void BootstrapperBase::prepareWindows() noexcept
+{
+    if (m_windowLifecycle && !tryCleanup("Prepare window shutdown", [this] {
+            m_windowLifecycle->prepareForShutdown();
+        })) m_cleanupFailed = true;
+}
+
 void BootstrapperBase::shutdown(bool invokeExit) noexcept
 {
     if (m_state == State::Stopping || m_state == State::Stopped)
         return;
     qCDebug(FrameworkLog::bootstrapper).noquote() << "Releasing application resources:" << FrameworkLog::identity(this);
     m_state = State::Stopping;
-    if (m_windowManager) m_windowManager->prepareForShutdown();
+    prepareWindows();
     closeRoot();
     if (invokeExit) notifyExit();
     // View 先于其借用的 VM 销毁。即使业务仍持有窗口服务，也显式释放窗口资源。
-    if (m_windowManager) m_windowManager->releaseWindows();
+    if (m_windowLifecycle && !tryCleanup("Release windows", [this] {
+            m_windowLifecycle->releaseWindows();
+        })) m_cleanupFailed = true;
     m_root.reset();
     m_factories.clear();
+    disconnectWindowService();
+    m_windowLifecycle = nullptr;
     m_windowManager.reset();
+    m_instanceProvider.reset();
     if (m_quitPolicyChanged) {
         m_app.setQuitOnLastWindowClosed(m_previousQuitOnLastWindowClosed);
         m_quitPolicyChanged = false;
