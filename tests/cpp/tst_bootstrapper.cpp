@@ -82,6 +82,11 @@ public:
 protected:
     void onActivate() override
     {
+        auto *window = managedWindow(this);
+        QVERIFY(window);
+        QCOMPARE(window->property("viewModel").value<ShellViewModel *>(), this);
+        QCOMPARE(m_windows->windowFor(this), window);
+        QVERIFY(!window->isVisible());
         ShellViewModel::onActivate();
         auto vm = std::make_unique<ConfirmActionViewModel>(
                 ConfirmationRequest{QStringLiteral("激活期间"), QStringLiteral("窗口已关联")});
@@ -101,6 +106,13 @@ class TestBootstrapper : public BootstrapperBase
 public:
     TestBootstrapper(QGuiApplication &app, QString scenario, Observation &observation)
         : BootstrapperBase(app), m_scenario(std::move(scenario)), m_observation(observation) {}
+
+    bool registerOutsideConfigure()
+    {
+        return registerRootFactory<ShellViewModel>([](std::shared_ptr<IWindowManager> windows) {
+            return buildShell(std::move(windows));
+        });
+    }
 
 protected:
     bool configure() override
@@ -125,6 +137,8 @@ protected:
             }))
                 return false;
         }
+        if (m_scenario == "duplicateFactory")
+            return registerOutsideConfigure();
         if (m_scenario == "missingMapping")
             return true;
 
@@ -161,6 +175,8 @@ protected:
                 if (!root || root->property("viewModel").value<ShellViewModel *>() != m_observation.shell)
                     continue;
                 m_observation.window = root;
+                QCOMPARE(m_windows->windowFor(m_observation.shell), root);
+                QCOMPARE(root->property("_caliburnWindowManager").value<QObject *>(), m_windows.data());
                 if (m_scenario == "hiddenWindow") QVERIFY(root->isVisible());
                 if (m_scenario == "injectedService" || m_scenario == "explicitOptions") {
                     m_observation.home->add(2);
@@ -198,6 +214,8 @@ protected:
         m_observation.exitBeforeReturn = !m_observation.exitReturned;
         m_observation.order << "exit";
         m_observation.aliveAtExit = bool(m_observation.shell); // 根对象在 onExit 时仍有效，Home 可已延迟释放。
+        if (m_observation.window)
+            QCOMPARE(m_windows->windowFor(m_observation.shell), m_observation.window.data());
         m_observation.activeAtExit = m_observation.shell && m_observation.shell->isActive();
         if (m_scenario == "exitException")
             throw std::runtime_error("测试退出异常");
@@ -346,6 +364,7 @@ private slots:
         QTest::newRow("activationDialog") << QString("activationDialog") << 0 << true << 1 << 1 << true;
         QTest::newRow("injectedService") << QString("injectedService") << 0 << true << 1 << 1 << true;
         QTest::newRow("explicitOptions") << QString("explicitOptions") << 0 << true << 1 << 1 << true;
+        QTest::newRow("duplicateFactory") << QString("duplicateFactory") << 1 << false << 0 << 0 << false;
         QTest::newRow("emptyFactory") << QString("emptyFactory") << 1 << false << 0 << 0 << false;
         // 服务已有自建普通窗口时，在激活根 VM 前拒绝显示。
         QTest::newRow("hostFailure") << QString("hostFailure") << 1 << false << 1 << 0 << true;
@@ -385,6 +404,7 @@ private slots:
         {
             TestBootstrapper bootstrapper(*qobject_cast<QGuiApplication *>(qApp), scenario, observation);
             QCOMPARE(observation.factoryCalls, 0);
+            QVERIFY(!bootstrapper.registerOutsideConfigure());
             QCOMPARE(bootstrapper.run(), exitCode);
             QCOMPARE(observation.loopEntered, entersLoop);
             QCOMPARE(observation.factoryCalls, factoryCalls);
@@ -422,6 +442,7 @@ private slots:
                 QVERIFY(observation.order.indexOf("homeView.destroy") < observation.order.indexOf("home.destroy"));
                 QCOMPARE(observation.order.mid(0, 3), QStringList({"configure", "startup", "factory"}));
             }
+            QVERIFY(!bootstrapper.registerOutsideConfigure());
             QCOMPARE(bootstrapper.run(), 1);
             QCOMPARE(observation.exitCalls, 1);
         }
