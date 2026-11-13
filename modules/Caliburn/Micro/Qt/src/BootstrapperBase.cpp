@@ -86,7 +86,7 @@ bool BootstrapperBase::initialize()
     std::shared_ptr<IWindowManager> service;
     if (m_instanceProvider) {
         m_iocBinding = std::make_unique<IoCDetail::Binding>(m_instanceProvider);
-        service = m_instanceProvider->resolve<IWindowManager>();
+        service = m_instanceProvider->windowManager();
     } else {
         service = std::make_shared<WindowManager>();
     }
@@ -149,8 +149,7 @@ bool BootstrapperBase::selectWindowService(std::shared_ptr<IWindowManager> servi
     return true;
 }
 
-bool BootstrapperBase::createRootViewModel(const QMetaObject *type,
-        const std::function<std::unique_ptr<QObject>()> &providerFactory)
+bool BootstrapperBase::createRootViewModel(const QMetaObject *type)
 {
     if (m_state != State::Starting)
         return fail(QStringLiteral("The root window can only be displayed during onStartup"));
@@ -162,8 +161,6 @@ bool BootstrapperBase::createRootViewModel(const QMetaObject *type,
     std::unique_ptr<QObject> model;
     if (found != m_factories.cend()) {
         model = (*found)(m_windowManager);
-    } else if (m_instanceProvider) {
-        model = providerFactory();
     } else {
         return fail(QStringLiteral("No factory registered for the root type"));
     }

@@ -271,9 +271,9 @@ target_link_libraries(CaliburnBootstrapperProviderTests PRIVATE
 foreach(scenario IN ITEMS success normalClose dialogIdentity legacy legacyNull legacyThrows
         nullSet repeatSet configureFailure configureThrows serviceMissing serviceThrows missingLifecycle
         serviceParent serviceThread subscriptionFailure subscriptionThrows rootMissing rootThrows
-        rootNull rootWrongContract rootParent rootThread showFailure
+        rootNull rootParent rootThread showFailure
         prepareThrows releaseThrows cleanupSignal exitCodeAndCleanup retained sequential
-        serviceWrongContract activateThrows startupAfterDisplayThrows rootCloseThrows
+        activateThrows startupAfterDisplayThrows rootCloseThrows
         exitThrows exitAndReleaseThrows retainedShowFailure retainedStartupFailure retainedExitFailure
         recoverAfterRootFailure recoverAfterDisplayFailure recoverAfterExitFailure)
     add_test(NAME bootstrapper_provider_${scenario}
@@ -281,30 +281,6 @@ foreach(scenario IN ITEMS success normalClose dialogIdentity legacy legacyNull l
     set_tests_properties(bootstrapper_provider_${scenario} PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software" TIMEOUT 15)
 endforeach()
-
-# 独占映射约束的编译对照：先确认相同环境可以编译合法映射。
-function(caliburn_check_unique_mapping)
-    set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
-    set(header_dir "${PROJECT_SOURCE_DIR}/modules/Caliburn/Micro/Qt/include")
-    try_compile(safe_mapping "${CMAKE_CURRENT_BINARY_DIR}/unique-mapping-safe"
-        "${CMAKE_CURRENT_SOURCE_DIR}/compile/unique_mapping.cpp"
-        CMAKE_FLAGS "-DCMAKE_CXX_STANDARD=17" "-DINCLUDE_DIRECTORIES:STRING=${header_dir}"
-        COMPILE_DEFINITIONS -DSAFE_MAPPING
-        LINK_LIBRARIES Qt6::Core OUTPUT_VARIABLE safe_output)
-    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/unique-mapping-safe.log" "${safe_output}")
-    if(NOT safe_mapping)
-        message(FATAL_ERROR "合法独占映射编译对照失败：${safe_output}")
-    endif()
-    try_compile(unsafe_mapping "${CMAKE_CURRENT_BINARY_DIR}/unique-mapping-unsafe"
-        "${CMAKE_CURRENT_SOURCE_DIR}/compile/unique_mapping.cpp"
-        CMAKE_FLAGS "-DCMAKE_CXX_STANDARD=17" "-DINCLUDE_DIRECTORIES:STRING=${header_dir}"
-        LINK_LIBRARIES Qt6::Core OUTPUT_VARIABLE unsafe_output)
-    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/unique-mapping-unsafe.log" "${unsafe_output}")
-    if(unsafe_mapping OR NOT unsafe_output MATCHES "跨类型独占映射要求契约具有虚析构函数")
-        message(FATAL_ERROR "非虚析构独占映射未按约束拒绝：${unsafe_output}")
-    endif()
-endfunction()
-caliburn_check_unique_mapping()
 
 add_executable(CaliburnIoCTests cpp/tst_ioc.cpp)
 target_include_directories(CaliburnIoCTests PRIVATE "${PROJECT_SOURCE_DIR}/modules/Caliburn/Micro/Qt/src")

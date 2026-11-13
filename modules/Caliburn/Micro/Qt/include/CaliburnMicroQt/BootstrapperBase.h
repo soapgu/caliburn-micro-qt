@@ -62,9 +62,7 @@ protected:
                                          const std::optional<QString> &context = std::nullopt)
     {
         static_assert(std::is_base_of_v<QObject, T>, "根模型必须继承 QObject");
-        if (!createRootViewModel(&T::staticMetaObject, [this] {
-                return std::unique_ptr<QObject>(m_instanceProvider->create<T>());
-            })) {
+        if (!createRootViewModel(&T::staticMetaObject)) {
             m_rootDisplayFailed = true;
             return false;
         }
@@ -82,8 +80,7 @@ private:
     bool selectWindowService(std::shared_ptr<IWindowManager> service);
     void disconnectWindowService() noexcept;
     void prepareWindows() noexcept;
-    bool createRootViewModel(const QMetaObject *type,
-                             const std::function<std::unique_ptr<QObject>()> &providerFactory);
+    bool createRootViewModel(const QMetaObject *type);
     bool displayRootView(const QVariant &viewModel, RootViewOptions options, const std::optional<QString> &context);
     bool m_previousQuitOnLastWindowClosed = true;
     bool m_quitPolicyChanged = false;

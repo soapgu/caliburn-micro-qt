@@ -6,7 +6,7 @@
 
 ## 命名约定与迁移
 
-`BootstrapperBase` 的所有普通成员方法采用 Qt 风格 camelCase，与 Caliburn.Micro 保持概念对应；不要求与 C# 原版的方法拼写一致。类名继续使用 PascalCase。A1 规划的独立全局门面 `IoC::Get/Create/GetAll` 使用本次确认的 CM 风格拼写，不改 Bootstrapper 或 Provider 的方法名称。
+`BootstrapperBase` 的所有普通成员方法采用 Qt 风格 camelCase，与 Caliburn.Micro 保持概念对应；不要求与 C# 原版的方法拼写一致。类名继续使用 PascalCase。A1 规划的独立全局门面 `TypedIoC<Provider>::Get/Create` 使用本次确认的 CM 风格拼写，不改 Bootstrapper 或 Provider 的方法名称。
 
 本次改名属于破坏性接口变更，旧名称已移除，不提供兼容别名。使用方需同步修改调用点及派生类的 `override` 声明、定义，然后重新编译框架和应用；方法签名、访问级别和生命周期行为保持不变。
 
@@ -58,14 +58,19 @@ m_root 负责根 VM 最终删除及失败/强制退出时的生命周期兜底�
 
 ## 可选实例提供器
 
-应用可在 configure 中提供自己的 IInstanceProvider 实现，例如应用侧 Boost.DI 适配器。框架不包含具体容器，IInstanceProvider 只提供 resolve/create/resolveAll，不提供 BuildUp 或类型登记入口。应用启动时一次性构建 injector，再由应用 Provider 持有和转发。
+应用可在 configure 中安装自己的 Provider。非模板 IInstanceProvider 只要求 windowManager()；通用 InstanceProvider<Injector> 通过模板方法直接创建对象，框架不依赖具体 DI 库。
 
 ```cpp
 bool AppBootstrapper::configure()
 {
     if (!ViewLocator::registerView<ShellViewModel>(
             QUrl("qrc:/myapp/views/ShellView.qml"))) return false;
-    return setInstanceProvider(createApplicationProvider());
+    auto provider = createApplicationProvider();
+    if (!setInstanceProvider(provider)) return false;
+    return registerRootFactory<ShellViewModel>(
+        [provider](std::shared_ptr<IWindowManager>) {
+            return provider->create<ShellViewModel>();
+        });
 }
 
 void AppBootstrapper::onStartup()
@@ -74,7 +79,7 @@ void AppBootstrapper::onStartup()
 }
 ```
 
-createApplicationProvider 是应用自定义的组合函数，不是框架 API。它返回的提供器须支持未命名的 resolve<IWindowManager>()，以及本例中的独占 create<ShellViewModel>()。应用须补齐子 View 映射或搜索根；静态 QML 插件仍按原方式导入。也可保留 registerRootFactory，此时无需提供根创建能力，但旧工厂必须复用传入窗口服务。
+createApplicationProvider 是应用组合函数，返回具体 Provider。所有根模型均须登记显式工厂，不再通过非模板基类自动创建根模型。根工厂须复用同一窗口服务；应用补齐视图映射或搜索根，静态 QML 插件按原方式导入。
 
 setInstanceProvider 仅允许配置阶段调用一次，拒绝空值；设置期间不解析且不绑定全局入口，configure 失败也不解析或绑定。configure 成功后先绑定 IoC，再解析服务；旧根工厂执行时 IoC 已可用。活动绑定不允许第二个 Bootstrapper 覆盖，失败实例不能解除其他实例的绑定。窗口服务须无 QObject parent、属于应用线程，并自身实现 IWindowManagerLifecycle。两个接口属于同一服务对象，通过 qobject_cast 查询生命周期能力，不另行解析第二个清理对象。
 
@@ -163,7 +168,7 @@ Screen.tryClose 优先委托逻辑 Parent IConductor，否则直接关闭弱关�
 
 ## 全局 IoC 入口
 
-包含 `CaliburnMicroQt/IoC.h` 后可使用 `IoC::Get<T>(name)` 获取 shared_ptr、`IoC::Create<T>(name)` 创建默认 unique_ptr。门面只转发当前 Provider；不配置容器，不缓存对象，不向 QML 暴露。具体类型支持默认删除；跨类型独占映射要求契约具有可访问的虚析构函数。共享契约不增加此限制。
+应用包含具体 Provider 与 `CaliburnMicroQt/IoC.h`，在自己的命名空间声明 `using IoC = TypedIoC<ApplicationInstanceProvider>`，即可使用 `IoC::Get<T>()` 获取 shared_ptr、`IoC::Create<T>()` 创建默认 unique_ptr。别名类型必须与安装的 Provider 一致，门面静态转换后直接转发模板调用，不校验请求或返回值，不包装构造异常。不提供名称或集合接口，也不向 QML 暴露容器。
 
 请求必须在应用线程执行；未绑定、已解绑或弱 Provider 失效使用 CreationFailed 报告，原 Provider 错误继续传播。解绑后即使应用另持 Provider 也不能通过全局入口继续解析。没有公开绑定 setter；绑定凭据只在框架内部管理，异常清理和析构兜底不会清除其他上下文。未配置 Provider 的旧应用不自动发布全局容器。
 

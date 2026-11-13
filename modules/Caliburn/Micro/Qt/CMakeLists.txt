@@ -11,6 +11,7 @@ qt_add_qml_module(CaliburnMicroQt
         include/CaliburnMicroQt/IoC.h
         src/IoC.cpp
         src/IoCBinding.h
+        include/CaliburnMicroQt/InstanceProvider.h
         include/CaliburnMicroQt/IInstanceProvider.h
         src/InstanceProvider.cpp
         src/FrameworkLog.h

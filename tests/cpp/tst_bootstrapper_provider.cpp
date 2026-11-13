@@ -17,12 +17,9 @@
 
 Q_IMPORT_QML_PLUGIN(CaliburnMicroQtPlugin)
 
-static bool iocUnavailable()
-{
-    try { (void)IoC::Get<int>(); }
-    catch (const InstanceError &error) { return error.code() == InstanceErrorCode::CreationFailed; }
-    return false;
-}
+class BootstrapProvider;
+using IoC = TypedIoC<BootstrapProvider>;
+static bool iocUnavailable();
 
 struct Observations {
     QStringList order;
@@ -146,23 +143,28 @@ public:
 class BootstrapProvider : public TestInstanceProvider
 {
 public:
-    explicit BootstrapProvider(Observations &state) : state(state) {}
+    BootstrapProvider(Observations &state, TestInjector injector)
+        : TestInstanceProvider(std::move(injector)), state(state) {}
     ~BootstrapProvider() override { state.order << "provider.destroy"; }
-protected:
-    std::optional<SharedInstance> resolveShared(const InstanceRequest &request) override {
-        if (request.type != typeid(IWindowManager)) {
-            ++state.iocProbes;
-            return TestInstanceProvider::resolveShared(request);
-        }
+
+    std::shared_ptr<IWindowManager> windows;
+    std::shared_ptr<IWindowManager> windowManager() override {
         ++state.resolves;
         state.order << "resolve";
         state.boundDuringResolve = IoC::Get<int>() == state.marker;
         if (state.scenario == "serviceThrows") throw std::runtime_error("窗口服务解析异常");
-        return TestInstanceProvider::resolveShared(request);
+        return windows;
     }
 private:
     Observations &state;
 };
+
+static bool iocUnavailable()
+{
+    try { (void)IoC::Get<int>(); }
+    catch (const InstanceError &error) { return error.code() == InstanceErrorCode::CreationFailed; }
+    return false;
+}
 
 class ProviderBootstrapper : public BootstrapperBase
 {
@@ -174,14 +176,16 @@ protected:
     bool configure() override {
         state.order << "configure.begin";
         state.unboundDuringConfigure = iocUnavailable();
-        auto provider = std::make_shared<BootstrapProvider>(state);
+        TestInjector injector;
+        injector.marker = state.marker;
+        // 窗口服务在配置阶段准备，固定契约只在配置成功后读取。
+        auto provider = std::make_shared<BootstrapProvider>(state, injector);
         state.provider = provider;
         if (state.scenario == "nullSet") return install({});
         if (!install(provider)) return false;
         if (state.scenario == "repeatSet") return install(provider);
         if (state.scenario == "configureFailure") return false;
         if (state.scenario == "configureThrows") throw std::runtime_error("配置异常");
-        provider->add({typeid(int), {}}, [marker = state.marker] { return SharedInstance::from<int>(marker); });
         std::shared_ptr<IWindowManager> windows;
         if (state.scenario == "missingLifecycle") windows = std::make_shared<LegacyProviderWindows>();
         else windows = std::make_shared<ProviderWindows>(state);
@@ -193,31 +197,25 @@ protected:
             state.retained = windows;
         }
         if (state.scenario.startsWith("retained")) state.retained = windows;
-        if (state.scenario != "serviceMissing") {
-            provider->add({typeid(IWindowManager), {}}, [this, windows] {
-                if (state.scenario == "serviceWrongContract")
-                    return SharedInstance::from<QObject>(std::make_shared<QObject>());
-                return SharedInstance::from<IWindowManager>(windows);
-            });
+        // 配置阶段准备测试服务，此时全局 Provider 尚未发布。
+        provider->windows = state.scenario == "serviceMissing" ? nullptr : windows;
+        if (state.scenario != "rootMissing" && !state.scenario.startsWith("legacy")) {
+            if (!registerRootFactory<ProviderRoot>([this](std::shared_ptr<IWindowManager> service) {
+                state.factorySameService = service == state.windows.lock();
+                ++state.creates;
+                state.order << "create";
+                if (state.scenario == "rootThrows" || state.scenario == "recoverAfterRootFailure")
+                    throw std::runtime_error("根创建异常");
+                if (state.scenario == "rootNull") return std::unique_ptr<ProviderRoot>{};
+                auto root = std::make_unique<ProviderRoot>(state);
+                if (state.scenario == "rootParent") root->setParent(&state.parent);
+                if (state.scenario == "rootThread") {
+                    state.worker.start();
+                    root->moveToThread(&state.worker);
+                }
+                return root;
+            })) return false;
         }
-        provider->uniqueFactory = [this](const InstanceRequest &request) {
-            ++state.creates;
-            state.order << "create";
-            if (request.type != typeid(ProviderRoot)) throw std::logic_error("错误的根请求");
-            if (state.scenario == "rootMissing")
-                throw InstanceError(InstanceErrorCode::NotRegistered, InstanceOperation::Create, request,
-                                    QStringLiteral("根未登记"));
-            if (state.scenario == "rootThrows" || state.scenario == "recoverAfterRootFailure") throw std::runtime_error("根创建异常");
-            if (state.scenario == "rootNull") return UniqueInstance::from<ProviderRoot>(std::unique_ptr<ProviderRoot>{});
-            if (state.scenario == "rootWrongContract") return UniqueInstance::from<QObject>(std::make_unique<QObject>());
-            auto root = std::make_unique<ProviderRoot>(state);
-            if (state.scenario == "rootParent") root->setParent(&state.parent);
-            if (state.scenario == "rootThread") {
-                state.worker.start();
-                root->moveToThread(&state.worker);
-            }
-            return UniqueInstance::from<ProviderRoot>(std::move(root));
-        };
         if (state.scenario.startsWith("legacy")) {
             auto probe = std::make_shared<FactoryProbe>(state);
             if (!registerRootFactory<ProviderRoot>([this, probe](std::shared_ptr<IWindowManager> service) {
@@ -334,9 +332,9 @@ private slots:
         for (const char *name : {"success", "normalClose", "dialogIdentity", "legacy", "legacyNull", "legacyThrows",
                 "nullSet", "repeatSet", "configureFailure", "configureThrows", "serviceMissing", "serviceThrows", "missingLifecycle",
                 "serviceParent", "serviceThread", "subscriptionFailure", "subscriptionThrows", "rootMissing", "rootThrows",
-                "rootNull", "rootWrongContract", "rootParent", "rootThread", "showFailure",
+                "rootNull", "rootParent", "rootThread", "showFailure",
                 "prepareThrows", "releaseThrows", "cleanupSignal", "exitCodeAndCleanup", "retained", "sequential",
-                "serviceWrongContract", "activateThrows", "startupAfterDisplayThrows", "rootCloseThrows",
+                "activateThrows", "startupAfterDisplayThrows", "rootCloseThrows",
                 "exitThrows", "exitAndReleaseThrows", "retainedShowFailure", "retainedStartupFailure",
                 "retainedExitFailure", "recoverAfterRootFailure", "recoverAfterDisplayFailure", "recoverAfterExitFailure"})
             QTest::newRow(name) << QString(name);
@@ -372,10 +370,10 @@ private slots:
                 QVERIFY(state.order.indexOf("configure.end") < state.order.indexOf("resolve"));
             }
             const QStringList rejectedService{"serviceMissing", "serviceThrows", "missingLifecycle", "serviceParent",
-                    "serviceThread", "subscriptionFailure", "subscriptionThrows", "serviceWrongContract"};
+                    "serviceThread", "subscriptionFailure", "subscriptionThrows"};
             QCOMPARE(state.startup, !rejectedSetting && !rejectedService.contains(state.scenario));
             if (state.startup) QVERIFY(state.order.indexOf("resolve") < state.order.indexOf("startup"));
-            const QStringList beforeLoopFailures{"rootMissing", "rootThrows", "rootNull", "rootWrongContract",
+            const QStringList beforeLoopFailures{"rootMissing", "rootThrows", "rootNull",
                     "rootParent", "rootThread", "showFailure", "legacyNull", "legacyThrows", "activateThrows",
                     "startupAfterDisplayThrows", "retainedShowFailure", "retainedStartupFailure",
                     "recoverAfterRootFailure", "recoverAfterDisplayFailure"};
@@ -387,7 +385,8 @@ private slots:
                 QVERIFY(state.boundAtFactoryDestruction);
             } else {
                 QCOMPARE(state.factories, 0);
-                QCOMPARE(state.creates, state.startup ? 1 : 0);
+                QCOMPARE(state.creates, state.startup && state.scenario != "rootMissing" ? 1 : 0);
+                if (state.creates) QVERIFY(state.factorySameService);
             }
             if (state.loop) {
                 QVERIFY(state.typed && state.sameService && state.aliveAtExit);

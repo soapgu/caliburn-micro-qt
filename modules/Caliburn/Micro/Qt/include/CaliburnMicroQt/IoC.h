@@ -6,18 +6,21 @@ namespace IoCDetail {
 std::shared_ptr<IInstanceProvider> currentProvider(const InstanceRequest &request, InstanceOperation operation);
 }
 
-// CM 风格访问门面；绑定由 Bootstrapper 控制，业务代码不设置全局容器。
-namespace IoC {
-template<class T> std::shared_ptr<T> Get(const QString &name = {})
+// 应用将其别名为 IoC；Provider 必须与 Bootstrapper 安装的具体类型一致。
+// 复用唯一全局绑定，类型在编译期确定，不做运行时请求分派。
+template<class Provider>
+class TypedIoC
 {
-    return IoCDetail::currentProvider({typeid(T), name}, InstanceOperation::Resolve)->resolve<T>(name);
-}
-template<class T> std::vector<std::shared_ptr<T>> GetAll()
-{
-    return IoCDetail::currentProvider({typeid(T), {}}, InstanceOperation::ResolveAll)->resolveAll<T>();
-}
-template<class T> std::unique_ptr<T> Create(const QString &name = {})
-{
-    return IoCDetail::currentProvider({typeid(T), name}, InstanceOperation::Create)->create<T>(name);
-}
-}
+public:
+    template<class T> static std::shared_ptr<T> Get()
+    {
+        return std::static_pointer_cast<Provider>(IoCDetail::currentProvider(
+            {typeid(T), {}}, InstanceOperation::Resolve))->template resolve<T>();
+    }
+
+    template<class T> static std::unique_ptr<T> Create()
+    {
+        return std::static_pointer_cast<Provider>(IoCDetail::currentProvider(
+            {typeid(T), {}}, InstanceOperation::Create))->template create<T>();
+    }
+};
