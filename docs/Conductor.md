@@ -1,6 +1,6 @@
 # Conductor：CM 3.2.0 基类与活动项行为
 
-> A1 所有权增量（2026-11-13，待实施）：按当前代码核查结果，Provider／全局 Create 统一返回默认 unique_ptr，彻底移除 OwnedInstance。Conductor 保持原 unique_ptr／借用入口及现有 View 延迟回收方式，不新增删除器消费与传递机制。下文接口继续适用，详细边界见 [A1 框架 IoC 设计](A1框架IoC设计.md#4-彻底移除-ownedinstance保留默认-unique_ptr-方式)。
+> A1 框架增量（2026-11-13）：Provider／IoC::Create 已统一默认 unique_ptr。Conductor 及 View 延迟回收实现和接口均未改变，不增加删除器传递机制。见 [A1 框架 IoC 设计](A1框架IoC设计.md)。
 
 以 CM 3.2.0 源码为依据统一单项和 Collection.OneActive 的分层、切换顺序及扩展点；Qt 的所有权回收和父级关闭收尾采用本文约定。历史验收记录保留当时结果，当前行为以本文为准。
 

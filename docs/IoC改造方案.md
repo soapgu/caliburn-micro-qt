@@ -1,6 +1,6 @@
 # IoC 改造方案
 
-> 2026-11-13 后续决策：[A1 框架 IoC 设计](A1框架IoC设计.md) 已确定，当前待实施。框架增加全局 IoC 门面及受控绑定，应用 Provider 内置 Boost.DI，Provider 独占 API 和根持有统一默认 unique_ptr，彻底移除 OwnedInstance；Conductor／延迟回收保持原方式。下文 F1／F2 范围与验收是历史事实；A1 新增目标以配套设计为准。
+> 2026-11-13 A1 框架增量已实现：[A1 框架 IoC 设计](A1框架IoC设计.md)中的门面、受控绑定和默认 unique_ptr 独占 API 已落地，未新增退出钩子。应用 Provider 内置 DI 和生产路径接入留待应用阶段；下述 F1／F2 实施史保留当时事实。
 
 编写日期：2026-11-12。框架源码基线：`00b72ae`。
 
@@ -33,44 +33,42 @@
 - [WindowManager.h](../modules/Caliburn/Micro/Qt/include/CaliburnMicroQt/WindowManager.h)
 - [WindowManager.cpp](../modules/Caliburn/Micro/Qt/src/WindowManager.cpp)
 
-初始评估基线中的 `initialize()` 在 `configure()` 前创建具体 `WindowManager`，持有具体类型。F1 后当前实现已改为 configure 成功后选择服务，Bootstrapper 持有 `shared_ptr<IWindowManager>`；旧根工厂仍接收该共享服务，内部根持有类型为保留删除器的 `OwnedInstance<QObject>`。根显示入口保留具体 `T*` 的 QVariant，用于 QML 注入。
+初始评估基线中的 `initialize()` 在 `configure()` 前创建具体 `WindowManager`，持有具体类型。F1 后当前实现已改为 configure 成功后选择服务，Bootstrapper 持有 `shared_ptr<IWindowManager>`；旧根工厂仍接收该共享服务，F1 当时的内部根持有类型为 `OwnedInstance<QObject>`；A1 当前已恢复默认 `std::unique_ptr<QObject>`。根显示入口保留具体 `T*` 的 QVariant，用于 QML 注入。
 
 窗口清理所需的 `prepareForShutdown()`、`releaseWindows()` 和 `windowCleanupFailed` 属于具体 WindowManager。仅把成员改成 `shared_ptr<IWindowManager>` 会丢失退出协调能力，必须同步设计生命周期契约。
 
 ## 三、实例提供器与强类型访问层
 
-`IInstanceProvider` 及配套访问层已落地，公开头文件为 `CaliburnMicroQt/IInstanceProvider.h`。当前 API、适配边界与验证结果见 [IoC解析契约验收记录](验收/IoC解析契约验收记录.md)。Bootstrapper 和窗口生命周期接入已在 F1 完成；新增全局门面与所有权消费链按 [A1 框架设计](A1框架IoC设计.md) 实施。
+`IInstanceProvider` 及配套访问层已落地，公开头文件为 `CaliburnMicroQt/IInstanceProvider.h`。早期解析契约验收见 [历史记录](验收/IoC解析契约验收记录.md)；当前接口收缩见 [实例提供器接口收缩验收记录](验收/实例提供器接口收缩验收记录.md)。Bootstrapper 和窗口生命周期接入已在 F1 完成；新增全局门面与所有权消费链按 [A1 框架设计](A1框架IoC设计.md) 实施。
 
 | 当前能力 | 语义 |
 | --- | --- |
 | `resolve<T>(name)` | 必需共享实例解析；未注册或解析失败明确报告 |
-| `tryResolve<T>(name)` | 可选查询；仅未注册可返回空，类型错误、创建失败等仍报错 |
 | `create<T>(name)` | 独占创建，并将所有权转移给调用者 |
-| `resolveAll<T>()` | 返回指定契约全部实现；未注册返回空集合 |
-| `buildUp<T>(object)` | 对已有对象执行适配器声明的注入，不转移所有权 |
+| `resolveAll<T>()` | 返回适配器显式提供的契约集合；支持空集合，不扫描单实例登记 |
 
 ### 类型与所有权约束
 
 1. 类型身份使用 C++ 类型标识，名称只用于补充区分同一契约。支持非 QObject 的普通 C++ 服务，不能把类名字符串或裸 QObject 指针作为通用解析协议。
 2. 类型擦除结果保留契约类型、所有权和正确析构方式。接口转换由适配器显式完成，不允许从 `void*` 任意强转；应覆盖多重继承导致接口地址偏移的情况。
 3. 共享解析保留共享控制块；独占创建返回可安全转移的独占结果。禁止将已有共享实例或借用对象包装成 `unique_ptr`。
-4. `buildUp` 仅处理显式声明的注入点，不自动扫描全部 Q_PROPERTY，也不改变对象释放责任。
-5. 单实例契约的重复登记必须明确报错；多实现注册与单实例重复分开定义。集合包含全部命名及未命名登记，按登记顺序返回，不按实例指针去重；当前不提供名称筛选。
-6. 不支持的能力必须显式报告，不能以空对象、空集合或无操作伪装成功。
+4. 依赖绑定、构造注入和作用域由应用 DI 后端完成；框架不提供已有对象注入或类型登记 API。
+5. 集合由适配器显式提供，原样保留顺序和重复项，不扫描或合并命名与未命名的单实例登记；当前不提供名称筛选。
+6. 不支持的能力必须显式报告，不能以空对象或空集合伪装成功。
 
 ### 错误模型与上下文
 
-统一区分未注册、类型不匹配、重复契约、循环依赖、不支持能力及创建失败。诊断至少能定位请求类型、可选名称和失败原因；适配器提供依赖链，框架保留并报告。可选查询不能吞掉真正的配置错误。
+统一区分未注册、类型不匹配、重复契约、循环依赖、不支持能力及创建失败。诊断至少能定位请求类型、可选名称和失败原因；适配器提供依赖链，框架保留并报告。框架不生成依赖图或执行循环检测，后端错误原样传播。
 
 Bootstrapper 持有提供器或其受控上下文，生命周期覆盖框架解析和已接入工厂的使用期。F1 未建立全局静态绑定；A1 改为配置成功后发布受控绑定，窗口／模型清理后按绑定身份解除，拒绝覆盖活动上下文；连续创建 Bootstrapper 不得访问前一上下文的容器。仍须遵守现有 ViewLocator 进程级状态的测试隔离规则，不能把提供器隔离等同于所有框架注册状态均已隔离。
 
 ### 当前适配协议
 
-公开方法为 `resolve<T>`、`tryResolve<T>`、`create<T>`、`resolveAll<T>` 和 `buildUp<T>(T&)`。名称使用区分大小写、未经修剪的 QString；空名称表示未命名契约。返回结果分别为共享指针、`OwnedInstance<T>`、共享指针集合或 void。
+公开方法仅为 `resolve<T>`、`create<T>`、`resolveAll<T>`。名称使用区分大小写、未经修剪的 QString；空名称表示未命名契约。A1 当前返回结果分别为共享指针、`std::unique_ptr<T>`、共享指针集合。
 
-适配器必须实现 `resolveShared`，以 nullopt 表示当前契约未登记；其余 `createUnique`、`resolveCollection`、`injectExisting` 默认报告不支持。共享与独占结果分别通过 `SharedInstance::from<Contract>`、`UniqueInstance::from<Contract>` 从强类型智能指针构造。实例提供器不提供注册 API 或生产容器；重复登记、集合顺序和后端错误适配由应用实现负责；构造依赖解析与循环诊断由具体 DI 后端承担，不要求应用再写一套容器。
+适配器必须实现 `resolveShared`，以 nullopt 表示当前契约未登记；`createUnique`、`resolveCollection` 默认报告不支持。共享与独占结果分别通过 `SharedInstance::from<Contract>`、`UniqueInstance::from<Contract>` 从强类型智能指针构造。实例提供器不提供注册 API 或生产容器；集合由适配器直接转发 DI 后端结果；构造依赖解析与循环诊断由具体 DI 后端承担，不要求应用再写一套容器。
 
-`OwnedInstance<T>` 使用绑定本次创建对象的类型擦除删除器，支持移动、release 和 reset(nullptr)，不得将其 reset 为另一对象或为无关指针复用删除器。这是当前 F1 实现的约束；A1 将同步删除 OwnedInstance、限制不安全独占映射并恢复默认 unique_ptr 根持有，不能只在旧契约下丢弃删除器。已有对象注入通过 `BorrowedInstance::as<T>()` 检查静态契约后访问，不负责动态类型发现。
+A1 已删除 OwnedInstance：独占结果由默认 unique_ptr 持有，跨类型映射要求契约虚析构；内部类型化 RAII holder 保证错误结果回收，不暴露实例删除器。已删除 tryResolve、buildUp 与 BorrowedInstance，这是有意的公开 API 收缩，原调用方需调整。
 
 `InstanceError` 保存错误码、操作、请求与依赖链；普通或未知适配器异常转换为 CreationFailed 并保留嵌套异常，已有 InstanceError 原样传播。接口不提供全局状态或同步保证，QObject 线程规则由应用负责。
 
@@ -144,8 +142,8 @@ Bootstrapper 持有提供器或其受控上下文，生命周期覆盖框架解�
 | 维度 | 必须覆盖的场景 |
 | --- | --- |
 | 旧路径 | 无提供器、旧根工厂、默认窗口服务；旧启动与失败返回语义 |
-| 解析 | 普通服务、名称、集合为空与顺序、显式 BuildUp、共享身份、独占对象每次新建 |
-| 错误 | 必需未注册、可选未注册、重复、类型错误、循环依赖、不支持能力、创建异常 |
+| 解析 | 普通服务、名称、显式集合为空／顺序／重复项、共享身份、独占对象每次新建 |
+| 错误 | 必需未注册、类型错误、不支持能力、创建异常及后端错误原样传播 |
 | 根分派 | 旧工厂优先、无旧工厂时提供器创建、已选路径失败不回退 |
 | 根约束 | 空对象、契约类型错误、非空 parent、错误线程、强类型 QML 注入 |
 | 窗口一致性 | 框架、旧根工厂、业务弹窗使用相同服务；从该服务对象查询生命周期接口 |
@@ -157,7 +155,7 @@ F1 可使用测试提供器完成新入口验证，不要求先接入具体容�
 
 ## 七、A1 统一入口重构（待实施）
 
-F1／F2 之后的 A1 已调整为统一入口闭环，详见 [A1 框架 IoC 设计](A1框架IoC设计.md) 和 [应用 A1 重构设计](../../../GitLabs/project_expo/red-conf-system/docs/A1重构设计.md)。框架增加 IoC::Get/Create、Bootstrapper 发布／解绑及默认 unique_ptr 独占 API，删除 OwnedInstance；不扩展 Conductor／退役回收；应用 Provider 完全内置 DI，删除 CheckInComposition，统一报到页与矩阵的生产创建。
+F1／F2 之后的 A1 已调整为统一入口闭环，详见 [A1 框架 IoC 设计](A1框架IoC设计.md) 和 [应用 A1 重构设计](../../../GitLabs/project_expo/red-conf-system/docs/A1重构设计.md)。框架增加 IoC::Get/Create/GetAll、Bootstrapper 发布／解绑及默认 unique_ptr 独占 API，删除 OwnedInstance；不扩展 Conductor／退役回收；应用 Provider 完全内置 DI，删除 CheckInComposition，统一报到页与矩阵的生产创建。
 
 报到页仍保持模板选择、属性和刷新规则，Reader 身份不变；其他输出模板保留原默认 unique_ptr 结果，不视为完成 DI 迁移。Shell 保留旧根工厂，其他弹窗、Shell 子树及带业务参数的工厂留到 A2／A3。A1 启用 Provider 的窗口服务解析，框架和应用共用同一个窗口服务。
 

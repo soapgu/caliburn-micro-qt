@@ -11,6 +11,12 @@ struct Implementation : Left, Contract {
     ~Implementation() override { ++destroyed; }
     int &destroyed;
 };
+struct VirtualContract { virtual ~VirtualContract() = default; int value = 42; };
+struct VirtualImplementation : Left, VirtualContract {
+    explicit VirtualImplementation(int &count) : destroyed(count) {}
+    ~VirtualImplementation() override { ++destroyed; }
+    int &destroyed;
+};
 struct Other {
     explicit Other(int &destroyed) : destroyed(destroyed) {}
     ~Other() { ++destroyed; }
@@ -43,9 +49,9 @@ private slots:
         QCOMPARE(result.get(), original.get());
         QVERIFY(!result.owner_before(original) && !original.owner_before(result));
         QCOMPARE(provider.resolve<Service>("A"), named);
-        QVERIFY(!provider.tryResolve<Service>("a"));
-        QVERIFY(!provider.tryResolve<Service>(" A"));
-        QVERIFY(!provider.tryResolve<Dependency>());
+        QCOMPARE(failure([&] { provider.resolve<Service>("a"); }).code(), InstanceErrorCode::NotRegistered);
+        QCOMPARE(failure([&] { provider.resolve<Service>(" A"); }).code(), InstanceErrorCode::NotRegistered);
+        QCOMPARE(failure([&] { provider.resolve<Dependency>(); }).code(), InstanceErrorCode::NotRegistered);
         const auto error = failure([&] { provider.resolve<Dependency>("missing"); });
         QCOMPARE(error.code(), InstanceErrorCode::NotRegistered);
         QCOMPARE(error.operation(), InstanceOperation::Resolve);
@@ -79,27 +85,27 @@ private slots:
         static_assert(!std::is_copy_constructible_v<UniqueInstance>);
         static_assert(std::is_nothrow_move_constructible_v<UniqueInstance>);
         int destroyed = 0;
-        OwnedInstance<Contract> result;
-        Contract *expected = nullptr;
+        std::unique_ptr<VirtualContract> result;
+        VirtualContract *expected = nullptr;
         bool adjusted = false;
         {
             TestInstanceProvider provider;
             provider.uniqueFactory = [&](const InstanceRequest &) {
-                auto object = std::make_unique<Implementation>(destroyed);
+                auto object = std::make_unique<VirtualImplementation>(destroyed);
                 expected = object.get();
                 adjusted = static_cast<void *>(object.get()) != static_cast<void *>(expected);
-                return UniqueInstance::from<Contract>(std::move(object));
+                return UniqueInstance::from<VirtualContract>(std::move(object));
             };
-            result = provider.create<Contract>();
+            result = provider.create<VirtualContract>();
             QCOMPARE(result.get(), expected);
             QVERIFY(adjusted);
             QCOMPARE(result->value, 42);
-            auto next = provider.create<Contract>();
+            auto next = provider.create<VirtualContract>();
             QVERIFY(next.get() != result.get());
             auto moved = std::move(next);
             QVERIFY(!next);
-            auto replacement = UniqueInstance::from<Contract>(std::make_unique<Implementation>(destroyed));
-            replacement = UniqueInstance::from<Contract>(std::make_unique<Implementation>(destroyed));
+            auto replacement = UniqueInstance::from<VirtualContract>(std::make_unique<VirtualImplementation>(destroyed));
+            replacement = UniqueInstance::from<VirtualContract>(std::make_unique<VirtualImplementation>(destroyed));
             QCOMPARE(destroyed, 1);
         }
         QCOMPARE(destroyed, 3);
@@ -111,89 +117,70 @@ private slots:
         TestInstanceProvider provider;
         provider.add({typeid(Service), "wrong"}, [] { return SharedInstance::from<Dependency>(std::make_shared<Dependency>()); });
         provider.add({typeid(Service), "empty"}, [] { return SharedInstance::from<Service>(std::shared_ptr<Service>{}); });
-        for (bool optional : {false, true}) {
-            auto request = [&](const char *name) {
-                if (optional) provider.tryResolve<Service>(name);
-                else provider.resolve<Service>(name);
-            };
-            QCOMPARE(failure([&] { request("wrong"); }).code(), InstanceErrorCode::TypeMismatch);
-            QCOMPARE(failure([&] { request("empty"); }).code(), InstanceErrorCode::CreationFailed);
-        }
+        QCOMPARE(failure([&] { provider.resolve<Service>("wrong"); }).code(), InstanceErrorCode::TypeMismatch);
+        QCOMPARE(failure([&] { provider.resolve<Service>("empty"); }).code(), InstanceErrorCode::CreationFailed);
         int destroyed = 0;
         provider.uniqueFactory = [&](const InstanceRequest &) {
             return UniqueInstance::from<Other>(std::make_unique<Other>(destroyed));
         };
         QCOMPARE(failure([&] { provider.create<Service>(); }).code(), InstanceErrorCode::TypeMismatch);
         QCOMPARE(destroyed, 1);
+        {
+            auto concrete = provider.create<Other>();
+            static_assert(std::is_same_v<decltype(concrete), std::unique_ptr<Other>>);
+            QVERIFY(concrete);
+        }
+        QCOMPARE(destroyed, 2);
         provider.uniqueFactory = [](const InstanceRequest &) { return UniqueInstance::from<Service>(std::unique_ptr<Service>{}); };
         QCOMPARE(failure([&] { provider.create<Service>(); }).code(), InstanceErrorCode::CreationFailed);
     }
     void collectionOrderAndValidation()
     {
         TestInstanceProvider provider;
+        provider.collectionFactory = [](const InstanceRequest &) { return std::vector<SharedInstance>{}; };
         QVERIFY(provider.resolveAll<Service>().empty());
         auto first = std::make_shared<Service>();
         auto second = std::make_shared<Service>();
-        provider.add({typeid(Service), "named"}, [first] { return SharedInstance::from<Service>(first); });
-        provider.add({typeid(Service), {}}, [second] { return SharedInstance::from<Service>(second); });
-        provider.append({typeid(Service), "named"}, [first] { return SharedInstance::from<Service>(first); });
+        // 单实例端点不自动并入集合。
+        provider.add({typeid(Service), "named"}, [] { return SharedInstance::from<Service>(std::make_shared<Service>()); });
+        provider.collectionFactory = [first, second](const InstanceRequest &request) {
+            if (request.type != typeid(Service) || !request.name.isEmpty())
+                throw std::logic_error("集合请求契约错误");
+            return std::vector<SharedInstance>{SharedInstance::from<Service>(first),
+                SharedInstance::from<Service>(second), SharedInstance::from<Service>(first)};
+        };
         auto all = provider.resolveAll<Service>();
         QCOMPARE(all.size(), size_t(3));
         QCOMPARE(all[0], first); QCOMPARE(all[1], second); QCOMPARE(all[2], first);
-        provider.append({typeid(Service), {}}, [] { return SharedInstance::from<Dependency>(std::make_shared<Dependency>()); });
-        QCOMPARE(failure([&] { provider.resolveAll<Service>(); }).code(), InstanceErrorCode::TypeMismatch);
-        provider.entries.pop_back();
-        provider.append({typeid(Service), {}}, [] { return SharedInstance::from<Service>(std::shared_ptr<Service>{}); });
-        QCOMPARE(failure([&] { provider.resolveAll<Service>(); }).code(), InstanceErrorCode::CreationFailed);
-    }
-    void buildUpAndUnsupportedCapabilities()
-    {
-        TestInstanceProvider provider;
-        Service object;
-        provider.injection = [&](const InstanceRequest &request, BorrowedInstance borrowed) {
-            QVERIFY(request.type == typeid(Service));
-            QCOMPARE(&borrowed.as<Service>(), &object);
-            borrowed.as<Service>().value = 9;
+        QVERIFY(!all[0].owner_before(first) && !first.owner_before(all[0]));
+
+        int destroyed = 0;
+        std::weak_ptr<Other> observed;
+        provider.collectionFactory = [&](const InstanceRequest &) {
+            auto wrong = std::make_shared<Other>(destroyed);
+            observed = wrong;
+            return std::vector<SharedInstance>{SharedInstance::from<Service>(std::make_shared<Service>()),
+                SharedInstance::from<Other>(wrong)};
         };
-        provider.buildUp(object);
-        QCOMPARE(object.value, 9);
-        provider.injection = [](const InstanceRequest &, BorrowedInstance borrowed) { borrowed.as<Dependency>(); };
-        QCOMPARE(failure([&] { provider.buildUp(object); }).code(), InstanceErrorCode::TypeMismatch);
+        QCOMPARE(failure([&] { provider.resolveAll<Service>(); }).code(), InstanceErrorCode::TypeMismatch);
+        QVERIFY(observed.expired());
+        QCOMPARE(destroyed, 1);
+        std::weak_ptr<Service> valid;
+        provider.collectionFactory = [&](const InstanceRequest &) {
+            auto object = std::make_shared<Service>();
+            valid = object;
+            return std::vector<SharedInstance>{SharedInstance::from<Service>(object),
+                SharedInstance::from<Service>(std::shared_ptr<Service>{})};
+        };
+        QCOMPARE(failure([&] { provider.resolveAll<Service>(); }).code(), InstanceErrorCode::CreationFailed);
+        QVERIFY(valid.expired());
+    }
+    void unsupportedCapabilities()
+    {
         SharedOnlyProvider minimal;
-        QVERIFY(!minimal.tryResolve<Service>());
+        QCOMPARE(failure([&] { minimal.resolve<Service>(); }).code(), InstanceErrorCode::NotRegistered);
         QCOMPARE(failure([&] { minimal.create<Service>(); }).code(), InstanceErrorCode::UnsupportedCapability);
         QCOMPARE(failure([&] { minimal.resolveAll<Service>(); }).code(), InstanceErrorCode::UnsupportedCapability);
-        QCOMPARE(failure([&] { minimal.buildUp(object); }).code(), InstanceErrorCode::UnsupportedCapability);
-    }
-    void duplicatesCyclesAndDependencyErrors()
-    {
-        TestInstanceProvider provider;
-        provider.add({typeid(Service), {}}, [&] {
-            provider.resolve<Dependency>("reader");
-            return SharedInstance::from<Service>(std::make_shared<Service>());
-        });
-        const auto missing = failure([&] { provider.tryResolve<Service>(); });
-        QCOMPARE(missing.code(), InstanceErrorCode::NotRegistered);
-        QVERIFY(missing.request().type == typeid(Dependency));
-        QCOMPARE(missing.dependencyChain().size(), size_t(2));
-        QVERIFY(missing.dependencyChain().front().type == typeid(Service));
-        QCOMPARE(missing.dependencyChain().back().name, QString("reader"));
-        const auto duplicate = failure([&] {
-            provider.add({typeid(Service), {}}, [] { return SharedInstance::from<Service>(std::make_shared<Service>()); });
-        });
-        QCOMPARE(duplicate.code(), InstanceErrorCode::DuplicateContract);
-        QCOMPARE(duplicate.operation(), InstanceOperation::Register);
-        provider.add({typeid(Dependency), "reader"}, [&] {
-            provider.resolve<Service>();
-            return SharedInstance::from<Dependency>(std::make_shared<Dependency>());
-        });
-        const auto cycle = failure([&] { provider.resolve<Service>(); });
-        QCOMPARE(cycle.code(), InstanceErrorCode::CircularDependency);
-        QCOMPARE(cycle.dependencyChain().size(), size_t(3));
-        QVERIFY(cycle.dependencyChain().front().type == cycle.dependencyChain().back().type);
-        // 栈必须在异常后清空，不能把下一次正常解析误判为循环。
-        provider.entries[1].factory = [] { return SharedInstance::from<Dependency>(std::make_shared<Dependency>()); };
-        QVERIFY(provider.resolve<Service>());
     }
     void preservesAdapterError()
     {
@@ -202,6 +189,10 @@ private slots:
         const std::vector<InstanceRequest> chain{{typeid(Service), "outer"}, dependency};
         const InstanceError original(InstanceErrorCode::NotRegistered, InstanceOperation::Resolve,
                                      dependency, QStringLiteral("原始错误"), chain);
+        provider.add({typeid(Service), "outer"}, [&]() -> SharedInstance { throw original; });
+        const auto sharedError = failure([&] { provider.resolve<Service>("outer"); });
+        QCOMPARE(QString::fromUtf8(sharedError.what()), QString::fromUtf8(original.what()));
+        QVERIFY(sharedError.request().type == typeid(Dependency));
         provider.uniqueFactory = [&](const InstanceRequest &) -> UniqueInstance { throw original; };
         const auto error = failure([&] { provider.create<Service>("outer"); });
         QCOMPARE(error.code(), original.code());
@@ -220,11 +211,11 @@ private slots:
         TestInstanceProvider provider;
         provider.add({typeid(Service), {}}, []() -> SharedInstance { throw std::logic_error("adapter failure"); });
         try {
-            provider.tryResolve<Service>();
+            provider.resolve<Service>();
             QFAIL("预期适配器异常");
         } catch (const InstanceError &error) {
             QCOMPARE(error.code(), InstanceErrorCode::CreationFailed);
-            QCOMPARE(error.operation(), InstanceOperation::TryResolve);
+            QCOMPARE(error.operation(), InstanceOperation::Resolve);
             bool nested = false;
             try { std::rethrow_if_nested(error); }
             catch (const std::logic_error &cause) { nested = std::string(cause.what()) == "adapter failure"; }
@@ -240,12 +231,12 @@ private slots:
             try { std::rethrow_if_nested(error); } catch (int value) { nested = value == 17; }
             QVERIFY(nested);
         }
-        provider.injection = [](const InstanceRequest &, BorrowedInstance) { throw std::runtime_error("inject"); };
-        Service object;
-        QCOMPARE(failure([&] { provider.buildUp(object); }).operation(), InstanceOperation::BuildUp);
+        provider.collectionFactory = [](const InstanceRequest &) -> std::vector<SharedInstance> {
+            throw std::runtime_error("collection");
+        };
         QCOMPARE(failure([&] { provider.resolveAll<Service>(); }).operation(), InstanceOperation::ResolveAll);
         TestInstanceProvider other;
-        QVERIFY(!other.tryResolve<Service>());
+        QCOMPARE(failure([&] { other.resolve<Service>(); }).code(), InstanceErrorCode::NotRegistered);
         auto local = std::make_shared<Service>();
         other.add({typeid(Service), {}}, [local] { return SharedInstance::from<Service>(local); });
         QCOMPARE(other.resolve<Service>(), local);

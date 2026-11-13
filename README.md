@@ -1,6 +1,8 @@
 # Caliburn.Micro.Qt
 
-> 2026-11-13 A1 设计调整（待实施）：框架将提供全局 `IoC::Get/Create`，通过 Bootstrapper 管理的同一个 `IInstanceProvider` 转发；应用 Provider 内置具体 DI。Provider 独占 API 和根持有统一为默认 `unique_ptr`，彻底移除 `OwnedInstance`；Conductor 和内部回收链保持原方式。当前实现与示例尚未迁移，详见 [A1 框架 IoC 设计](docs/A1框架IoC设计.md)；历史 F1／F2 通过不表示新 A1 完成。
+> 2026-11-13 A1 框架增量已实现：默认 unique_ptr、IoC::Get/Create/GetAll 和 Bootstrapper 受控绑定／解绑已落地。未新增退出钩子，Conductor 和回收设施保持原方式；应用 Provider 内置 DI 和生产路径迁移仍待应用阶段。见 [A1 框架 IoC 设计](docs/A1框架IoC设计.md)及[验收记录](docs/验收/A1框架IoC验收记录.md)。
+
+当前实例提供器仅保留 `resolve/create/resolveAll`；已删除 `tryResolve/buildUp`。应用一次性装配 DI 后交给 Provider，框架不提供登记 API 或容器 getter。适配规则及兼容限制见 [接口收缩验收记录](docs/验收/实例提供器接口收缩验收记录.md)。
 
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 

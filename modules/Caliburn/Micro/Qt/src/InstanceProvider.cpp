@@ -41,8 +41,3 @@ std::vector<SharedInstance> IInstanceProvider::resolveCollection(const InstanceR
     throw InstanceError(InstanceErrorCode::UnsupportedCapability, InstanceOperation::ResolveAll, request,
                         QStringLiteral("适配器不支持集合解析"));
 }
-void IInstanceProvider::injectExisting(const InstanceRequest &request, BorrowedInstance)
-{
-    throw InstanceError(InstanceErrorCode::UnsupportedCapability, InstanceOperation::BuildUp, request,
-                        QStringLiteral("适配器不支持已有对象注入"));
-}

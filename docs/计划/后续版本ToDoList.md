@@ -1,8 +1,8 @@
 # 后续版本 ToDoList
 
-## A1 框架全局 IoC 与独占对象交接（设计已确定，待实施）
+## A1 应用生产接入（框架配套已完成）
 
-依据 [A1 框架 IoC 设计](../A1框架IoC设计.md) 实施：新增 IoC::Get/Create，Bootstrapper 配置成功后绑定同一 Provider、模型清理后解绑，覆盖绑定冲突与启动／清理失败；将 Provider 独占 API／根持有改为默认 unique_ptr，删除 OwnedInstance，约束基类独占映射须有虚析构；Conductor 和内部回收保持原方式，特殊释放未来另设路径。应用 Provider 内置 DI、删除 CheckInComposition，报到页与矩阵生产接入在应用批次完成。旧框架示例和独立消费工程保持兼容，F1／F2 历史验收不替代新 A1 验收。
+框架已完成 IoC::Get/Create/GetAll、默认 unique_ptr 独占契约及 Bootstrapper 绑定／解绑，未新增退出钩子；见 [验收记录](../验收/A1框架IoC验收记录.md)。后续由应用批次完成 Provider 内置 DI、删除 CheckInComposition、报到页与矩阵生产接入，并记录新应用回归；历史 F1／F2 验收不能替代应用 A1 验收。
 
 
 本文件仅保留尚未完成的后续事项；已支持接口和验收证据以对应专题文档、验收记录为准。

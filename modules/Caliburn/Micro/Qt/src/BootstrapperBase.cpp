@@ -1,4 +1,5 @@
 #include "FrameworkLog.h"
+#include "IoCBinding.h"
 #include <CaliburnMicroQt/BootstrapperBase.h>
 #include <CaliburnMicroQt/ViewLocator.h>
 #include <QQmlEngine>
@@ -83,10 +84,12 @@ bool BootstrapperBase::initialize()
     if (!configure())
         return fail(QStringLiteral("configure failed"));
     std::shared_ptr<IWindowManager> service;
-    if (m_instanceProvider)
+    if (m_instanceProvider) {
+        m_iocBinding = std::make_unique<IoCDetail::Binding>(m_instanceProvider);
         service = m_instanceProvider->resolve<IWindowManager>();
-    else
+    } else {
         service = std::make_shared<WindowManager>();
+    }
     if (!selectWindowService(std::move(service)))
         return false;
     if (!ViewLocator::freeze())
@@ -147,7 +150,7 @@ bool BootstrapperBase::selectWindowService(std::shared_ptr<IWindowManager> servi
 }
 
 bool BootstrapperBase::createRootViewModel(const QMetaObject *type,
-        const std::function<OwnedInstance<QObject>()> &providerFactory)
+        const std::function<std::unique_ptr<QObject>()> &providerFactory)
 {
     if (m_state != State::Starting)
         return fail(QStringLiteral("The root window can only be displayed during onStartup"));
@@ -156,11 +159,9 @@ bool BootstrapperBase::createRootViewModel(const QMetaObject *type,
     m_displayAttempted = true;
 
     const auto found = m_factories.constFind(type);
-    OwnedInstance<QObject> model;
+    std::unique_ptr<QObject> model;
     if (found != m_factories.cend()) {
-        auto legacy = (*found)(m_windowManager);
-        std::function<void(QObject *)> deleter = [](QObject *object) { delete object; };
-        model = OwnedInstance<QObject>(legacy.release(), std::move(deleter));
+        model = (*found)(m_windowManager);
     } else if (m_instanceProvider) {
         model = providerFactory();
     } else {
@@ -241,6 +242,7 @@ void BootstrapperBase::shutdown(bool invokeExit) noexcept
     m_factories.clear();
     disconnectWindowService();
     m_windowLifecycle = nullptr;
+    m_iocBinding.reset();
     m_windowManager.reset();
     m_instanceProvider.reset();
     if (m_quitPolicyChanged) {

@@ -1,10 +1,33 @@
 # IoC 与应用装配
 
-> 2026-11-13 A1 目标（待实施）：框架提供全局 `IoC::Get/Create`，应用 `ApplicationInstanceProvider` 私有实现内置 DI，Bootstrapper 管理同一 Provider 的发布／解绑。红厅应用将删除 CheckInComposition，报到页与矩阵统一经 Provider 创建，独占结果统一使用默认 unique_ptr，彻底移除 OwnedInstance，Conductor 和回收设施保持原方式。框架示例下述 buildShell／局部 injector 是当前已有实现，继续用于旧源码兼容验证，不作为新 A1 的推荐生产路径。见 [A1 框架 IoC 设计](A1框架IoC设计.md)。
+> 2026-11-13：A1 框架提供全局 IoC::Get/Create/GetAll，Provider 独占 API 返回默认 unique_ptr，Bootstrapper 管理同一个 Provider 的绑定／解绑，不新增退出钩子。应用 Provider 内置 DI、删除 CheckInComposition、报到页与矩阵生产接入仍待应用阶段。下述局部 injector 示例保持原样，作为旧源码兼容示例。见 [A1 框架 IoC 设计](A1框架IoC设计.md)。
 
 当前 4C 已将 Shell 改为 Collection.OneActive，提供 Home/Detail 导航，两页共享计数服务，见 [4C 验收记录](验收/4C验收记录.md)。4B 单项接入及更早装配方式的历史结果分别见 [4B 验收记录](验收/4B验收记录.md) 与 [IoC 装配验收记录](验收/IoC装配验收记录.md)。
 
 Boost.Ext.DI 固定为 v1.3.2，由 FetchContent 在首次配置时下载官方单头文件到构建目录并校验 SHA-256；不再提交 boost/di.hpp 副本。装配库仍私有链接 Caliburn::BoostDI，由项目定义 INTERFACE 目标，不执行上游 CMake，不改变构造注入接口。框架单独构建不获取 DI；依赖来源及许可证见 [Boost.DI 说明](../third_party/boost-di/README.md)，缓存和离线方法见 [日志接入](日志接入.md#依赖下载与离线构建)。
+
+## A1 当前框架入口
+
+```cpp
+#include <CaliburnMicroQt/IoC.h>
+auto service = IoC::Get<MyService>();          // shared_ptr<MyService>
+auto page = IoC::Create<MyPageViewModel>();    // unique_ptr<MyPageViewModel>
+auto services = IoC::GetAll<MyService>();      // vector<shared_ptr<MyService>>
+```
+
+以上类型由应用 Provider 声明并实现，框架不能仅凭类型身份自动构造任意类型。configure 只登记 Provider，配置完成后才绑定全局入口；配置期间确需解析时直接使用应用持有的 Provider。Get 不决定单例策略，Create 不将共享或借用对象包装为独占对象。
+
+UniqueInstance::from<Contract>(unique_ptr<Implementation>) 将默认 unique_ptr 存入类型化 holder。相同具体类型可默认删除；不同类型要求合法指针转换、Contract 可析构且有虚析构函数。错误契约和空结果在移交前校验，失败由 holder 回收。已删除 OwnedInstance，不提供特殊删除器兼容别名；shared_ptr 控制块语义保持原样。
+
+## 当前 Provider 契约与一次性装配
+
+IInstanceProvider 仅保留 resolve<T>(name)、create<T>(name)、resolveAll<T>()。tryResolve、buildUp 及 BorrowedInstance 已删除，原调用方需要调整；框架不增加 exposeShared/exposeUnique、登记 API 或容器 getter。
+
+应用组合根一次性通过 di::make_injector 配置绑定，将完整 injector 交给应用 Provider 持有。接口映射、构造依赖和作用域由 Boost.DI 完成；应用 Provider 集中实现运行时类型请求到编译期 create<T>() 的转发。该桥接不保证自动支持任意未知类型，也不缓存另一套实例。
+
+集合可由后端 create<std::vector<std::shared_ptr<T>>>() 提供。框架保留返回顺序与重复项，不扫描或合并单实例登记。支持集合时可返回空；未实现集合能力时报告 UnsupportedCapability。具体共享身份由 DI 后端的绑定和作用域决定。
+
+本轮仅修改框架；红厅现有适配器及其测试待后续调整，未进行新的应用兼容验收。详见 [接口收缩验收](验收/实例提供器接口收缩验收记录.md)。
 
 ## 4C 构造接口与模块边界
 

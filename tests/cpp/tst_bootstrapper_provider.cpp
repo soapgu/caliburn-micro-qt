@@ -1,4 +1,5 @@
 #include <CaliburnMicroQt/BootstrapperBase.h>
+#include <CaliburnMicroQt/IoC.h>
 #include <CaliburnMicroQt/WindowManager.h>
 #include <CaliburnMicroQt/ViewLocator.h>
 #include <CaliburnMicroQt/ScreenViewModel.h>
@@ -16,6 +17,13 @@
 
 Q_IMPORT_QML_PLUGIN(CaliburnMicroQtPlugin)
 
+static bool iocUnavailable()
+{
+    try { (void)IoC::Get<int>(); }
+    catch (const InstanceError &error) { return error.code() == InstanceErrorCode::CreationFailed; }
+    return false;
+}
+
 struct Observations {
     QStringList order;
     QString scenario;
@@ -23,13 +31,16 @@ struct Observations {
     ~Observations() { if (worker.isRunning()) { worker.quit(); worker.wait(); } }
     QObject parent;
     QThread worker;
-    int resolves = 0, creates = 0, factories = 0, exits = 0;
+    int resolves = 0, creates = 0, factories = 0, exits = 0, iocProbes = 0;
+    std::shared_ptr<int> marker = std::make_shared<int>(42);
+    bool unboundDuringConfigure = false, boundDuringResolve = false, boundAtRootDestruction = false;
+    bool boundAtFactoryDestruction = false;
     int rootsDestroyed = 0, prepares = 0, releases = 0, subscriptions = 0, notifications = 0;
     int rootsCreated = 0, activations = 0, closeAttempts = 0, closeHooks = 0;
     bool noAssociationAtRootDestruction = false, noViewAtRootDestruction = false, viewObserved = false;
     QObject *rootAddress = nullptr; // 仅作 windowFor 的身份查询，不解引用已销毁对象。
     auto counts() const {
-        return std::make_tuple(resolves, creates, factories, exits, rootsCreated, rootsDestroyed,
+        return std::make_tuple(resolves, creates, factories, exits, iocProbes, rootsCreated, rootsDestroyed,
                                activations, closeAttempts, closeHooks, prepares, releases,
                                subscriptions, notifications, order.size());
     }
@@ -55,6 +66,7 @@ public:
         });
     }
     ~ProviderRoot() override {
+        try { state.boundAtRootDestruction = IoC::Get<int>() == state.marker; } catch (...) {}
         const auto service = state.windows.lock();
         state.noAssociationAtRootDestruction = !service || !service->windowFor(this);
         state.noViewAtRootDestruction = !state.view;
@@ -76,6 +88,14 @@ protected:
         if (close && state.scenario == "rootCloseThrows") throw std::runtime_error("根关闭异常");
     }
 public:
+    Observations &state;
+};
+
+struct FactoryProbe {
+    explicit FactoryProbe(Observations &state) : state(state) {}
+    ~FactoryProbe() {
+        try { state.boundAtFactoryDestruction = IoC::Get<int>() == state.marker; } catch (...) {}
+    }
     Observations &state;
 };
 
@@ -130,8 +150,13 @@ public:
     ~BootstrapProvider() override { state.order << "provider.destroy"; }
 protected:
     std::optional<SharedInstance> resolveShared(const InstanceRequest &request) override {
+        if (request.type != typeid(IWindowManager)) {
+            ++state.iocProbes;
+            return TestInstanceProvider::resolveShared(request);
+        }
         ++state.resolves;
         state.order << "resolve";
+        state.boundDuringResolve = IoC::Get<int>() == state.marker;
         if (state.scenario == "serviceThrows") throw std::runtime_error("窗口服务解析异常");
         return TestInstanceProvider::resolveShared(request);
     }
@@ -143,10 +168,12 @@ class ProviderBootstrapper : public BootstrapperBase
 {
 public:
     ProviderBootstrapper(QGuiApplication &app, Observations &state) : BootstrapperBase(app), state(state) {}
+    std::function<void()> beforeStartup;
     bool install(std::shared_ptr<IInstanceProvider> provider) { return setInstanceProvider(std::move(provider)); }
 protected:
     bool configure() override {
         state.order << "configure.begin";
+        state.unboundDuringConfigure = iocUnavailable();
         auto provider = std::make_shared<BootstrapProvider>(state);
         state.provider = provider;
         if (state.scenario == "nullSet") return install({});
@@ -154,6 +181,7 @@ protected:
         if (state.scenario == "repeatSet") return install(provider);
         if (state.scenario == "configureFailure") return false;
         if (state.scenario == "configureThrows") throw std::runtime_error("配置异常");
+        provider->add({typeid(int), {}}, [marker = state.marker] { return SharedInstance::from<int>(marker); });
         std::shared_ptr<IWindowManager> windows;
         if (state.scenario == "missingLifecycle") windows = std::make_shared<LegacyProviderWindows>();
         else windows = std::make_shared<ProviderWindows>(state);
@@ -191,7 +219,9 @@ protected:
             return UniqueInstance::from<ProviderRoot>(std::move(root));
         };
         if (state.scenario.startsWith("legacy")) {
-            if (!registerRootFactory<ProviderRoot>([this](std::shared_ptr<IWindowManager> service) {
+            auto probe = std::make_shared<FactoryProbe>(state);
+            if (!registerRootFactory<ProviderRoot>([this, probe](std::shared_ptr<IWindowManager> service) {
+                if (IoC::Get<int>() != state.marker) throw std::logic_error("旧工厂未使用相同 Provider");
                 ++state.factories;
                 state.factorySameService = service == state.windows.lock();
                 if (state.scenario == "legacyNull") return std::unique_ptr<ProviderRoot>{};
@@ -213,6 +243,7 @@ protected:
         return true;
     }
     void onStartup() override {
+        if (beforeStartup) beforeStartup();
         state.startup = true;
         state.order << "startup";
         const auto context = state.scenario == "recoverAfterDisplayFailure"
@@ -259,6 +290,45 @@ private slots:
         QQuickStyle::setStyle("Basic");
         qmlRegisterUncreatableType<ProviderRoot>("ProviderTests", 1, 0, "ProviderRoot", "由 C++ 创建");
     }
+    void bindingConflict() {
+        Observations first, second;
+        first.scenario = "success";
+        second.scenario = "success";
+        second.skipMappings = true;
+        auto *app = qobject_cast<QGuiApplication *>(qApp);
+        ProviderBootstrapper primary(*app, first);
+        bool checked = false;
+        primary.beforeStartup = [&] {
+            QCOMPARE(IoC::Get<int>(), first.marker);
+            {
+                ProviderBootstrapper conflicting(*app, second);
+                QCOMPARE(conflicting.run(), 1);
+                QCOMPARE(second.resolves, 0);
+                QCOMPARE(second.creates, 0);
+                QCOMPARE(second.exits, 1);
+                QVERIFY(second.provider.expired());
+            }
+            QCOMPARE(IoC::Get<int>(), first.marker);
+            checked = true;
+        };
+        QTimer watchdog;
+        watchdog.setSingleShot(true);
+        connect(&watchdog, &QTimer::timeout, this, [] { QCoreApplication::exit(99); });
+        watchdog.start(10000);
+        QCOMPARE(primary.run(), 0);
+        QVERIFY(checked);
+        QVERIFY(iocUnavailable());
+        QVERIFY(first.provider.expired());
+        QVERIFY(!first.root && !first.view);
+    }
+    void noProviderDoesNotBind() {
+        class LegacyStartup : public BootstrapperBase {
+        public: using BootstrapperBase::BootstrapperBase;
+        protected: bool configure() override { return iocUnavailable(); }
+        } legacy(*qobject_cast<QGuiApplication *>(qApp));
+        QCOMPARE(legacy.run(), 1); // 默认空启动仍失败，不为旧应用自动发布容器。
+        QVERIFY(iocUnavailable());
+    }
     void startup_data() {
         QTest::addColumn<QString>("scenario");
         for (const char *name : {"success", "normalClose", "dialogIdentity", "legacy", "legacyNull", "legacyThrows",
@@ -289,6 +359,8 @@ private slots:
             QVERIFY(!bootstrapper->install(std::make_shared<TestInstanceProvider>()));
             QCOMPARE(bootstrapper->run(), 1);
             QCOMPARE(state.exits, 1);
+            QVERIFY(state.unboundDuringConfigure);
+            QVERIFY(iocUnavailable());
             QVERIFY(state.provider.expired());
             QVERIFY(!state.root && !state.view);
             QVERIFY(QGuiApplication::allWindows().isEmpty());
@@ -296,6 +368,7 @@ private slots:
             const bool rejectedSetting = state.scenario == "nullSet" || state.scenario == "repeatSet" || state.scenario == "configureFailure" || state.scenario == "configureThrows";
             QCOMPARE(state.resolves, rejectedSetting ? 0 : 1);
             if (state.resolves) {
+                QVERIFY(state.boundDuringResolve);
                 QVERIFY(state.order.indexOf("configure.end") < state.order.indexOf("resolve"));
             }
             const QStringList rejectedService{"serviceMissing", "serviceThrows", "missingLifecycle", "serviceParent",
@@ -311,6 +384,7 @@ private slots:
                 QCOMPARE(state.factories, 1);
                 QCOMPARE(state.creates, 0);
                 QVERIFY(state.factorySameService);
+                QVERIFY(state.boundAtFactoryDestruction);
             } else {
                 QCOMPARE(state.factories, 0);
                 QCOMPARE(state.creates, state.startup ? 1 : 0);
@@ -344,6 +418,7 @@ private slots:
             QCOMPARE(state.closeAttempts, state.activations ? 1 : 0);
             QCOMPARE(state.closeHooks, state.closeAttempts);
             if (state.rootsCreated) {
+                QVERIFY(state.boundAtRootDestruction);
                 QVERIFY(state.noAssociationAtRootDestruction);
                 QVERIFY(state.noViewAtRootDestruction);
                 QVERIFY(state.order.indexOf("root.destroy") < state.order.indexOf("provider.destroy"));

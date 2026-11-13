@@ -1,12 +1,12 @@
 # Bootstrapper 与应用启动
 
-> A1 待实施增量（2026-11-13）：全局 IoC 属于框架，通过本 Bootstrapper 持有的同一个 Provider 转发。计划在 configure 成功后、窗口服务解析前发布绑定，完成窗口／模型清理后按绑定身份解绑；配置失败不发布，活动绑定不可覆盖，失败与清理异常也必须解除自己取得的绑定。configure 期间不依赖全局 IoC。下文为当前已实现接口，A1 还将移除 OwnedInstance，根持有和 Provider 独占结果统一为默认 unique_ptr；下文 OwnedInstance 描述仅代表当前尚未替换的实现。详细目标及兼容规则见 [A1 框架 IoC 设计](A1框架IoC设计.md)。
+> A1 框架增量已实现（2026-11-13）：configure 成功后、窗口服务解析前绑定同一个 Provider；框架根和工厂清理后按身份解绑。根持有和 Provider 独占返回统一默认 unique_ptr。没有新增退出钩子，应用辅助对象沿用现有成员释放方式。应用生产路径迁移尚待应用阶段，详见 [A1 框架 IoC 设计](A1框架IoC设计.md)。
 
 框架提供纯 C++ 的 `BootstrapperBase`，应用派生 `AppBootstrapper`。它不向 QML 注册类型，不依赖 Boost.Ext.DI，不创建 QGuiApplication。应用先创建 QGuiApplication，再创建 Bootstrapper，在主线程调用一次 `run()`；应用对象必须比 Bootstrapper 活得更久。
 
 ## 命名约定与迁移
 
-`BootstrapperBase` 的所有普通成员方法采用 Qt 风格 camelCase，与 Caliburn.Micro 保持概念对应；不要求与 C# 原版的方法拼写一致。类名继续使用 PascalCase。A1 规划的独立全局门面 `IoC::Get/Create` 使用本次确认的 CM 风格拼写，不改 Bootstrapper 或 Provider 的方法名称。
+`BootstrapperBase` 的所有普通成员方法采用 Qt 风格 camelCase，与 Caliburn.Micro 保持概念对应；不要求与 C# 原版的方法拼写一致。类名继续使用 PascalCase。A1 规划的独立全局门面 `IoC::Get/Create/GetAll` 使用本次确认的 CM 风格拼写，不改 Bootstrapper 或 Provider 的方法名称。
 
 本次改名属于破坏性接口变更，旧名称已移除，不提供兼容别名。使用方需同步修改调用点及派生类的 `override` 声明、定义，然后重新编译框架和应用；方法签名、访问级别和生命周期行为保持不变。
 
@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
 
 Bootstrapper 保存按 VM 元对象地址索引的根工厂。configure 成功后一次性选择窗口服务：无提供器则创建默认 WindowManager，有提供器则仅解析应用窗口服务，再进入 onStartup。configure 失败或抛异常时不创建框架默认窗口服务。旧工厂接收实际使用的同一服务。业务服务与子 VM 的依赖仍由应用装配层解决。
 
-registerRootFactory 保持 unique_ptr<T> 返回签名，内部工厂统一返回 unique_ptr<QObject>。displayRootViewFor 优先使用已登记旧工厂，仅在该类型无旧工厂且已配置提供器时调用 create<T>()，选中路径失败不回退。根存储为 OwnedInstance<QObject>，保留提供器的原始删除器；以具体 T* 构造 QVariant，委托 IWindowManager::showWindow。displayRootView 不创建引擎、窗口或 WindowConductor。
+registerRootFactory 保持 unique_ptr<T> 返回签名，内部工厂统一返回 unique_ptr<QObject>。displayRootViewFor 优先使用已登记旧工厂，仅在该类型无旧工厂且已配置提供器时调用 create<T>()，选中路径失败不回退。根存储为 std::unique_ptr<QObject>，提供器结果通过标准 unique_ptr 转换接管；以具体 T* 构造 QVariant，委托 IWindowManager::showWindow。displayRootView 不创建引擎、窗口或 WindowConductor。
 
 m_root 负责根 VM 最终删除及失败/强制退出时的生命周期兜底；正常窗口关闭后的 VM 停用由 WindowManager 执行。窗口服务借用根 VM，并持有自己的引擎、窗口和私有桥接，不强持有根 VM，避免与业务持有的共享窗口服务形成所有权环。QVariant 保留具体指针类型供 QML required 属性注入，不接管对象。RootViewOptions.window 在显示入口传给窗口服务，覆盖屏幕、几何、flags、显示状态及是否激活；根角色固定为 Primary。
 
@@ -58,7 +58,7 @@ m_root 负责根 VM 最终删除及失败/强制退出时的生命周期兜底�
 
 ## 可选实例提供器
 
-应用可在 configure 中提供自己的 IInstanceProvider 实现，例如应用侧 Boost.DI 适配器。框架不包含具体容器，也不会自动调用 BuildUp。
+应用可在 configure 中提供自己的 IInstanceProvider 实现，例如应用侧 Boost.DI 适配器。框架不包含具体容器，IInstanceProvider 只提供 resolve/create/resolveAll，不提供 BuildUp 或类型登记入口。应用启动时一次性构建 injector，再由应用 Provider 持有和转发。
 
 ```cpp
 bool AppBootstrapper::configure()
@@ -76,13 +76,13 @@ void AppBootstrapper::onStartup()
 
 createApplicationProvider 是应用自定义的组合函数，不是框架 API。它返回的提供器须支持未命名的 resolve<IWindowManager>()，以及本例中的独占 create<ShellViewModel>()。应用须补齐子 View 映射或搜索根；静态 QML 插件仍按原方式导入。也可保留 registerRootFactory，此时无需提供根创建能力，但旧工厂必须复用传入窗口服务。
 
-setInstanceProvider 仅允许配置阶段调用一次，拒绝空值；设置期间不解析，configure 失败也不解析。窗口服务须无 QObject parent、属于应用线程，并自身实现 IWindowManagerLifecycle。两个接口属于同一服务对象，通过 qobject_cast 查询生命周期能力，不另行解析第二个清理对象。
+setInstanceProvider 仅允许配置阶段调用一次，拒绝空值；设置期间不解析且不绑定全局入口，configure 失败也不解析或绑定。configure 成功后先绑定 IoC，再解析服务；旧根工厂执行时 IoC 已可用。活动绑定不允许第二个 Bootstrapper 覆盖，失败实例不能解除其他实例的绑定。窗口服务须无 QObject parent、属于应用线程，并自身实现 IWindowManagerLifecycle。两个接口属于同一服务对象，通过 qobject_cast 查询生命周期能力，不另行解析第二个清理对象。
 
 配置完成后解析窗口服务，验证失败不回退默认服务。线程检查通过且具有生命周期能力的候选会纳入失败清理，包括 parent 或订阅验证失败。线程错误或能力缺失的服务不调用其清理接口。应用适配器应返回尚未投入使用的服务，管理不合格资源的原有所有权和线程销毁责任。
 
 Bootstrapper 持有 shared_ptr<IWindowManager>，生命周期指针仅借用。清理失败通过 subscribeWindowCleanupFailed 订阅，关闭通知通过 IWindowManager::windowClosed 订阅；最终退出时断开连接；不再创建和替换临时默认服务。服务设置 CppOwnership，且不与 QObject parent 同时拥有。
 
-根对象保留原删除器；调用方不得主动删除或重设其 QObject parent。退出先结束窗口借用，再释放根和工厂，最后断开服务连接、释放服务及提供器的框架引用。应用若另持共享引用，其销毁时间由应用决定，但 run 返回前窗口仍被显式释放。
+根对象使用默认 unique_ptr 所有权；调用方不得主动删除或重设其 QObject parent。退出先结束窗口借用，再释放根和工厂，最后断开服务连接、按绑定身份解绑 IoC，再释放服务及提供器的框架引用。应用若另持共享引用，其销毁时间由应用决定，但 run 返回前窗口仍被显式释放。
 
 本机接入验证见 [Bootstrapper 提供器接入验收记录](验收/Bootstrapper提供器接入验收记录.md)。
 
@@ -159,3 +159,12 @@ Screen.tryClose 优先委托逻辑 Parent IConductor，否则直接关闭弱关�
 ## context 参数迁移
 
 根窗口使用 `displayRootViewFor<T>(options = {}, context = std::nullopt)`。不传参数继续使用默认视图和展示设置；旧的 `displayRootViewFor<T>(options)` 调用保持原样；指定视图时可写 `displayRootViewFor<T>(options, QStringLiteral("Desktop"))`，只指定 context 时传 `({}, QStringLiteral("Desktop"))`。context 沿私有 displayRootView 传给 showWindow，RootViewOptions 及其 window 成员不保存 context；根窗口角色仍强制为 Primary。旧业务调用无需修改，消费工程仍需重新编译。
+
+
+## 全局 IoC 入口
+
+包含 `CaliburnMicroQt/IoC.h` 后可使用 `IoC::Get<T>(name)` 获取 shared_ptr、`IoC::Create<T>(name)` 创建默认 unique_ptr。门面只转发当前 Provider；不配置容器，不缓存对象，不向 QML 暴露。具体类型支持默认删除；跨类型独占映射要求契约具有可访问的虚析构函数。共享契约不增加此限制。
+
+请求必须在应用线程执行；未绑定、已解绑或弱 Provider 失效使用 CreationFailed 报告，原 Provider 错误继续传播。解绑后即使应用另持 Provider 也不能通过全局入口继续解析。没有公开绑定 setter；绑定凭据只在框架内部管理，异常清理和析构兜底不会清除其他上下文。未配置 Provider 的旧应用不自动发布全局容器。
+
+没有新增 onWindowsReleased 或其他退出节点，不要求应用改变辅助 VM 的原有释放方式。当前验证见 [A1框架IoC验收记录](验收/A1框架IoC验收记录.md)。

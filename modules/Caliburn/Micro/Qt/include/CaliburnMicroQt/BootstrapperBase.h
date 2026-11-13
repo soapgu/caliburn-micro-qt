@@ -14,6 +14,7 @@
 class QGuiApplication;
 class IWindowManager;
 class IWindowManagerLifecycle;
+namespace IoCDetail { class Binding; }
 
 // 根窗口角色固定为 Primary，其余设置委托窗口服务。
 struct RootViewOptions { WindowOptions window; };
@@ -62,14 +63,7 @@ protected:
     {
         static_assert(std::is_base_of_v<QObject, T>, "根模型必须继承 QObject");
         if (!createRootViewModel(&T::staticMetaObject, [this] {
-                auto model = m_instanceProvider->create<T>();
-                auto *actual = model.get();
-                auto deleter = model.get_deleter();
-                std::function<void(QObject *)> rootDeleter = [actual, deleter = std::move(deleter)](QObject *) {
-                    deleter(actual);
-                };
-                QObject *object = model.release();
-                return OwnedInstance<QObject>(object, std::move(rootDeleter));
+                return std::unique_ptr<QObject>(m_instanceProvider->create<T>());
             })) {
             m_rootDisplayFailed = true;
             return false;
@@ -89,7 +83,7 @@ private:
     void disconnectWindowService() noexcept;
     void prepareWindows() noexcept;
     bool createRootViewModel(const QMetaObject *type,
-                             const std::function<OwnedInstance<QObject>()> &providerFactory);
+                             const std::function<std::unique_ptr<QObject>()> &providerFactory);
     bool displayRootView(const QVariant &viewModel, RootViewOptions options, const std::optional<QString> &context);
     bool m_previousQuitOnLastWindowClosed = true;
     bool m_quitPolicyChanged = false;
@@ -101,10 +95,11 @@ private:
     QGuiApplication &m_app;
     State m_state = State::Ready;
     QHash<const QMetaObject *, RootFactory> m_factories;
-    OwnedInstance<QObject> m_root;
+    std::unique_ptr<QObject> m_root;
     std::shared_ptr<IWindowManager> m_windowManager;
     IWindowManagerLifecycle *m_windowLifecycle = nullptr; // 借用同一服务的能力。
     std::shared_ptr<IInstanceProvider> m_instanceProvider;
+    std::unique_ptr<IoCDetail::Binding> m_iocBinding;
     QMetaObject::Connection m_windowClosedConnection;
     QMetaObject::Connection m_windowCleanupConnection;
     bool m_displayAttempted = false;

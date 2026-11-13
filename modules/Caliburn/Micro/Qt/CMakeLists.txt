@@ -8,6 +8,9 @@ qt_add_qml_module(CaliburnMicroQt
     CLASS_NAME CaliburnMicroQtPlugin
     RESOURCE_PREFIX /qt/qml
     SOURCES
+        include/CaliburnMicroQt/IoC.h
+        src/IoC.cpp
+        src/IoCBinding.h
         include/CaliburnMicroQt/IInstanceProvider.h
         src/InstanceProvider.cpp
         src/FrameworkLog.h

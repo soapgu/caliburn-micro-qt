@@ -2,7 +2,6 @@
 
 #include <QString>
 #include <exception>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -18,7 +17,8 @@ struct InstanceRequest
     QString name;
 };
 
-enum class InstanceOperation { Resolve, TryResolve, Create, ResolveAll, BuildUp, Register };
+// 保留现有诊断操作编号；已移除的操作不再提供枚举项。
+enum class InstanceOperation { Resolve = 0, Create = 2, ResolveAll = 3, Register = 5 };
 enum class InstanceErrorCode {
     NotRegistered, TypeMismatch, DuplicateContract, CircularDependency,
     UnsupportedCapability, CreationFailed
@@ -51,10 +51,6 @@ void validate(std::type_index actual, bool present, const InstanceRequest &reque
               InstanceOperation operation);
 }
 
-// 删除器绑定此次创建的实际对象，不要求契约基类具有虚析构函数。
-// 可移动、release 或 reset(nullptr)，不得 reset 为另一个对象或为无关指针复用删除器。
-template<class T> using OwnedInstance = std::unique_ptr<T, std::function<void(T *)>>;
-
 class IInstanceProvider;
 
 class SharedInstance
@@ -83,42 +79,34 @@ public:
     UniqueInstance(const UniqueInstance &) = delete;
     UniqueInstance &operator=(const UniqueInstance &) = delete;
 
-    // 仅消费独占对象；在释放输入之前完成可能抛异常的删除器构造。
+    // 仅支持默认删除；跨类型映射必须能通过契约虚析构安全释放。
     template<class Contract, class Implementation>
     static UniqueInstance from(std::unique_ptr<Implementation> object)
     {
         InstanceDetail::checkType<Contract>();
-        static_assert(!std::is_array_v<Implementation>, "独占结果不支持数组");
-        Contract *contract = object.get();
-        auto *actual = object.get();
-        std::function<void(void *)> deleter = [actual](void *) { delete actual; };
-        UniqueInstance result(typeid(Contract), contract, std::move(deleter));
-        object.release();
-        return result;
+        InstanceDetail::checkType<Implementation>();
+        static_assert(std::is_convertible_v<Implementation *, Contract *>, "独占契约指针必须可转换");
+        static_assert(std::is_destructible_v<Contract>, "独占契约必须可析构");
+        static_assert(std::is_same_v<Contract, Implementation> || std::has_virtual_destructor_v<Contract>,
+                      "跨类型独占映射要求契约具有虚析构函数");
+        std::unique_ptr<Contract> contract = std::move(object);
+        return UniqueInstance(typeid(Contract), std::make_unique<Holder<Contract>>(std::move(contract)));
     }
 private:
     friend class IInstanceProvider;
-    UniqueInstance(std::type_index type, void *object, std::function<void(void *)> deleter)
-        : m_type(type), m_object(object, std::move(deleter)) {}
+    struct HolderBase {
+        virtual ~HolderBase() = default;
+        virtual bool present() const noexcept = 0;
+    };
+    template<class T> struct Holder final : HolderBase {
+        explicit Holder(std::unique_ptr<T> value) : object(std::move(value)) {}
+        bool present() const noexcept override { return bool(object); }
+        std::unique_ptr<T> object;
+    };
+    UniqueInstance(std::type_index type, std::unique_ptr<HolderBase> holder)
+        : m_type(type), m_holder(std::move(holder)) {}
     std::type_index m_type;
-    std::unique_ptr<void, std::function<void(void *)>> m_object;
-};
-
-// 同步借用，不允许适配器保留此包装或据此接管对象。
-class BorrowedInstance
-{
-public:
-    template<class T> T &as() const
-    {
-        InstanceDetail::checkType<T>();
-        InstanceDetail::validate(m_type, true, {typeid(T), {}}, InstanceOperation::BuildUp);
-        return *static_cast<T *>(m_object);
-    }
-private:
-    friend class IInstanceProvider;
-    template<class T> explicit BorrowedInstance(T &object) : m_type(typeid(T)), m_object(&object) {}
-    std::type_index m_type;
-    void *m_object;
+    std::unique_ptr<HolderBase> m_holder;
 };
 
 // 无全局状态，不提供同步保证；QObject 的创建线程由应用适配器负责。
@@ -128,25 +116,18 @@ public:
     virtual ~IInstanceProvider() = default;
 
     template<class T> std::shared_ptr<T> resolve(const QString &name = {})
-    { return resolveOne<T>({typeid(T), name}, InstanceOperation::Resolve, false); }
+    { return resolveOne<T>({typeid(T), name}); }
 
-    template<class T> std::shared_ptr<T> tryResolve(const QString &name = {})
-    { return resolveOne<T>({typeid(T), name}, InstanceOperation::TryResolve, true); }
-
-    template<class T> OwnedInstance<T> create(const QString &name = {})
+    template<class T> std::unique_ptr<T> create(const QString &name = {})
     {
         InstanceDetail::checkType<T>();
         const InstanceRequest request{typeid(T), name};
         return invoke(request, InstanceOperation::Create, [&] {
             auto result = createUnique(request);
-            InstanceDetail::validate(result.m_type, bool(result.m_object), request, InstanceOperation::Create);
-            // 先复制删除器，成功后才转移对象；分配异常时原结果仍负责回收。
-            auto erasedDeleter = result.m_object.get_deleter();
-            std::function<void(T *)> deleter = [erasedDeleter = std::move(erasedDeleter)](T *p) {
-                erasedDeleter(p);
-            };
-            auto *pointer = static_cast<T *>(result.m_object.release());
-            return OwnedInstance<T>(pointer, std::move(deleter));
+            InstanceDetail::validate(result.m_type, result.m_holder && result.m_holder->present(),
+                                     request, InstanceOperation::Create);
+            // holder 仅由 from<T> 构造；验证契约身份后才恢复类型并移交所有权。
+            return std::move(static_cast<UniqueInstance::Holder<T> *>(result.m_holder.get())->object);
         });
     }
 
@@ -166,20 +147,12 @@ public:
         });
     }
 
-    template<class T> void buildUp(T &object)
-    {
-        InstanceDetail::checkType<T>();
-        const InstanceRequest request{typeid(T), {}};
-        invoke(request, InstanceOperation::BuildUp, [&] { injectExisting(request, BorrowedInstance(object)); });
-    }
-
 protected:
-    // nullopt 仅表示当前请求未登记；依赖缺失必须抛 InstanceError。
+    // nullopt 仅表示当前请求未登记；后端依赖错误必须抛出，不转换为入口缺失。
     virtual std::optional<SharedInstance> resolveShared(const InstanceRequest &request) = 0;
     virtual UniqueInstance createUnique(const InstanceRequest &request);
-    // 包含命名与未命名项，按登记顺序返回，不按对象指针去重。
+    // 适配器显式提供集合；原样保留顺序和重复项，不扫描或合并单实例登记。
     virtual std::vector<SharedInstance> resolveCollection(const InstanceRequest &request);
-    virtual void injectExisting(const InstanceRequest &request, BorrowedInstance object);
 
 private:
     template<class Action>
@@ -197,14 +170,13 @@ private:
         }
     }
 
-    template<class T> std::shared_ptr<T> resolveOne(const InstanceRequest &request,
-                                                  InstanceOperation operation, bool optional)
+    template<class T> std::shared_ptr<T> resolveOne(const InstanceRequest &request)
     {
         InstanceDetail::checkType<T>();
+        constexpr auto operation = InstanceOperation::Resolve;
         return invoke(request, operation, [&]() -> std::shared_ptr<T> {
             auto result = resolveShared(request);
             if (!result) {
-                if (optional) return {};
                 throw InstanceError(InstanceErrorCode::NotRegistered, operation, request,
                                     QStringLiteral("契约未登记"));
             }
