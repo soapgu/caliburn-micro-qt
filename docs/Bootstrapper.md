@@ -1,10 +1,12 @@
 # Bootstrapper 与应用启动
 
+> A1 待实施增量（2026-11-13）：全局 IoC 属于框架，通过本 Bootstrapper 持有的同一个 Provider 转发。计划在 configure 成功后、窗口服务解析前发布绑定，完成窗口／模型清理后按绑定身份解绑；配置失败不发布，活动绑定不可覆盖，失败与清理异常也必须解除自己取得的绑定。configure 期间不依赖全局 IoC。下文为当前已实现接口，A1 还将移除 OwnedInstance，根持有和 Provider 独占结果统一为默认 unique_ptr；下文 OwnedInstance 描述仅代表当前尚未替换的实现。详细目标及兼容规则见 [A1 框架 IoC 设计](A1框架IoC设计.md)。
+
 框架提供纯 C++ 的 `BootstrapperBase`，应用派生 `AppBootstrapper`。它不向 QML 注册类型，不依赖 Boost.Ext.DI，不创建 QGuiApplication。应用先创建 QGuiApplication，再创建 Bootstrapper，在主线程调用一次 `run()`；应用对象必须比 Bootstrapper 活得更久。
 
 ## 命名约定与迁移
 
-`BootstrapperBase` 的所有普通成员方法采用 Qt 风格 camelCase，与 Caliburn.Micro 保持概念对应；不要求与 C# 原版的方法拼写一致。类名继续使用 PascalCase。
+`BootstrapperBase` 的所有普通成员方法采用 Qt 风格 camelCase，与 Caliburn.Micro 保持概念对应；不要求与 C# 原版的方法拼写一致。类名继续使用 PascalCase。A1 规划的独立全局门面 `IoC::Get/Create` 使用本次确认的 CM 风格拼写，不改 Bootstrapper 或 Provider 的方法名称。
 
 本次改名属于破坏性接口变更，旧名称已移除，不提供兼容别名。使用方需同步修改调用点及派生类的 `override` 声明、定义，然后重新编译框架和应用；方法签名、访问级别和生命周期行为保持不变。
 

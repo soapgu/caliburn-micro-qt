@@ -1,5 +1,7 @@
 # IoC 与应用装配
 
+> 2026-11-13 A1 目标（待实施）：框架提供全局 `IoC::Get/Create`，应用 `ApplicationInstanceProvider` 私有实现内置 DI，Bootstrapper 管理同一 Provider 的发布／解绑。红厅应用将删除 CheckInComposition，报到页与矩阵统一经 Provider 创建，独占结果统一使用默认 unique_ptr，彻底移除 OwnedInstance，Conductor 和回收设施保持原方式。框架示例下述 buildShell／局部 injector 是当前已有实现，继续用于旧源码兼容验证，不作为新 A1 的推荐生产路径。见 [A1 框架 IoC 设计](A1框架IoC设计.md)。
+
 当前 4C 已将 Shell 改为 Collection.OneActive，提供 Home/Detail 导航，两页共享计数服务，见 [4C 验收记录](验收/4C验收记录.md)。4B 单项接入及更早装配方式的历史结果分别见 [4B 验收记录](验收/4B验收记录.md) 与 [IoC 装配验收记录](验收/IoC装配验收记录.md)。
 
 Boost.Ext.DI 固定为 v1.3.2，由 FetchContent 在首次配置时下载官方单头文件到构建目录并校验 SHA-256；不再提交 boost/di.hpp 副本。装配库仍私有链接 Caliburn::BoostDI，由项目定义 INTERFACE 目标，不执行上游 CMake，不改变构造注入接口。框架单独构建不获取 DI；依赖来源及许可证见 [Boost.DI 说明](../third_party/boost-di/README.md)，缓存和离线方法见 [日志接入](日志接入.md#依赖下载与离线构建)。

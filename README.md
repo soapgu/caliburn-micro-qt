@@ -1,5 +1,7 @@
 # Caliburn.Micro.Qt
 
+> 2026-11-13 A1 设计调整（待实施）：框架将提供全局 `IoC::Get/Create`，通过 Bootstrapper 管理的同一个 `IInstanceProvider` 转发；应用 Provider 内置具体 DI。Provider 独占 API 和根持有统一为默认 `unique_ptr`，彻底移除 `OwnedInstance`；Conductor 和内部回收链保持原方式。当前实现与示例尚未迁移，详见 [A1 框架 IoC 设计](docs/A1框架IoC设计.md)；历史 F1／F2 通过不表示新 A1 完成。
+
 受 **Caliburn.Micro** 启发，面向 **Qt Quick / QML 与 C++** 的 MVVM 支撑框架。
 
 这是一个独立项目。名称表达对 [Caliburn.Micro](https://caliburnmicro.com/) 的架构借鉴，不代表官方移植、官方关联或完整 API 对等，也不引入 .NET 版 CM 库。
@@ -65,7 +67,7 @@ flowchart LR
 | ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
 | IWindowManager / WindowManager | IWindowManager、WindowManager、内部 DialogWindow | 创建普通 QQuickWindow 窗口与独立模态弹窗，统一关闭守卫和双向关闭桥接；弹窗以 QFuture 交付结果。 |
 | IGuardClose / 关闭策略 | Conductor 关闭守卫与直接许可回调 | 覆盖成员关闭、单项替换及普通停用、父级关闭许可，以及窗口关闭；许可可延后交付，生命周期同步执行。 |
-| IoC / 构造注入 | 应用组合根 + Boost.Ext.DI v1.3.2 | 创建与长期持有分开，框架 VM 不依赖容器。 |
+| IoC / 构造注入 | 当前为 IInstanceProvider 与应用组合根；A1 规划框架 IoC 门面 | A1 由应用 Provider 内置 DI，框架统一访问；当前示例仍为原 Boost.Ext.DI 装配。 |
 | Bootstrapper | BootstrapperBase + AppBootstrapper | configure 配置定位规则与根工厂，onStartup 显示根窗口，run 统一生命周期与清理。 |
 
 ## 核心类型与契约

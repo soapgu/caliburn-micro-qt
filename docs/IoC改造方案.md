@@ -1,8 +1,10 @@
 # IoC 改造方案
 
+> 2026-11-13 后续决策：[A1 框架 IoC 设计](A1框架IoC设计.md) 已确定，当前待实施。框架增加全局 IoC 门面及受控绑定，应用 Provider 内置 Boost.DI，Provider 独占 API 和根持有统一默认 unique_ptr，彻底移除 OwnedInstance；Conductor／延迟回收保持原方式。下文 F1／F2 范围与验收是历史事实；A1 新增目标以配套设计为准。
+
 编写日期：2026-11-12。框架源码基线：`00b72ae`。
 
-本文承接前一轮讨论的框架改造方案，范围为 **F1：框架兼容扩展，以及 F2：旧应用兼容验证**。步骤 1～6 已完成本机自动化验收，F1 框架本机自动化回归通过；第 7 步 F2 已执行本机验证，但完整应用测试存在既有失败项，尚未通过验收。本机自动化不代表真实桌面、现场四屏或麒麟平台验收完成。
+本文承接前一轮讨论的框架改造方案，范围为 **F1：框架兼容扩展，以及 F2：旧应用兼容验证**。步骤 1～6 已完成本机自动化验收，F1 框架本机自动化回归通过；第 7 步 F2 初次存在既有测试失败，修正测试准备条件后完整应用回归 79/79 通过，现已完成本机旧源码重建与模拟运行兼容验收。本机自动化不代表真实桌面、现场四屏或麒麟平台验收完成。
 
 相关资料：当前装配方式见 [IoC 与应用装配](IoC与应用装配.md)，启动契约见 [Bootstrapper](Bootstrapper.md)，窗口职责见 [WindowManager](WindowManager.md)。应用侧需求来源为 `/Users/guhui/GitLabs/project_expo/red-conf-system/docs/IoC与CM3.2.0对照评估.md`；本文可独立作为框架实施依据。
 
@@ -17,7 +19,7 @@
 | 应用组合层 | 登记服务、VM、业务工厂，选择真实或模拟实现，管理应用范围资源 |
 | 业务 VM 与 View | VM 接收服务和强类型工厂；View 沿用 ViewHost、ViewLocator 与窗口服务装配 |
 
-框架不依赖 Boost.DI，不包含红厅业务类型，不承担自动构造反射、业务注册、运行时参数推导或 MEF 式程序集扫描。首版不增加进程级全局 IoC 状态，使用 Bootstrapper 持有的实例上下文。
+框架不依赖 Boost.DI，不包含红厅业务类型，不承担自动构造反射、业务注册、运行时参数推导或 MEF 式程序集扫描。F1 首版没有增加进程级全局 IoC 状态；A1 将增加框架 IoC 门面，以受控弱引用访问 Bootstrapper 持有的同一个 Provider，绑定和清理由框架管理。
 
 不改变 ViewHost、ViewLocator、QML 强类型注入及 Conductor 的职责；不要求业务使用全局服务定位器。应用 VM 迁移、Shell 构造精简、全部弹窗工厂替换均留到后续。
 
@@ -31,13 +33,13 @@
 - [WindowManager.h](../modules/Caliburn/Micro/Qt/include/CaliburnMicroQt/WindowManager.h)
 - [WindowManager.cpp](../modules/Caliburn/Micro/Qt/src/WindowManager.cpp)
 
-当前 `initialize()` 在 `configure()` 前创建具体 `WindowManager`，Bootstrapper 持有 `shared_ptr<WindowManager>`。旧根工厂接收 `shared_ptr<IWindowManager>` 并返回独占根对象，内部统一保存为 `unique_ptr<QObject>`。根显示入口保留具体 `T*` 的 QVariant，用于 QML 注入。
+初始评估基线中的 `initialize()` 在 `configure()` 前创建具体 `WindowManager`，持有具体类型。F1 后当前实现已改为 configure 成功后选择服务，Bootstrapper 持有 `shared_ptr<IWindowManager>`；旧根工厂仍接收该共享服务，内部根持有类型为保留删除器的 `OwnedInstance<QObject>`。根显示入口保留具体 `T*` 的 QVariant，用于 QML 注入。
 
 窗口清理所需的 `prepareForShutdown()`、`releaseWindows()` 和 `windowCleanupFailed` 属于具体 WindowManager。仅把成员改成 `shared_ptr<IWindowManager>` 会丢失退出协调能力，必须同步设计生命周期契约。
 
 ## 三、实例提供器与强类型访问层
 
-`IInstanceProvider` 及配套访问层已落地，公开头文件为 `CaliburnMicroQt/IInstanceProvider.h`。当前 API、适配边界与验证结果见 [IoC解析契约验收记录](验收/IoC解析契约验收记录.md)。后续 Bootstrapper 和窗口生命周期接入仍按下一节设计推进。
+`IInstanceProvider` 及配套访问层已落地，公开头文件为 `CaliburnMicroQt/IInstanceProvider.h`。当前 API、适配边界与验证结果见 [IoC解析契约验收记录](验收/IoC解析契约验收记录.md)。Bootstrapper 和窗口生命周期接入已在 F1 完成；新增全局门面与所有权消费链按 [A1 框架设计](A1框架IoC设计.md) 实施。
 
 | 当前能力 | 语义 |
 | --- | --- |
@@ -60,15 +62,15 @@
 
 统一区分未注册、类型不匹配、重复契约、循环依赖、不支持能力及创建失败。诊断至少能定位请求类型、可选名称和失败原因；适配器提供依赖链，框架保留并报告。可选查询不能吞掉真正的配置错误。
 
-Bootstrapper 持有提供器或其受控上下文，生命周期覆盖框架解析和已接入工厂的使用期。首版不建立全局静态绑定；连续创建 Bootstrapper 不得访问前一上下文的容器。仍须遵守现有 ViewLocator 进程级状态的测试隔离规则，不能把提供器隔离等同于所有框架注册状态均已隔离。
+Bootstrapper 持有提供器或其受控上下文，生命周期覆盖框架解析和已接入工厂的使用期。F1 未建立全局静态绑定；A1 改为配置成功后发布受控绑定，窗口／模型清理后按绑定身份解除，拒绝覆盖活动上下文；连续创建 Bootstrapper 不得访问前一上下文的容器。仍须遵守现有 ViewLocator 进程级状态的测试隔离规则，不能把提供器隔离等同于所有框架注册状态均已隔离。
 
 ### 当前适配协议
 
 公开方法为 `resolve<T>`、`tryResolve<T>`、`create<T>`、`resolveAll<T>` 和 `buildUp<T>(T&)`。名称使用区分大小写、未经修剪的 QString；空名称表示未命名契约。返回结果分别为共享指针、`OwnedInstance<T>`、共享指针集合或 void。
 
-适配器必须实现 `resolveShared`，以 nullopt 表示当前契约未登记；其余 `createUnique`、`resolveCollection`、`injectExisting` 默认报告不支持。共享与独占结果分别通过 `SharedInstance::from<Contract>`、`UniqueInstance::from<Contract>` 从强类型智能指针构造。实例提供器不提供注册 API 或生产容器；重复登记、循环检测、集合顺序由应用适配器保证。
+适配器必须实现 `resolveShared`，以 nullopt 表示当前契约未登记；其余 `createUnique`、`resolveCollection`、`injectExisting` 默认报告不支持。共享与独占结果分别通过 `SharedInstance::from<Contract>`、`UniqueInstance::from<Contract>` 从强类型智能指针构造。实例提供器不提供注册 API 或生产容器；重复登记、集合顺序和后端错误适配由应用实现负责；构造依赖解析与循环诊断由具体 DI 后端承担，不要求应用再写一套容器。
 
-`OwnedInstance<T>` 使用绑定本次创建对象的类型擦除删除器，支持移动、release 和 reset(nullptr)，不得将其 reset 为另一对象或为无关指针复用删除器。后续根对象接入必须保留删除器，不得直接丢弃后包装为默认 unique_ptr<QObject>。已有对象注入通过 `BorrowedInstance::as<T>()` 检查静态契约后访问，不负责动态类型发现。
+`OwnedInstance<T>` 使用绑定本次创建对象的类型擦除删除器，支持移动、release 和 reset(nullptr)，不得将其 reset 为另一对象或为无关指针复用删除器。这是当前 F1 实现的约束；A1 将同步删除 OwnedInstance、限制不安全独占映射并恢复默认 unique_ptr 根持有，不能只在旧契约下丢弃删除器。已有对象注入通过 `BorrowedInstance::as<T>()` 检查静态契约后访问，不负责动态类型发现。
 
 `InstanceError` 保存错误码、操作、请求与依赖链；普通或未知适配器异常转换为 CreationFailed 并保留嵌套异常，已有 InstanceError 原样传播。接口不提供全局状态或同步保证，QObject 线程规则由应用负责。
 
@@ -133,7 +135,7 @@ Bootstrapper 持有提供器或其受控上下文，生命周期覆盖框架解�
 | 4. 接入 Bootstrapper | 增加提供器配置、服务选择、根创建分派 | 旧路径兼容，新路径无静默回退，QML 注入类型正确 |
 | 5. 验证失败与释放 | 覆盖配置失败、解析异常、错误根类型、显示失败、退出异常及连续上下文 | 已完成本机专项验收；无残留窗口借用、重复释放和失效提供器访问，见 [验收记录](验收/IoC失败与释放验收记录.md) |
 | 6. 完成 F1 框架回归 | 更新必要构建清单，执行既有及新增测试，验证原示例 | 已完成本机自动化回归，旧示例源码原样构建、启动、退出；见 [F1 验收记录](验收/IoC框架F1回归验收记录.md) |
-| 7. 完成 F2 旧应用兼容验证 | 在独立构建目录选择待验证框架版本并重建红厅应用，不迁移业务创建器 | 已执行但未通过：构建、QML、主辅窗口首帧及退出通过；完整测试 78/79，既有赋权测试在旧框架对照中同样失败，见 [F2 验收记录](验收/IoC旧应用F2兼容验收记录.md) |
+| 7. 完成 F2 旧应用兼容验证 | 在独立构建目录选择待验证框架版本并重建红厅应用，不迁移业务创建器 | 已通过本机兼容验收：构建、QML、主辅窗口首帧及退出通过；修复提交 8061cf2 补齐既有赋权测试准备条件后，完整回归 79/79，见 [F2 验收记录](验收/IoC旧应用F2兼容验收记录.md) |
 
 实施只修改框架源码仓库，不修改下游 `build/_deps` 缓存副本。F2 的框架版本选择属于后续兼容验收操作，本次文档编写不调整应用依赖。单屏验证不能替代现场四屏验收；尚未执行的平台与硬件场景须单独记录。
 
@@ -153,14 +155,14 @@ Bootstrapper 持有提供器或其受控上下文，生命周期覆盖框架解�
 
 F1 可使用测试提供器完成新入口验证，不要求先接入具体容器。F2 必须验证旧应用源码无需修改即可构建和工作，不能以新增接口可编译代替兼容验证。兼容目标为旧源码与行为兼容，需要重新构建；不承诺预编译二进制 ABI 兼容。
 
-## 七、后续应用试点
+## 七、A1 统一入口重构（待实施）
 
-F1、F2 验收后，再以红厅应用 `CheckInProgressPageViewModel` 的单个创建器试点。它只依赖稳定共享的 CheckInReader，无子 VM，也无需额外业务参数。
+F1／F2 之后的 A1 已调整为统一入口闭环，详见 [A1 框架 IoC 设计](A1框架IoC设计.md) 和 [应用 A1 重构设计](../../../GitLabs/project_expo/red-conf-system/docs/A1重构设计.md)。框架增加 IoC::Get/Create、Bootstrapper 发布／解绑及默认 unique_ptr 独占 API，删除 OwnedInstance；不扩展 Conductor／退役回收；应用 Provider 完全内置 DI，删除 CheckInComposition，统一报到页与矩阵的生产创建。
 
-试点仅替换 OutputContentFactory 中该模板的创建器，验证 Boost.DI 适配、既有 Reader 实例身份、独占页面创建及关闭回收。模板选择、ViewHost、Conductor、页面属性和刷新规则保持原有语义；不同时迁移 Shell、其他弹窗或根解析。
+报到页仍保持模板选择、属性和刷新规则，Reader 身份不变；其他输出模板保留原默认 unique_ptr 结果，不视为完成 DI 迁移。Shell 保留旧根工厂，其他弹窗、Shell 子树及带业务参数的工厂留到 A2／A3。A1 启用 Provider 的窗口服务解析，框架和应用共用同一个窗口服务。
 
-后续有运行时参数的弹窗继续采用强类型工厂：调用者提供模式、座位编号等业务值，应用组合层补齐服务。延迟工厂不得捕获已销毁的局部 injector 引用。Shell 的依赖转发与子 VM 组装最后处理，具体应用迁移另立实施批次。
+本次设计更新未实现全局入口或所有权扩展。历史 F1／F2 结果保留，新 A1 完成前须补齐门面、绑定失败清理、默认删除安全约束、View 借用、生产调用链及旧应用兼容验收。
 
 ## 八、本次交付状态
 
-步骤 1 已完成，见 [旧行为基线](验收/IoC改造前旧行为基线.md)。步骤 2 已完成独立解析契约、测试适配器及本机验证，见 [解析契约验收](验收/IoC解析契约验收记录.md)。步骤 3 已完成同一窗口服务对象上的生命周期接口及回调订阅，见 [窗口生命周期契约验收](验收/窗口生命周期契约验收记录.md)。步骤 4 已接通可选实例提供器、根工厂优先分派、删除器保留与生命周期接口清理，见 [Bootstrapper 提供器接入验收](验收/Bootstrapper提供器接入验收记录.md)。步骤 5 已完成失败路径与释放专项，见 [IoC失败与释放验收](验收/IoC失败与释放验收记录.md)。步骤 6 已完成全新构建、153 项测试及旧示例／独立消费工程验证，见 [F1 本机自动化回归验收](验收/IoC框架F1回归验收记录.md)。第 7 步 F2 已执行本机验证，因完整应用测试的既有失败项尚未通过，见 [F2 验收记录](验收/IoC旧应用F2兼容验收记录.md)；未新增具体容器、全局 IoC 状态或应用迁移，WindowManager 清理实现及原有应用启动方式保持原状。
+步骤 1 已完成，见 [旧行为基线](验收/IoC改造前旧行为基线.md)。步骤 2 已完成独立解析契约、测试适配器及本机验证，见 [解析契约验收](验收/IoC解析契约验收记录.md)。步骤 3 已完成同一窗口服务对象上的生命周期接口及回调订阅，见 [窗口生命周期契约验收](验收/窗口生命周期契约验收记录.md)。步骤 4 已接通可选实例提供器、根工厂优先分派、删除器保留与生命周期接口清理，见 [Bootstrapper 提供器接入验收](验收/Bootstrapper提供器接入验收记录.md)。步骤 5 已完成失败路径与释放专项，见 [IoC失败与释放验收](验收/IoC失败与释放验收记录.md)。步骤 6 已完成全新构建、153 项测试及旧示例／独立消费工程验证，见 [F1 本机自动化回归验收](验收/IoC框架F1回归验收记录.md)。第 7 步 F2 已完成本机兼容验收，既有测试准备条件修正后完整回归 79/79，见 [F2 验收记录](验收/IoC旧应用F2兼容验收记录.md)；未新增具体容器、全局 IoC 状态或应用迁移，WindowManager 清理实现及原有应用启动方式保持原状。
