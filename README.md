@@ -16,7 +16,7 @@ Qt 已有属性绑定、信号、元对象系统和动态加载等基础机制�
 
 这里的“严格遵循 MVVM”指本项目的设计约定。目前没有自动强制检查架构的能力；是否遵守这些边界，仍需要应用设计、代码评审和后续测试共同保证。
 
-Bootstrapper 自动创建窗口服务，由 WindowManager 创建根窗口，并以独立应用级模态窗口承载弹窗 View。内置确认视图无需应用登记。根工厂接收 `std::shared_ptr<IWindowManager>`，由应用组合根注入所需业务 VM；Shell View 只描述业务界面。用法见 [Bootstrapper](docs/Bootstrapper.md) 和 [WindowManager](docs/WindowManager.md)。
+Bootstrapper 默认创建窗口服务，也可通过应用 Provider 获取窗口服务；由 WindowManager 创建根窗口，并以独立应用级模态窗口承载弹窗 View。内置确认视图无需应用登记。根工厂接收 `std::shared_ptr<IWindowManager>`，由应用组合根注入所需业务 VM；Shell View 只描述业务界面。用法见 [Bootstrapper](docs/Bootstrapper.md) 和 [WindowManager](docs/WindowManager.md)。
 
 ## 视图约定定位
 
@@ -57,7 +57,7 @@ flowchart LR
 
 这是职责上的借鉴，不能理解成接口一一移植。
 
-| Caliburn.Micro 概念 | Qt 类型或方案 | 1.0 行为 |
+| Caliburn.Micro 概念 | Qt 类型或方案 | 当前行为 |
 | --- | --- | --- |
 | PropertyChangedBase | ViewModelBase + QObject 属性系统 | 派生 VM 声明 Q_PROPERTY / NOTIFY，基类提供类型化 setAndNotify；不提供字符串通知入口。 |
 | IChild / IParent / IConductor | 纯 C++ 协议与 ConductorBase | Screen 提供只读逻辑 Parent；统一子项快照和已接管对象的激活、停用接口。 |
@@ -67,12 +67,12 @@ flowchart LR
 | ActionMessage / CanXxx | QML 原生属性绑定与事件处理器 | 1.0 不移植动作组件；显式绑定 enabled 并调用具体 VM，方法自身检查业务条件。 |
 | IWindowManager / WindowManager | IWindowManager、WindowManager、内部 DialogWindow | 创建普通 QQuickWindow 窗口与独立模态弹窗，统一关闭守卫和双向关闭桥接；弹窗以 QFuture 交付结果。 |
 | IGuardClose / 关闭策略 | Conductor 关闭守卫与直接许可回调 | 覆盖成员关闭、单项替换及普通停用、父级关闭许可，以及窗口关闭；许可可延后交付，生命周期同步执行。 |
-| IoC / 构造注入 | 当前为 IInstanceProvider 与应用组合根；A1 规划框架 IoC 门面 | A1 由应用 Provider 内置 DI，框架统一访问；当前示例仍为原 Boost.Ext.DI 装配。 |
+| IoC / 构造注入 | `IInstanceProvider`、`InstanceProvider<Injector>` 与 `TypedIoC<Provider>` | 应用 Provider 持有 DI 后端，通过强类型 Get/Create 获取共享服务或创建独占对象；原有示例继续使用显式组合根。 |
 | Bootstrapper | BootstrapperBase + AppBootstrapper | configure 配置定位规则与根工厂，onStartup 显示根窗口，run 统一生命周期与清理。 |
 
 ## 核心类型与契约
 
-以下类型构成 1.0 的公开能力；DialogWindow 为模块内部实现。所有权与逻辑 Parent 分别管理，业务模型可继承 ScreenViewModel，也可使用普通 QObject 并实现所需接口。
+以下类型构成当前版本的公开能力；DialogWindow 为模块内部实现。所有权与逻辑 Parent 分别管理，业务模型可继承 ScreenViewModel，也可使用普通 QObject 并实现所需接口。
 
 | 类型 | 形态 | 职责 |
 | --- | --- | --- |
@@ -89,6 +89,9 @@ flowchart LR
 | ViewHostState | 公开、可创建的 QML 辅助类型 | 保护 VM 借用并验证 View 注入；页面装配优先使用 ViewHost，见 [公开接口](docs/ViewHost.md#4-借用与所有权)。 |
 | BootstrapperBase | C++ 应用启动基类 | 编排配置、根对象创建、窗口加载、生命周期及退出清理，不依赖 DI 库。 |
 | IWindowManager | 抽象 QObject 服务 | showWindow 借用普通窗口模型；showDialogAsync 接管弹窗模型，以 `QFuture<DialogResult>` 交付结果。 |
+| IInstanceProvider / `InstanceProvider<Injector>` | 固定窗口服务契约与模板实现 | 获取窗口服务，按后端绑定解析共享对象或创建默认 unique_ptr。 |
+| `TypedIoC<Provider>` | 强类型 C++ 门面 | 通过应用的 IoC 别名访问唯一活动 Provider，仅提供 Get/Create。 |
+| IWindowManagerLifecycle | 可选窗口服务能力接口 | Provider 提供的窗口服务须同时实现此接口，供 Bootstrapper 准备退出、释放资源和订阅清理失败。 |
 | WindowManager | C++ 服务 | 创建窗口与弹窗，管理类型化注入、可选生命周期、守卫、资源清理及焦点恢复。 |
 | DialogWindow | 模块私有 C++ 窗口 | 承载 Item View，设置应用级模态；服务负责守卫、清理与焦点恢复。 |
 | ConfirmActionViewModel | C++ Screen 子类 | 提供确认文案、accept / cancel 操作与一次完成结果。 |
@@ -307,6 +310,35 @@ cmake --build build
 [GitHub Actions CI](https://github.com/soapgu/caliburn-micro-qt/actions/workflows/ci.yml) 在推送 main、向 main 提交 PR 或手动触发时运行。工作流固定 Qt 6.8.3，分别使用 Ubuntu 24.04 x64 与 macOS 15 arm64，覆盖框架和示例构建、全部 CTest、all_qmllint、仅框架构建、Release 日志默认级别与调用位置，以及仓库外独立消费工程的构建与集成测试。
 
 QML 测试使用 offscreen/software；CI 不替代 Cocoa 人工窗口操作或麒麟验收。Qt 安装缓存用于减少重复下载，测试报告及配置日志保存 7 天，可在每次运行的附件中下载。工作流文件位于 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
+
+## 1.2 版本发布
+
+1.2 在 1.1 基础上完成框架 IoC 接入，并增加弹窗客户区背景色配置。对应标签为 `v1.2.0`，CMake 项目版本为 `1.2.0`；QML 导入仍为 `Caliburn.Micro.Qt 1.0`。
+
+- **Provider 与全局入口**：非模板 `IInstanceProvider` 提供固定 `windowManager()` 契约，`InstanceProvider<Injector>` 持有应用 DI 后端并直接调用模板创建方法。应用声明 `using IoC = TypedIoC<ApplicationInstanceProvider>`，通过 `IoC::Get<T>()` 获取 `shared_ptr<T>`、`IoC::Create<T>()` 创建默认 `unique_ptr<T>`。共享作用域由后端绑定决定；不提供名称、集合、类型白名单或运行时分派，构造异常原样传播。
+- **启动与退出**：Bootstrapper 在 configure 成功后绑定唯一全局 Provider，获取窗口服务；根模型统一登记显式根工厂。退出先释放窗口和 View 借用，再释放根与工厂、解绑并释放框架持有的服务和 Provider，不增加退出钩子。未安装 Provider 的应用继续使用默认窗口服务与显式根工厂。
+- **窗口生命周期**：新增独立 `IWindowManagerLifecycle` 能力接口。Provider 返回的窗口服务必须在同一对象上实现该接口，且无 QObject parent、属于应用线程；普通业务继续通过 `IWindowManager` 使用窗口能力。
+- **弹窗背景色**：`DialogOptions.backgroundColor` 使用有效 QColor 固定客户区颜色；默认无效颜色跟随系统 `QPalette::Window`。
+
+### 接入与兼容
+
+```cpp
+#include <CaliburnMicroQt/IoC.h>
+// ApplicationInstanceProvider 需有完整定义，并与实际安装类型一致。
+using IoC = TypedIoC<ApplicationInstanceProvider>;
+auto service = IoC::Get<MyService>();
+auto model = IoC::Create<MyViewModel>();
+```
+
+公开 C++ 接口有变化，下游须重新编译，不保证 ABI 兼容。使用旧运行时 Provider API 的适配器须迁移至模板 Provider；旧名称／集合接口、类型擦除包装及 OwnedInstance 不再提供。独占创建统一使用默认 unique_ptr，不支持自定义删除器入口；跨类型转换遵循 C++ 智能指针与后端规则。
+
+根模型须通过 `registerRootFactory<T>()` 显式登记，不再经基类 Provider 自动创建。全局入口仅在配置成功后的绑定期内可用，不能在 configure 中提前解析；IoC 别名须与安装的具体 Provider 一致，框架不做动态类型检查。固定版本接入时，将 FetchContent 的 GIT_TAG 设置为 `v1.2.0`。详见 [IoC 设计](docs/A1框架IoC设计.md)、[Bootstrapper](docs/Bootstrapper.md) 和 [窗口服务](docs/WindowManager.md)。
+
+### 验证与边界
+
+发布检查覆盖 Ubuntu 24.04 与 macOS 15 的完整构建和 CTest、QML 检查、仅框架构建、Release 日志检查及仓库外独立消费工程。当前模板 Provider 的本机框架与应用验证范围见 [Provider 模板化验收](docs/验收/Provider模板化验收.md)；此前 F1／F2 记录为历史阶段结果，不替代当前接口验收。不将自动化结果推广为麒麟部署、现场四屏或真实设备验收。
+
+本版继续以源码提供，不附预编译 SDK、安装导出包或应用分发包；未增加 View 缓存、Action 绑定或新的 View 回收机制。
 
 ## 1.1 版本发布
 
